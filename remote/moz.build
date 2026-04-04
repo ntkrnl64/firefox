@@ -5,6 +5,7 @@
 DIRS += [
     "components",
     "marionette",
+    "mcp",
     "shared",
     "webdriver-bidi",
 ]

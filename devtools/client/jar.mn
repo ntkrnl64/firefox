@@ -64,6 +64,7 @@ devtools.jar:
     skin/images/tool-dom.svg (themes/images/tool-dom.svg)
     skin/images/tool-accessibility.svg (themes/images/tool-accessibility.svg)
     skin/images/tool-application.svg (themes/images/tool-application.svg)
+    skin/images/tool-drm.svg (themes/images/tool-drm.svg)
     skin/images/close.svg (themes/images/close.svg)
     skin/images/case-match.svg (themes/images/case-match.svg)
     skin/images/clear.svg (themes/images/clear.svg)
@@ -462,6 +463,10 @@ devtools.jar:
     content/application/src/components/service-workers/Worker.css (application/src/components/service-workers/Worker.css)
     content/application/src/components/ui/UIButton.css (application/src/components/ui/UIButton.css)
     content/application/src/components/session-history/SessionHistory.css (application/src/components/session-history/SessionHistory.css)
+
+    # DRM panel
+    content/drm/index.html (drm/index.html)
+    content/drm/drm.css (drm/drm.css)
 
     # Anti tracking panel
     content/anti-tracking/index.html (anti-tracking/index.html)

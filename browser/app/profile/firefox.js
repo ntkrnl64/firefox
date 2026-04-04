@@ -3062,6 +3062,17 @@ pref("devtools.application.selectedSidebar", "service-workers");
 // The internal Anti tracking debugging panel
 pref("devtools.anti-tracking.enabled", false);
 
+// The internal DRM / EME debugging panel
+pref("devtools.drm.enabled", true);
+pref("devtools.drm.autorecord.enabled", false);
+pref("devtools.drm.autorecord.outputDir", "");
+pref("devtools.drm.autorecord.filenameTemplate", "{type}-{hostname}-{sessionId}-{date}_{time}");
+pref("devtools.drm.autorecord.streams", true);
+pref("devtools.drm.autorecord.frames", false);
+pref("devtools.drm.autorecord.logs", true);
+pref("devtools.drm.autorecord.maxDurationSec", 0);
+pref("devtools.drm.autorecord.frameIntervalSec", 5);
+
 // Session History panel
 pref("devtools.application.sessionHistory.enabled", false);
 

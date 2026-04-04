@@ -7536,8 +7536,19 @@ void HTMLMediaElement::OnVisibilityChange(Visibility aNewVisibility) {
 
 MediaKeys* HTMLMediaElement::GetMediaKeys() const { return mMediaKeys; }
 
+// SECURITY WARNING: This method has been modified in this unofficial Firefox
+// fork. When media.eme.capture-allowed is true, ContainsRestrictedContent()
+// returns false even for EME-protected content, allowing captureStream() and
+// canvas.drawImage() on DRM-protected media elements. This bypasses W3C EME
+// content protection restrictions and may have legal implications under laws
+// such as the DMCA (17 U.S.C. 1201) or equivalent legislation. This
+// modification is intended ONLY for developer debugging and testing. It is NOT
+// endorsed by Mozilla.
 bool HTMLMediaElement::ContainsRestrictedContent() const {
-  return GetMediaKeys() != nullptr;
+  if (!GetMediaKeys()) {
+    return false;
+  }
+  return !StaticPrefs::media_eme_capture_allowed();
 }
 
 void HTMLMediaElement::SetCDMProxyFailure(const MediaResult& aResult) {

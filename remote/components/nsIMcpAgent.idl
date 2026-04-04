@@ -1,0 +1,17 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+
+%{C++
+#define NS_MCPAGENT_CONTRACTID "@mozilla.org/remote/mcp;1"
+%}
+
+/** Interface for accessing the MCP (Model Context Protocol) server instance. */
+[scriptable, uuid(a3e2f8c1-6b4d-4e9a-b7c3-8d1f5a2e9c0b)]
+interface nsIMcpAgent : nsISupports
+{
+  /** Indicates whether the MCP server is running. */
+  readonly attribute boolean running;
+};

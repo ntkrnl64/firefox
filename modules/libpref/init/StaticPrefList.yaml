@@ -12575,6 +12575,20 @@
   value: true
   mirror: always
 
+# Allow capturing EME/DRM-protected media streams and frames for DevTools
+# debugging. When true, captureStream() and canvas.drawImage() are permitted
+# on media elements with MediaKeys attached. This is intended for developer
+# testing only and should not be enabled in production.
+#
+# SECURITY WARNING: This pref is part of an unofficial Firefox modification
+# that is NOT endorsed by Mozilla. Enabling this pref bypasses W3C EME content
+# protection, which may have legal implications (e.g. DMCA, EU Copyright
+# Directive). Use ONLY for developer debugging. Do NOT ship with this enabled.
+- name: media.eme.capture-allowed
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 # This pref disables the reception of RTCP. It is used for testing.
 - name: media.webrtc.net.force_disable_rtcp_reception
   type: ReleaseAcquireAtomicBool

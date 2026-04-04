@@ -33,6 +33,7 @@ DevToolsModules(
     "common.js",
     "css-properties.js",
     "device.js",
+    "drm.js",
     "environment.js",
     "errordocs.js",
     "frame.js",

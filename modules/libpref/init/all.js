@@ -3902,6 +3902,13 @@ pref("services.common.log.logger.tokenserverclient", "Debug");
   // Enable retrying to execute commands in the child process in case the
   // JSWindowActor gets destroyed.
   pref("remote.retry-on-abort", true);
+
+  // MCP (Model Context Protocol) server support.
+  // Enables a JSON-RPC 2.0 server over WebSocket for AI tool integration.
+  pref("mcp.server.enabled", false);
+
+  // Port for the MCP server to listen on.
+  pref("mcp.server.port", 5195);
 #endif
 
 // Enable the JSON View tool (an inspector for application/json documents).

@@ -19,6 +19,7 @@ DevToolsModules(
     "compatibility.js",
     "css-properties.js",
     "device.js",
+    "drm.js",
     "frame.js",
     "heap-snapshot-file.js",
     "highlighters.js",

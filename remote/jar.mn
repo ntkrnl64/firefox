@@ -5,6 +5,7 @@
 remote.jar:
 % content remote %content/
   content/components/Marionette.sys.mjs (components/Marionette.sys.mjs)
+  content/components/McpAgent.sys.mjs (components/McpAgent.sys.mjs)
   content/components/RemoteAgent.sys.mjs (components/RemoteAgent.sys.mjs)
 
   # transport layer (http / websocket)
@@ -104,6 +105,34 @@ remote.jar:
   content/shared/webdriver/UserPromptHandler.sys.mjs (shared/webdriver/UserPromptHandler.sys.mjs)
   content/shared/webdriver/process-actors/WebDriverProcessDataChild.sys.mjs (shared/webdriver/process-actors/WebDriverProcessDataChild.sys.mjs)
   content/shared/webdriver/process-actors/WebDriverProcessDataParent.sys.mjs (shared/webdriver/process-actors/WebDriverProcessDataParent.sys.mjs)
+
+  # MCP (Model Context Protocol) server
+  content/mcp/McpServer.sys.mjs (mcp/McpServer.sys.mjs)
+  content/mcp/McpConnection.sys.mjs (mcp/McpConnection.sys.mjs)
+  content/mcp/McpConnectionHandler.sys.mjs (mcp/McpConnectionHandler.sys.mjs)
+  content/mcp/McpDispatch.sys.mjs (mcp/McpDispatch.sys.mjs)
+  content/mcp/NetworkCapture.sys.mjs (mcp/NetworkCapture.sys.mjs)
+  content/mcp/McpSseConnection.sys.mjs (mcp/McpSseConnection.sys.mjs)
+  content/mcp/tools/McpToolRegistry.sys.mjs (mcp/tools/McpToolRegistry.sys.mjs)
+  content/mcp/tools/BookmarkHistoryTools.sys.mjs (mcp/tools/BookmarkHistoryTools.sys.mjs)
+  content/mcp/tools/BrowserTools.sys.mjs (mcp/tools/BrowserTools.sys.mjs)
+  content/mcp/tools/ContentTools.sys.mjs (mcp/tools/ContentTools.sys.mjs)
+  content/mcp/tools/CookieTools.sys.mjs (mcp/tools/CookieTools.sys.mjs)
+  content/mcp/tools/DebuggerTools.sys.mjs (mcp/tools/DebuggerTools.sys.mjs)
+  content/mcp/tools/DevToolsTools.sys.mjs (mcp/tools/DevToolsTools.sys.mjs)
+  content/mcp/tools/DrmTools.sys.mjs (mcp/tools/DrmTools.sys.mjs)
+  content/mcp/tools/ElementTools.sys.mjs (mcp/tools/ElementTools.sys.mjs)
+  content/mcp/tools/DownloadTools.sys.mjs (mcp/tools/DownloadTools.sys.mjs)
+  content/mcp/tools/ExtensionTools.sys.mjs (mcp/tools/ExtensionTools.sys.mjs)
+  content/mcp/tools/InspectTools.sys.mjs (mcp/tools/InspectTools.sys.mjs)
+  content/mcp/tools/MediaTools.sys.mjs (mcp/tools/MediaTools.sys.mjs)
+  content/mcp/tools/PermissionTools.sys.mjs (mcp/tools/PermissionTools.sys.mjs)
+  content/mcp/tools/PrintTools.sys.mjs (mcp/tools/PrintTools.sys.mjs)
+  content/mcp/tools/TabExtraTools.sys.mjs (mcp/tools/TabExtraTools.sys.mjs)
+  content/mcp/tools/WindowTools.sys.mjs (mcp/tools/WindowTools.sys.mjs)
+  content/mcp/tools/ZoomFindTools.sys.mjs (mcp/tools/ZoomFindTools.sys.mjs)
+  content/mcp/actors/McpContentParent.sys.mjs (mcp/actors/McpContentParent.sys.mjs)
+  content/mcp/actors/McpContentChild.sys.mjs (mcp/actors/McpContentChild.sys.mjs)
 
   # imports from external folders
   content/external/EventUtils.js (../testing/mochitest/tests/SimpleTest/EventUtils.js)

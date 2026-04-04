@@ -11,6 +11,7 @@ DIRS += [
     "application",
     "debugger",
     "dom",
+    "drm",
     "framework",
     "fronts",
     "inspector",

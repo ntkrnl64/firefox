@@ -59,6 +59,11 @@ const Types = (exports.__TypesForTests = [
     front: "devtools/client/fronts/compatibility",
   },
   {
+    types: ["drm"],
+    spec: "devtools/shared/specs/drm",
+    front: "devtools/client/fronts/drm",
+  },
+  {
     types: ["cssProperties"],
     spec: "devtools/shared/specs/css-properties",
     front: "devtools/client/fronts/css-properties",

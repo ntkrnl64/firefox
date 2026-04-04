@@ -6,6 +6,7 @@ XPIDL_MODULE = "remote"
 
 XPIDL_SOURCES += [
     "nsIMarionette.idl",
+    "nsIMcpAgent.idl",
     "nsIRemoteAgent.idl",
 ]
 

@@ -1,0 +1,248 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  Log: "chrome://remote/content/shared/Log.sys.mjs",
+  McpConnection: "chrome://remote/content/mcp/McpConnection.sys.mjs",
+  McpSseConnection: "chrome://remote/content/mcp/McpSseConnection.sys.mjs",
+  WebSocketHandshake:
+    "chrome://remote/content/server/WebSocketHandshake.sys.mjs",
+});
+
+ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
+
+/**
+ * HTTP request handler for /mcp that supports both transports:
+ *
+ * 1. WebSocket  - client sends `Upgrade: websocket` header
+ * 2. Streamable HTTP (SSE) - client uses POST/GET/DELETE
+ */
+export class McpConnectionHandler {
+  #server;
+  #sseSessions;
+
+  constructor(server) {
+    this.#server = server;
+    this.#sseSessions = new Map();
+  }
+
+  async handle(request, response) {
+    // Check for WebSocket upgrade.
+    let upgradeHeader;
+    try {
+      upgradeHeader = request.getHeader("Upgrade");
+    } catch {
+      // No Upgrade header.
+    }
+
+    if (upgradeHeader?.toLowerCase() === "websocket") {
+      return this.#handleWebSocket(request, response);
+    }
+
+    // Streamable HTTP transport.
+    const method = request.method;
+
+    switch (method) {
+      case "POST":
+        return this.#handlePost(request, response);
+      case "GET":
+        return this.#handleGet(request, response);
+      case "DELETE":
+        return this.#handleDelete(request, response);
+      case "OPTIONS":
+        return this.#handleOptions(request, response);
+      default:
+        response.setStatusLine(request.httpVersion, 405, "Method Not Allowed");
+        response.setHeader("Allow", "GET, POST, DELETE, OPTIONS", false);
+        return undefined;
+    }
+  }
+
+  /**
+   * Close all SSE sessions (called on server shutdown).
+   */
+  closeAllSseSessions() {
+    for (const session of this.#sseSessions.values()) {
+      session.close();
+    }
+    this.#sseSessions.clear();
+  }
+
+  // -- WebSocket transport --
+
+  async #handleWebSocket(request, response) {
+    const webSocket = await lazy.WebSocketHandshake.upgrade(request, response);
+    const conn = new lazy.McpConnection(
+      webSocket,
+      response._connection,
+      this.#server
+    );
+    this.#server.addConnection(conn);
+  }
+
+  // -- Streamable HTTP / SSE transport --
+
+  async #handlePost(request, response) {
+    // Allow async processing for SSE responses.
+    response.processAsync();
+
+    this.#setCorsHeaders(response);
+
+    let sessionId;
+    try {
+      sessionId = request.getHeader("Mcp-Session-Id");
+    } catch {
+      // No session header - new session or initialize request.
+    }
+
+    let session;
+
+    if (sessionId) {
+      session = this.#sseSessions.get(sessionId);
+      if (!session) {
+        // Unknown session ID.
+        response.setStatusLine(request.httpVersion, 404, "Not Found");
+        response.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32600, message: "Session not found" },
+          })
+        );
+        response.finish();
+        return;
+      }
+    } else {
+      // Create a new session for the initialize request.
+      session = new lazy.McpSseConnection();
+      this.#sseSessions.set(session.id, session);
+      this.#server.addConnection(session);
+      lazy.logger.debug(`MCP SSE: New session ${session.id}`);
+    }
+
+    try {
+      await session.handlePost(request, response);
+    } catch (e) {
+      lazy.logger.error(`MCP SSE POST error: ${e.message}`, e);
+      try {
+        response.setStatusLine(
+          request.httpVersion,
+          500,
+          "Internal Server Error"
+        );
+        response.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32603, message: e.message },
+          })
+        );
+      } catch {
+        // Response may already be sent.
+      }
+    }
+
+    try {
+      response.finish();
+    } catch {
+      // Already finished (e.g. by SSE response path).
+    }
+  }
+
+  #handleGet(request, response) {
+    this.#setCorsHeaders(response);
+
+    let accept;
+    try {
+      accept = request.getHeader("Accept");
+    } catch {
+      accept = "";
+    }
+
+    if (!accept.includes("text/event-stream")) {
+      response.setStatusLine(request.httpVersion, 406, "Not Acceptable");
+      response.write("Accept: text/event-stream required");
+      return;
+    }
+
+    let sessionId;
+    try {
+      sessionId = request.getHeader("Mcp-Session-Id");
+    } catch {
+      // No session.
+    }
+
+    if (!sessionId) {
+      response.setStatusLine(request.httpVersion, 400, "Bad Request");
+      response.write("Mcp-Session-Id header required");
+      return;
+    }
+
+    const session = this.#sseSessions.get(sessionId);
+    if (!session) {
+      response.setStatusLine(request.httpVersion, 404, "Not Found");
+      response.write("Session not found");
+      return;
+    }
+
+    // Keep connection open for server-initiated events.
+    session.handleGet(request, response);
+  }
+
+  #handleDelete(request, response) {
+    this.#setCorsHeaders(response);
+
+    let sessionId;
+    try {
+      sessionId = request.getHeader("Mcp-Session-Id");
+    } catch {
+      // No session.
+    }
+
+    if (!sessionId) {
+      response.setStatusLine(request.httpVersion, 400, "Bad Request");
+      return;
+    }
+
+    const session = this.#sseSessions.get(sessionId);
+    if (!session) {
+      response.setStatusLine(request.httpVersion, 404, "Not Found");
+      return;
+    }
+
+    session.close();
+    this.#sseSessions.delete(sessionId);
+    this.#server.removeConnection(session);
+
+    response.setStatusLine(request.httpVersion, 200, "OK");
+    lazy.logger.debug(`MCP SSE: Session ${sessionId} terminated`);
+  }
+
+  #handleOptions(request, response) {
+    this.#setCorsHeaders(response);
+    response.setStatusLine(request.httpVersion, 204, "No Content");
+    response.setHeader("Allow", "GET, POST, DELETE, OPTIONS", false);
+  }
+
+  #setCorsHeaders(response) {
+    response.setHeader("Access-Control-Allow-Origin", "*", false);
+    response.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, DELETE, OPTIONS",
+      false
+    );
+    response.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Accept, Last-Event-ID",
+      false
+    );
+    response.setHeader(
+      "Access-Control-Expose-Headers",
+      "Mcp-Session-Id",
+      false
+    );
+  }
+
+  QueryInterface = ChromeUtils.generateQI(["nsIHttpRequestHandler"]);
+}

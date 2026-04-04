@@ -84,6 +84,11 @@ loader.lazyGetter(
     require("resource://devtools/client/anti-tracking/panel.js")
       .AntiTrackingPanel
 );
+loader.lazyGetter(
+  this,
+  "DrmPanel",
+  () => require("resource://devtools/client/drm/panel.js").DrmPanel
+);
 
 // Other dependencies
 loader.lazyRequireGetter(
@@ -482,6 +487,26 @@ Tools.application = {
   },
 };
 
+Tools.drm = {
+  id: "drm",
+  ordinal: 12,
+  visibilityswitch: "devtools.drm.enabled",
+  icon: "chrome://devtools/skin/images/tool-drm.svg",
+  url: "chrome://devtools/content/drm/index.html",
+  label: "DRM",
+  panelLabel: "DRM Panel",
+  tooltip: "DRM / Encrypted Media Extensions debugging",
+  inMenu: false,
+
+  isToolSupported() {
+    return true;
+  },
+
+  build(iframeWindow, toolbox, commands) {
+    return new DrmPanel(iframeWindow, toolbox, commands);
+  },
+};
+
 Tools.antitracking = {
   id: "antitracking",
   ordinal: 11,
@@ -520,6 +545,11 @@ var defaultTools = [
 // The Anti tracking panel is an internal tool, to be enabled manually via about:config
 if (Services.prefs.getBoolPref("devtools.anti-tracking.enabled", false)) {
   defaultTools.push(Tools.antitracking);
+}
+
+// The DRM panel is an internal tool, to be enabled manually via about:config
+if (Services.prefs.getBoolPref("devtools.drm.enabled", false)) {
+  defaultTools.push(Tools.drm);
 }
 
 exports.defaultTools = defaultTools;

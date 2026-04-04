@@ -1,0 +1,27 @@
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+<!-- DISCLAIMER: This file is part of an unofficial Firefox modification that adds
+   - DRM/EME debugging tools. It is NOT endorsed by or affiliated with Mozilla.
+   - The DRM media capture functionality bypasses content protection restrictions
+   - and is intended ONLY for developer debugging and testing purposes.
+   - Do NOT use in production or to circumvent digital rights management. -->
+<!doctype html>
+<html dir="">
+  <head>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src chrome: resource:; img-src http: https: data: chrome:;"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="chrome://devtools/content/drm/drm.css"
+    />
+  </head>
+  <body class="theme-body" role="application">
+    <div id="mount"></div>
+    <script src="chrome://devtools/content/shared/theme-switching.js"></script>
+    <script src="resource://devtools/client/drm/initializer.js"></script>
+  </body>
+</html>
