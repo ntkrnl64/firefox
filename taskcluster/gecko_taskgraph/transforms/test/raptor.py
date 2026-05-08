@@ -16,6 +16,13 @@ from gecko_taskgraph.util.perftest import is_external_browser
 transforms = TransformSequence()
 task_transforms = TransformSequence()
 
+SP3_CRITICAL_TESTS = [
+    "test-windows11-64-24h2-shippable/opt-browsertime-benchmark-firefox-speedometer3",
+    "test-linux2404-64-shippable/opt-browsertime-benchmark-firefox-speedometer3",
+    "test-macosx1500-aarch64-shippable/opt-browsertime-benchmark-firefox-speedometer3",
+    "test-android-hw-a55-14-0-aarch64-shippable/opt-browsertime-benchmark-speedometer3-mobile-fenix",
+]
+
 
 class RaptorSchema(Schema, kw_only=True):
     activity: Optional[optionally_keyed_by("app", str, use_msgspec=True)] = None  # type: ignore
@@ -400,11 +407,8 @@ def add_extra_options(config, tests):
             ("android-hw-p6" in test_platform or "android-hw-s24" in test_platform)
             and "speedometer2-" not in test["test-name"]
             # Bug 1943674 resolve why --power-test causes permafails on certain mobile platforms and browsers
-        ) or (
-            "android-hw-a55" in test_platform
-            and any(t in test["test-name"] for t in ("tp6", "speedometer3"))
-            # Bug 1919024 remove tp6 and sp3 restrictions once benchmark parsing is done in the support scripts
         ):
+            # Bug 2037511 Temporarily disable power-test option for tp6m on a55s
             if "--power-test" not in extra_options:
                 extra_options.append("--power-test")
         elif "windows" in test_platform and any(
@@ -487,10 +491,9 @@ def setup_lull_schedule(config, tasks):
 def setup_autoland_retriggers(config, tasks):
 
     def _allow_task_duplicates(label):
-        if (
-            "test-windows11-64-24h2-shippable/opt-browsertime-benchmark-firefox-speedometer3"
-            in label
-        ):
+        if "android" in label:
+            return False
+        if any(sp3_test in label for sp3_test in SP3_CRITICAL_TESTS):
             return True
         return False
 
@@ -499,7 +502,7 @@ def setup_autoland_retriggers(config, tasks):
         if config.params["project"] == "autoland" and _allow_task_duplicates(
             task["label"]
         ):
-            attrs["task_duplicates"] = 4
+            attrs["task_duplicates"] = 12
         yield task
 
 
@@ -569,3 +572,58 @@ def select_tasks_to_lambda(config, tasks):
                     task["worker"]["command"] = cmds
                     task["worker"]["env"]["DISABLE_USB_POWER_METER_RESET"] = "1"
         yield task
+
+
+@transforms.add
+def add_simpleperf(config, tests):
+    is_simpleperf = config.params.get("try_task_config", {}).get(
+        "native-profiling", False
+    )
+    app_packages = {
+        "fenix": "org.mozilla.fenix",
+        "geckoview": "org.mozilla.geckoview_example",
+    }
+    for test in tests:
+        test_name = test.get("test-name", None)
+        app = test.get("app")
+        if is_simpleperf and app in app_packages and "speedometer3-mobile" in test_name:
+            extra_options = test.setdefault("mozharness", {}).setdefault(
+                "extra-options", []
+            )
+            extra_options.extend([
+                "--add-option=--simpleperf",
+                "--browsertime-arg=androidSimpleperf=$MOZ_FETCHES_DIR/android-simpleperf",
+            ])
+
+            app_data_dir = f"/storage/emulated/0/Android/data/{app_packages[app]}/files"
+            extra_options.extend([
+                "--setenv MOZ_USE_PERFORMANCE_MARKER_FILE=1",
+                f"--setenv MOZ_PERFORMANCE_MARKER_DIR={app_data_dir}",
+                f"--setenv PERF_SPEW_DIR={app_data_dir}",
+                "--setenv IONPERF=func",
+                "--setenv JIT_OPTION_onlyInlineSelfHosted=true",
+            ])
+
+            fetches = test.setdefault("fetches", {})
+            fetches.setdefault("build", []).append({
+                "artifact": "target.crashreporter-symbols.zip",
+                "extract": False,
+            })
+
+            toolchains = [
+                "linux64-android-simpleperf-linux-repack",
+                "linux64-samply",
+            ]
+            by_app = fetches.setdefault("toolchain", {}).setdefault("by-app", {})
+            by_app.setdefault("default", []).extend(toolchains)
+        yield test
+
+
+@transforms.add
+def handle_simpleperf_symbol(config, tests):
+    for test in tests:
+        extra_options = test.get("mozharness", {}).get("extra-options", [])
+        if "--add-option=--simpleperf" in extra_options:
+            group, symbol = split_symbol(test["treeherder-symbol"])
+            test["treeherder-symbol"] = join_symbol(group, f"{symbol}-simpleperf")
+        yield test

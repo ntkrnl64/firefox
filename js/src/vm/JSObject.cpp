@@ -1239,6 +1239,14 @@ void JSObject::swap(JSContext* cx, HandleObject a, HandleObject b,
   bool aIsUsedAsPrototype = a->isUsedAsPrototype();
   bool bIsUsedAsPrototype = b->isUsedAsPrototype();
 
+  // Verify that swapping does not result in an object becoming its own proto.
+  if (aIsUsedAsPrototype && b->hasStaticPrototype()) {
+    MOZ_RELEASE_ASSERT(b->staticPrototype() != a);
+  }
+  if (bIsUsedAsPrototype && a->hasStaticPrototype()) {
+    MOZ_RELEASE_ASSERT(a->staticPrototype() != b);
+  }
+
   // Swap element associations.
   Zone* zone = a->zone();
 
@@ -1480,14 +1488,48 @@ NativeObject* js::InitClass(JSContext* cx, HandleObject obj,
  * it - e.g. EnqueuePromiseReactionJob - can then unwrap the object and get
  * its global without fear of unwrapping too far.
  */
-bool js::GetObjectFromHostDefinedData(JSContext* cx, MutableHandleObject obj) {
-  if (!cx->runtime()->getHostDefinedData(cx, obj)) {
+bool js::GetObjectFromHostDefinedData(
+    JSContext* cx, MutableHandleObject incumbentGlobalRepresentative,
+    MutableHandleObject optionalHostDefinedData) {
+  // Note! To avoid re-rooting we're using the variable
+  // incumbentGlobalRepresentative, however, it is not 'the representative'
+  // until the getObjectPrototypeBelow
+  //
+  // Slightly confusing but intentional as this path can be quite hot.
+  if (!cx->runtime()->getHostDefinedData(cx, incumbentGlobalRepresentative,
+                                         optionalHostDefinedData)) {
     return false;
   }
 
-  // The object might be from a different compartment, so wrap it.
-  if (obj && !cx->compartment()->wrap(cx, obj)) {
+  if (!incumbentGlobalRepresentative) {
+    MOZ_ASSERT(!optionalHostDefinedData);
+    return true;
+  }
+
+  MOZ_ASSERT(incumbentGlobalRepresentative->is<GlobalObject>());
+
+  // After this line it's now actually the representative.
+  incumbentGlobalRepresentative.set(
+      &incumbentGlobalRepresentative->as<GlobalObject>().getObjectPrototype());
+
+  return cx->compartment()->wrap(cx, incumbentGlobalRepresentative);
+}
+
+/* See above GetObjectFromHostDefinedData comment */
+bool js::GetIncumbentGlobalRepresentative(
+    JSContext* cx, MutableHandleObject incumbentGlobalRepresentative) {
+  if (!cx->jobQueue->getHostDefinedGlobal(cx, incumbentGlobalRepresentative)) {
     return false;
+  }
+
+  if (incumbentGlobalRepresentative) {
+    MOZ_ASSERT(incumbentGlobalRepresentative->is<GlobalObject>());
+    incumbentGlobalRepresentative.set(
+        &incumbentGlobalRepresentative->as<GlobalObject>()
+             .getObjectPrototype());
+    if (!cx->compartment()->wrap(cx, incumbentGlobalRepresentative)) {
+      return false;
+    }
   }
 
   return true;
@@ -2216,14 +2258,30 @@ JS_PUBLIC_API bool js::ShouldIgnorePropertyDefinition(JSContext* cx,
       return true;
     }
   }
-  if (key == JSProto_Iterator && !JS::Prefs::experimental_iterator_chunking()) {
-    if (id == NameToId(cx->names().chunks) ||
-        id == NameToId(cx->names().windows)) {
+  if (key == JSProto_Iterator) {
+    if (!JS::Prefs::experimental_iterator_chunking() &&
+        (id == NameToId(cx->names().chunks) ||
+         id == NameToId(cx->names().windows))) {
+      return true;
+    }
+    if (!JS::Prefs::experimental_iterator_join() &&
+        id == NameToId(cx->names().join)) {
+      return true;
+    }
+    if (!JS::Prefs::experimental_iterator_includes() &&
+        id == NameToId(cx->names().includes)) {
       return true;
     }
   }
-  if (key == JSProto_Iterator && !JS::Prefs::experimental_iterator_join()) {
-    if (id == NameToId(cx->names().join)) {
+  if (key == JSProto_Locale && !JS::Prefs::experimental_intl_locale_info()) {
+    if (id == NameToId(cx->names().firstDayOfWeek) ||
+        id == NameToId(cx->names().getTextInfo) ||
+        id == NameToId(cx->names().getNumberingSystems) ||
+        id == NameToId(cx->names().getCollations) ||
+        id == NameToId(cx->names().getCalendars) ||
+        id == NameToId(cx->names().getHourCycles) ||
+        id == NameToId(cx->names().getWeekInfo) ||
+        id == NameToId(cx->names().getTimeZones)) {
       return true;
     }
   }
@@ -2234,6 +2292,13 @@ JS_PUBLIC_API bool js::ShouldIgnorePropertyDefinition(JSContext* cx,
       id == NameToId(cx->names().captureStackTrace)) {
     return true;
   }
+#ifdef NIGHTLY_BUILD
+  if (key == JSProto_Function &&
+      !JS::Prefs::experimental_error_stack_trace_limit() &&
+      id == NameToId(cx->names().stackTraceLimit)) {
+    return true;
+  }
+#endif
   if (key == JSProto_Atomics && !JS::Prefs::experimental_atomics_pause() &&
       id == NameToId(cx->names().pause)) {
     return true;

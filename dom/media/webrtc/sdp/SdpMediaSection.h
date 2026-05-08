@@ -5,7 +5,7 @@
 #ifndef SDPMEDIASECTION_H_
 #define SDPMEDIASECTION_H_
 
-#include <sstream>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -268,8 +268,8 @@ class SdpConnection {
  public:
   SdpConnection(sdp::AddrType addrType, std::string addr, uint8_t ttl = 0,
                 uint32_t count = 0)
-      : mAddrType(addrType), mAddr(addr), mTtl(ttl), mCount(count) {}
-  ~SdpConnection() {}
+      : mAddrType(addrType), mAddr(std::move(addr)), mTtl(ttl), mCount(count) {}
+  ~SdpConnection() = default;
 
   sdp::AddrType GetAddrType() const { return mAddrType; }
   const std::string& GetAddress() const { return mAddr; }

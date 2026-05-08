@@ -1033,7 +1033,7 @@ static JSLinearString* TransformCase(JSContext* cx, Handle<JSString*> string,
     locale = CaseMappingLocale(requestedLocales[0]);
   } else {
     auto defaultLocale = LanguageId::und();
-    if (!cx->global()->globalIntlData().defaultLocale(cx, &defaultLocale)) {
+    if (!intl::DefaultLocale(cx, &defaultLocale)) {
       return nullptr;
     }
     locale = CaseMappingLocale(defaultLocale.language());
@@ -4328,7 +4328,10 @@ JSObject* StringObject::createPrototype(JSContext* cx, JSProtoKey key) {
   Rooted<StringObject*> proto(
       cx, GlobalObject::createBlankPrototype<StringObject>(
               cx, cx->global(),
-              ObjectFlags({ObjectFlag::NeedsProxyGetSetResultValidation})));
+              ObjectFlags({
+                  ObjectFlag::NeedsProxyGetSetResultValidation,
+                  ObjectFlag::HasNonWritableOrAccessorPropExclProto,
+              })));
   if (!proto) {
     return nullptr;
   }

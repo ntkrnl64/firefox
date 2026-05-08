@@ -48,6 +48,7 @@
 #include "mozilla/dom/KeyboardEvent.h"
 #include "mozilla/dom/KeyboardEventBinding.h"
 #include "mozilla/dom/MouseEvent.h"
+#include "mozilla/dom/NodeList.h"
 #include "mozilla/dom/Selection.h"
 #include "mozInlineSpellWordUtil.h"
 #include "nsCOMPtr.h"
@@ -1407,9 +1408,8 @@ nsresult mozInlineSpellChecker::SpellCheckerSlice::Execute() {
   const int32_t originalRangeCount = mSpellCheckSelection.RangeCount();
 
   // set the starting DOM position to be the beginning of our range
-  if (nsresult rv = mWordUtil.SetPositionAndEnd(
-          mStatus->mRange->GetStartContainer(), mStatus->mRange->StartOffset(),
-          mStatus->mRange->GetEndContainer(), mStatus->mRange->EndOffset());
+  if (nsresult rv = mWordUtil.SetPositionAndEnd(mStatus->mRange->StartRef(),
+                                                mStatus->mRange->EndRef());
       NS_FAILED(rv)) {
     // Just bail out and don't try to spell-check this
     return NS_OK;

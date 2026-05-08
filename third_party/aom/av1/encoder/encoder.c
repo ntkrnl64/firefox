@@ -753,6 +753,7 @@ static void init_config(struct AV1_COMP *cpi, const AV1EncoderConfig *oxcf) {
   cpi->svc.number_temporal_layers = 1;
   cm->spatial_layer_id = 0;
   cm->temporal_layer_id = 0;
+  cpi->src_sad_blk_alloc_size = 0;
   // Init rtc_ref parameters.
   cpi->ppi->rtc_ref.set_ref_frame_config = 0;
   cpi->ppi->rtc_ref.non_reference_frame = 0;
@@ -3442,9 +3443,7 @@ static int encode_with_recode_loop(AV1_COMP *cpi, size_t *size, uint8_t *dest,
       }
     }
 
-    if (cpi->ext_ratectrl.ready &&
-        (cpi->ext_ratectrl.funcs.rc_type & AOM_RC_QP) != 0 &&
-        cpi->ext_ratectrl.funcs.get_encodeframe_decision != NULL) {
+    if (av1_encode_for_extrc(&cpi->ext_ratectrl)) {
       aom_codec_err_t codec_status;
       aom_rc_encodeframe_decision_t encode_frame_decision;
       const int sb_rows = CEIL_POWER_OF_TWO(cm->mi_params.mi_rows,
@@ -3617,9 +3616,7 @@ static int encode_with_recode_loop(AV1_COMP *cpi, size_t *size, uint8_t *dest,
     }
 
     // Do not recode if external rate control is used.
-    if (cpi->ext_ratectrl.ready &&
-        (cpi->ext_ratectrl.funcs.rc_type & AOM_RC_QP) != 0 &&
-        cpi->ext_ratectrl.funcs.get_encodeframe_decision != NULL) {
+    if (av1_encode_for_extrc(&cpi->ext_ratectrl)) {
       loop = 0;
     }
 #if CONFIG_BITRATE_ACCURACY || CONFIG_RD_COMMAND

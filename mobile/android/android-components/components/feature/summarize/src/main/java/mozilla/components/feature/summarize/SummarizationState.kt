@@ -6,6 +6,7 @@ package mozilla.components.feature.summarize
 
 import mozilla.components.concept.llm.Llm
 import mozilla.components.concept.llm.LlmProvider
+import mozilla.components.feature.summarize.SummarizationState.Finished
 import mozilla.components.lib.state.State
 import mozilla.components.ui.richtext.ir.RichDocument
 
@@ -83,9 +84,12 @@ sealed class SummarizationState : State {
         /** User finished by canceling the flow. */
         data object Cancelled : Finished()
 
-        /** User finished by clicking Learn More in the shake consent screen. */
-        data object LearnMoreAboutShakeConsent : Finished()
+        /** User finished by dismissing the error screen. */
+        data object ErrorDismissed : Finished()
     }
+
+    /** User clicked Learn More in the shake consent screen. */
+    data object LearnMoreAboutShakeConsent : SummarizationState()
 
     companion object {
         val initial: SummarizationState get() = Inert(false)

@@ -488,35 +488,6 @@ add_task(
   }
 );
 
-add_task(async function test_Chat_modelId_reads_from_pref() {
-  const defaultModelId = "";
-  const customModelId = "custom-model-id";
-
-  Services.prefs.clearUserPref(PREF_MODEL);
-
-  Assert.equal(
-    Chat.modelId,
-    defaultModelId,
-    "Should be '' when pref is not set"
-  );
-
-  Services.prefs.setStringPref(PREF_MODEL, customModelId);
-
-  Assert.equal(
-    Chat.modelId,
-    customModelId,
-    "Should read modelId from pref after it is set"
-  );
-
-  Services.prefs.clearUserPref(PREF_MODEL);
-
-  Assert.equal(
-    Chat.modelId,
-    defaultModelId,
-    "Should revert to default modelId after pref is cleared"
-  );
-});
-
 add_task(
   async function test_Chat_fetchWithHistory_get_page_content_sets_flags_and_only_works_once() {
     const sb = sinon.createSandbox();
@@ -750,7 +721,7 @@ add_task(
       sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
 
       const mockBrowser = {
-        ownerGlobal: {
+        documentGlobal: {
           closed: false,
           gBrowser: {
             getTabForBrowser: () => ({ selected: true }),
@@ -992,6 +963,127 @@ add_task(
       Assert.ok(
         getUserMemoriesErrorMsg,
         "get_user_memories error should be raised when memories are disabled"
+      );
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(
+  async function test_Chat_fetchWithHistory_forwards_signal_to_runWithGenerator() {
+    const sb = sinon.createSandbox();
+    try {
+      let capturedOptions = null;
+      const fakeEngine = {
+        runWithGenerator(options) {
+          capturedOptions = options;
+          async function* gen() {
+            yield { text: "Hello" };
+          }
+          return gen();
+        },
+        getConfig() {
+          return {};
+        },
+      };
+
+      sb.stub(openAIEngine, "build").resolves(fakeEngine);
+      sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
+
+      const conversation = new ChatConversation({
+        title: "chat title",
+        description: "chat desc",
+        pageUrl: new URL("https://www.firefox.com"),
+        pageMeta: {},
+      });
+      conversation.addSystemMessage(
+        SYSTEM_PROMPT_TYPE.TEXT,
+        "You are helpful",
+        0
+      );
+      conversation.addUserMessage("Hi there", "https://www.firefox.com", 0);
+      conversation.addAssistantMessage("text", "");
+
+      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
+      const abortController = new AbortController();
+
+      await Chat.fetchWithHistory({
+        conversation,
+        engineInstance,
+        signal: abortController.signal,
+      });
+
+      Assert.strictEqual(
+        capturedOptions.signal,
+        abortController.signal,
+        "signal should be forwarded to runWithGenerator"
+      );
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(
+  async function test_Chat_fetchWithHistory_abort_during_tool_stops_generation() {
+    const sb = sinon.createSandbox();
+    try {
+      const abortController = new AbortController();
+
+      const fakeEngine = {
+        runWithGenerator(options) {
+          // If already aborted, yield nothing so receiveResponse returns no tool calls.
+          if (options.signal?.aborted) {
+            return (async function* () {})();
+          }
+          return (async function* () {
+            yield {
+              toolCalls: [
+                {
+                  id: "call_001",
+                  function: {
+                    name: "search_browsing_history",
+                    arguments: JSON.stringify({ searchTerm: "test" }),
+                  },
+                },
+              ],
+            };
+          })();
+        },
+        getConfig() {
+          return {};
+        },
+      };
+
+      sb.stub(toolFns, "searchBrowsingHistory").callsFake(async () => {
+        abortController.abort();
+        return "tool result";
+      });
+      sb.stub(openAIEngine, "build").resolves(fakeEngine);
+      sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
+
+      const conversation = new ChatConversation({
+        title: "chat title",
+        description: "chat desc",
+        pageUrl: new URL("https://www.firefox.com"),
+        pageMeta: {},
+      });
+      conversation.addUserMessage("Hi there", "https://www.firefox.com", 0);
+      conversation.addAssistantMessage("text", "");
+
+      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
+
+      await Chat.fetchWithHistory({
+        conversation,
+        engineInstance,
+        signal: abortController.signal,
+      });
+
+      Assert.equal(
+        getLastAssistantResponse(conversation).content.body,
+        "",
+        "Should produce no assistant text response after abort during tool execution"
       );
     } finally {
       sb.restore();

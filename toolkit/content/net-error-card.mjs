@@ -20,11 +20,12 @@ import {
   gNoConnectivity,
   retryThis,
   VPN_ACTIVE,
+  detectClockSkew,
 } from "chrome://global/content/aboutNetErrorHelpers.mjs";
 import { initializeRegistry } from "chrome://global/content/errors/error-registry.mjs";
 import {
   getResolvedErrorConfig,
-  isFeltPrivacySupported,
+  resolveErrorID,
 } from "chrome://global/content/errors/error-lookup.mjs";
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
@@ -63,6 +64,7 @@ export class NetErrorCard extends MozLitElement {
     certErrorText: "#certificateErrorText",
     viewCertificate: "#viewCertificate",
     errorTitle: "#error-title",
+    responseStatusLabel: "#response-status-label",
     returnButton: "#returnButton",
     learnMoreLink: "#error-learn-more-link",
     whatCanYouDo: "#whatCanYouDo",
@@ -72,20 +74,6 @@ export class NetErrorCard extends MozLitElement {
     tlsNotice: "#tlsVersionNotice",
     badStsCertExplanation: "#badStsCertExplanation",
   };
-
-  static getCustomErrorID(defaultCode) {
-    // gNoConnectivity is only true when there's no network connectivity,
-    // regardless of whether "Work Offline" mode is enabled. NS_ERROR_OFFLINE
-    // is the error ID for real connectivity loss, while netOffline is the
-    // error code for when "Work Offline" mode is enabled.
-    if (gNoConnectivity) {
-      return "NS_ERROR_OFFLINE";
-    }
-    if (defaultCode === "proxyConnectFailure" && VPN_ACTIVE) {
-      return "vpnFailure";
-    }
-    return defaultCode;
-  }
 
   static isSupported() {
     if (!FELT_PRIVACY_REFRESH) {
@@ -101,10 +89,14 @@ export class NetErrorCard extends MozLitElement {
         : document.getNetErrorInfo();
     } catch {}
 
-    const id = NetErrorCard.getCustomErrorID(
-      errorInfo.errorCodeString || gErrorCode
+    return (
+      resolveErrorID({
+        errorCodeString: errorInfo.errorCodeString,
+        gErrorCode,
+        noConnectivity: gNoConnectivity,
+        vpnActive: VPN_ACTIVE,
+      }) !== null
     );
-    return isFeltPrivacySupported(id);
   }
 
   constructor() {
@@ -173,6 +165,14 @@ export class NetErrorCard extends MozLitElement {
   init() {
     this.hostname = HOST_NAME;
     this.errorInfo = this.getErrorInfo();
+    // isSupported() gates component creation, so resolvedErrorId should never
+    // be null here. getErrorConfig() guards against it defensively regardless.
+    this.resolvedErrorId = resolveErrorID({
+      errorCodeString: this.errorInfo.errorCodeString,
+      gErrorCode,
+      noConnectivity: gNoConnectivity,
+      vpnActive: VPN_ACTIVE,
+    });
     this.errorConfig = this.getErrorConfig();
     this.hideExceptionButton = this.shouldHideExceptionButton();
 
@@ -248,13 +248,13 @@ export class NetErrorCard extends MozLitElement {
 
   // Check for alternate host for dnsNotFound errors.
   checkForDomainSuggestions() {
-    if (gErrorCode == "dnsNotFound" && !this.isTRROnlyFailure()) {
+    if (this.resolvedErrorId === "dnsNotFound" && !this.isTRROnlyFailure()) {
       RPMCheckAlternateHostAvailable();
     }
   }
 
   isTRROnlyFailure() {
-    return gErrorCode == "dnsNotFound" && RPMIsTRROnlyFailure();
+    return this.resolvedErrorId === "dnsNotFound" && RPMIsTRROnlyFailure();
   }
 
   checkAndRecordTRRTelemetry() {
@@ -348,22 +348,37 @@ export class NetErrorCard extends MozLitElement {
         ? document.getFailedCertSecurityInfo()
         : document.getNetErrorInfo();
     } catch {
-      return { errorCodeString: gErrorCode };
+      return { errorCodeString: "" };
     }
   }
 
   getErrorConfig() {
-    const id = NetErrorCard.getCustomErrorID(
-      this.errorInfo.errorCodeString || gErrorCode
-    );
+    const id = this.resolvedErrorId;
+    if (!id) {
+      return {};
+    }
     const errorConfig = getResolvedErrorConfig(id, {
       hostname: this.hostname,
       errorInfo: this.errorInfo,
       cssClass: getCSSClass(),
       domainMismatchNames: this.domainMismatchNames,
+      mitmName: this.errorInfo?.issuerCommonName ?? "",
       offline: gOffline,
       filePath: getFilePath(),
+      showOSXPermissionWarning:
+        !gIsCertError && RPMShowOSXLocalNetworkPermissionWarning(),
     });
+
+    if (errorConfig.checkClockSkew && gIsCertError) {
+      const now = Date.now();
+      if (detectClockSkew(this.errorInfo, now)) {
+        this.showCustomNetErrorCard = true;
+        return getResolvedErrorConfig("CLOCK_SKEW_ERROR", {
+          hostname: this.hostname,
+          now,
+        });
+      }
+    }
 
     if (errorConfig.customNetError) {
       this.showCustomNetErrorCard = true;
@@ -631,6 +646,7 @@ export class NetErrorCard extends MozLitElement {
   mapCustomNetErrorConfigToParams(customNetError, config) {
     const params = {
       titleL10nId: customNetError.titleL10nId,
+      showResponseStatus: customNetError.showResponseStatus,
       whyDangerousL10nId: customNetError.whyDangerousL10nId,
       whyDangerousL10nArgs: customNetError.whyDangerousL10nArgs,
       whyDidThisHappenL10nId: customNetError.whyDidThisHappenL10nId,
@@ -640,6 +656,7 @@ export class NetErrorCard extends MozLitElement {
       whatCanYouDoItems: customNetError.whatCanYouDoItems,
       learnMoreL10nId: customNetError.learnMoreL10nId,
       learnMoreSupportPage: customNetError.learnMoreSupportPage,
+      errorCode: customNetError.showErrorCode ? config.errorCode : null,
       buttons: {
         tryAgain: config.buttons?.showTryAgain,
         goBack: config.buttons?.showGoBack && window.self === window.top,
@@ -689,6 +706,7 @@ export class NetErrorCard extends MozLitElement {
   customNetErrorSectionTemplate(params) {
     const {
       titleL10nId,
+      showResponseStatus,
       whyDangerousL10nId,
       whyDangerousL10nArgs,
       whyDidThisHappenL10nId,
@@ -698,6 +716,7 @@ export class NetErrorCard extends MozLitElement {
       whatCanYouDoItems,
       learnMoreL10nId,
       learnMoreSupportPage,
+      errorCode,
       buttons = {},
       useAdvancedSection,
     } = params;
@@ -767,6 +786,12 @@ export class NetErrorCard extends MozLitElement {
             ></a>
           </p>`
         : null}
+      ${errorCode
+        ? html`<p
+            data-l10n-id="fp-cert-error-code"
+            data-l10n-args=${JSON.stringify({ error: errorCode })}
+          ></p>`
+        : null}
       ${tryAgain
         ? html`<moz-button-group>
             ${this.tryAgainButtonTemplate()}
@@ -790,6 +815,16 @@ export class NetErrorCard extends MozLitElement {
 
     return html`<h1 id="error-title" data-l10n-id=${titleL10nId}></h1>
       ${this.introContentTemplate()}
+      ${showResponseStatus && this.errorInfo?.responseStatus >= 400
+        ? html`<p
+            id="response-status-label"
+            data-l10n-id="neterror-response-status-code"
+            data-l10n-args=${JSON.stringify({
+              responsestatus: this.errorInfo.responseStatus,
+              responsestatustext: this.errorInfo.responseStatusText ?? "",
+            })}
+          ></p>`
+        : null}
       ${useAdvancedSection
         ? html`<moz-button-group>
             ${goBack ? this.returnButtonTemplate() : null}

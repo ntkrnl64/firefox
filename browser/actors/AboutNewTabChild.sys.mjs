@@ -1,4 +1,3 @@
-/* vim: set ts=2 sw=2 sts=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -18,14 +17,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "ACTIVITY_STREAM_DEBUG",
   "browser.newtabpage.activity-stream.debug",
-  false
-);
-
-// @nova-cleanup(remove-pref): Remove NOVA_ENABLED pref getter
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "NOVA_ENABLED",
-  "browser.newtabpage.activity-stream.nova.enabled",
   false
 );
 
@@ -106,21 +97,6 @@ export class AboutNewTabChild extends RemotePageChild {
 
         document.head.appendChild(frag);
         return;
-      }
-
-      // @nova-cleanup(remove-conditional): Remove Nova CSS swapping logic
-      if (lazy.NOVA_ENABLED) {
-        const doc = this.contentWindow.document;
-        const styleLinks = doc.querySelectorAll('link[rel="stylesheet"]');
-        for (const link of styleLinks) {
-          if (link.href.includes("activity-stream.css")) {
-            link.href = link.href.replace(
-              "activity-stream.css",
-              "nova/activity-stream.css"
-            );
-            break;
-          }
-        }
       }
 
       if (!lazy.NEWTAB_SELF_LOADING) {

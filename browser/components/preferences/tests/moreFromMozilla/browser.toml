@@ -1,4 +1,7 @@
 [DEFAULT]
+prefs = [
+  "browser.settings-redesign.enabled=false",
+]
 support-files = [
   "head.js",
   "../head.js",
@@ -6,6 +9,8 @@ support-files = [
 tags = "os_integration"
 
 ["browser_moreFromMozilla.js"]
+
+["browser_moreFromMozilla_config.js"]
 
 ["browser_moreFromMozilla_locales.js"]
 

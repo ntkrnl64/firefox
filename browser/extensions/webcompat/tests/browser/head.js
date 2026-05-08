@@ -199,7 +199,7 @@ async function testShimRuns(
   });
 
   const TrackingProtection =
-    tab.ownerGlobal.gProtectionsHandler.blockers.TrackingProtection;
+    tab.documentGlobal.gProtectionsHandler.blockers.TrackingProtection;
   ok(TrackingProtection, "TP is attached to the tab");
   ok(TrackingProtection.enabled, "TP is enabled");
 
@@ -483,6 +483,17 @@ async function generateTestShims() {
       matches: [
         "*://example.com/browser/browser/extensions/webcompat/tests/browser/shims_test_3.js",
       ],
+    },
+    {
+      id: "MochitestShimXHR",
+      platform: "all",
+      name: "Test shim for fetch blocking",
+      bug: "mochitest",
+      file: "empty-shim.txt",
+      matches: [
+        "*://itisatracker.org/browser/browser/extensions/webcompat/tests/browser/shims_test_fetch.txt",
+      ],
+      onlyIfBlockedByETP: true,
     },
     {
       id: "EmbedTestShim",

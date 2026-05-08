@@ -376,7 +376,6 @@ renaming_overrides_prefixing = true
 "nsIURI" = "nsIURI"
 "imgRequestProxy" = "imgRequestProxy"
 "nsCompatibility" = "nsCompatibility"
-"nsSimpleContentList" = "nsSimpleContentList"
 "nsACString" = "nsACString"
 "nsAString" = "nsAString"
 "nsCString" = "nsCString"
@@ -1068,7 +1067,6 @@ renaming_overrides_prefixing = true
 "GenericAspectRatio" = """
   bool HasRatio() const { return ratio.IsRatio(); }
   bool HasFiniteRatio() const { return static_cast<bool>(ToLayoutRatio()); }
-  bool BehavesAsAuto() const { return auto_ || !HasFiniteRatio(); }
   inline AspectRatio ToLayoutRatio() const;
 
   static StyleGenericAspectRatio Auto() {
@@ -1126,12 +1124,12 @@ renaming_overrides_prefixing = true
 
 "AnimationName" = """
  public:
-  StyleAnimationName() : _0(nsGkAtoms::_empty) {}
+  StyleAnimationName();
 """
 
 "TimelineIdent" = """
  public:
-  StyleTimelineIdent() : _0(nsGkAtoms::_empty) {}
+  StyleTimelineIdent();
   nsAtom* AsAtom() const { return _0.AsAtom(); }
 """
 
@@ -1164,9 +1162,7 @@ renaming_overrides_prefixing = true
 """
 
 "FontPalette" = """
-  inline static StyleFontPalette Normal() {
-    return StyleFontPalette{StyleAtom(nsGkAtoms::normal->ToAddRefed())};
-  }
+  inline static StyleFontPalette Normal();
 """
 
 "GenericOffsetPath" = """

@@ -27,6 +27,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.suspendCancellableCoroutine
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.concept.engine.EngineSession
+import mozilla.components.concept.engine.pageextraction.ContentParams
 import mozilla.components.feature.summarize.SummarizationState
 import mozilla.components.feature.summarize.SummarizationUi
 import mozilla.components.feature.summarize.ViewDismissed
@@ -39,24 +40,27 @@ import mozilla.components.feature.summarize.settings.SummarizeSettingsState
 import mozilla.components.feature.summarize.settings.SummarizeSettingsStore
 import mozilla.components.feature.summarize.settings.summarizeSettingsReducer
 import mozilla.components.support.ktx.android.view.setNavigationBarColorCompat
-import mozilla.components.support.utils.ext.left
-import mozilla.components.support.utils.ext.right
 import mozilla.components.support.utils.ext.top
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.settings.SupportUtils
+import org.mozilla.fenix.tabstray.ext.toDisplayTitle
 import org.mozilla.fenix.theme.FirefoxTheme
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.google.android.material.R as materialR
 
+private const val HIDING_FRICTION = 0.9f
+
 /**
  * Gets the content for a given engine session.
  */
-private fun EngineSession?.asPageContentExtractor(): PageContentExtractor = {
+private fun EngineSession?.asPageContentExtractor(): PageContentExtractor = { options ->
     runCatching {
+        val options = ContentParams(removeBoilerplate = options.shouldUseReaderModeContent)
         suspendCancellableCoroutine { continuation ->
             this!!.getPageContent(
+                options = options,
                 onResult = { content ->
                     continuation.resume(content)
                 },
@@ -78,6 +82,7 @@ private fun EngineSession?.asPageMetadataExtractor(): PageMetadataExtractor = {
                             structuredDataTypes = metadata.structuredDataTypes,
                             wordCount = metadata.wordCount,
                             language = metadata.language,
+                            isReaderable = metadata.isReaderable,
                         ),
                     )
                 },
@@ -100,18 +105,19 @@ private fun Context.getConnectionType(): ConnectionType {
     }
 }
 
-const val HALF_EXPANDED_RATIO = 0.75f
-
 /**
  * Summarization UI entry fragment.
  */
 class SummarizationFragment : BottomSheetDialogFragment() {
     private val args by navArgs<SummarizationFragmentArgs>()
     private val storeViewModel: SummarizationStoreViewModel by viewModels {
-        val engineSession = requireComponents.core.store.state.selectedTab?.engineState?.engineSession
+        val currentTab = requireComponents.core.store.state.selectedTab
+        val engineSession = currentTab?.engineState?.engineSession
         val provider = requireComponents.llm.mlpaProvider
+        val title = currentTab?.toDisplayTitle() ?: ""
         SummarizationStoreViewModel.factory(
             initializedFromShake = args.fromShake,
+            pageTitle = title,
             connectionType = requireContext().getConnectionType(),
             llmProvider = provider,
             settings = SummarizationSettings.dataStore(requireContext()),
@@ -125,9 +131,11 @@ class SummarizationFragment : BottomSheetDialogFragment() {
         super.onStart()
         val bottomSheet = dialog?.findViewById<View>(materialR.id.design_bottom_sheet)
         bottomSheet?.let { sheet ->
-            val behavior = BottomSheetBehavior.from(sheet)
-            behavior.state = BottomSheetBehavior.STATE_EXPANDED
-            behavior.halfExpandedRatio = HALF_EXPANDED_RATIO
+            with(BottomSheetBehavior.from(sheet)) {
+                skipCollapsed = true
+                state = BottomSheetBehavior.STATE_EXPANDED
+                hideFriction = HIDING_FRICTION
+            }
         }
     }
 
@@ -143,7 +151,7 @@ class SummarizationFragment : BottomSheetDialogFragment() {
                 ViewCompat.setOnApplyWindowInsetsListener(bottomSheet) { view, insets ->
                     // edge-to-edge workaround
                     // exclude the bottom insets so that we can handle the insets in compose
-                    view.setPadding(insets.left(), insets.top(), insets.right(), 0)
+                    view.setPadding(0, insets.top(), 0, 0)
                     insets
                 }
                 bottomSheet.setBackgroundResource(android.R.color.transparent)
@@ -161,9 +169,8 @@ class SummarizationFragment : BottomSheetDialogFragment() {
         val state by storeViewModel.store.stateFlow.collectAsStateWithLifecycle()
         LaunchedEffect(state) {
             when (state) {
-                SummarizationState.Finished.LearnMoreAboutShakeConsent -> {
+                SummarizationState.LearnMoreAboutShakeConsent -> {
                     openLearnMoreLink()
-                    dismiss()
                 }
                 is SummarizationState.Finished -> {
                     dismiss()

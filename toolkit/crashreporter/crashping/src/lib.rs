@@ -104,7 +104,8 @@ impl InitGlean {
         // No need to check `cfg!(test)`, since we don't set an uploader in unit tests (and if we
         // did, it would be test-specific).
         let is_test = std::env::var_os("XPCSHELL_TEST_PROFILE_DIR").is_some()
-            || std::env::var_os("MOZ_AUTOMATION").is_some();
+            || std::env::var_os("MOZ_AUTOMATION").is_some()
+            || std::env::var_os("MOZ_DISABLE_NONLOCAL_CONNECTIONS") == Some("1".into());
         if self.clear_uploader_for_tests && is_test {
             self.configuration.uploader = None;
             self.configuration.server_endpoint = None;
@@ -122,6 +123,11 @@ pub fn send(annotations: &serde_json::Value, reason: Option<&str>) -> anyhow::Re
     log::debug!("submitting Glean crash ping");
     glean_metrics::crash.submit(reason);
     Ok(())
+}
+
+/// Set whether upload is enabled or not.
+pub fn set_collection_enabled(enabled: bool) {
+    glean::set_collection_enabled(enabled);
 }
 
 /// **Test-only API**
@@ -258,8 +264,8 @@ mod test {
                     }
                 }"#,
                 "SecondsSinceLastCrash": "50000",
-                "StackTraces": {
-                    // Add extraneous field to ensure it doesn't affect setting the metric
+                // Add extraneous field `foobar` to ensure it doesn't affect setting the metric
+                "StackTraces": r#"{
                     "foobar": "baz",
                     "crash_type": "bad crash",
                     "crash_address": "0xcafe",
@@ -295,7 +301,7 @@ mod test {
                             }
                         ]}
                     ]
-                },
+                }"#,
                 "UptimeTS": "400.5",
                 "UtilityActorsName": "abc,def",
                 "WindowsFileDialogErrorCode": "40",
@@ -479,7 +485,7 @@ mod test {
         }
 
         test_stack_traces(StackTraces) {
-            {
+            r#"{
                 "crash_type": "main",
                 "crash_address": "0xf001ba11",
                 "crash_thread": 1,
@@ -518,7 +524,7 @@ mod test {
                         ]
                     }
                 ]
-            }
+            }"#
             => {
                 "crash_type": "main",
                 "crash_address": "0xf001ba11",

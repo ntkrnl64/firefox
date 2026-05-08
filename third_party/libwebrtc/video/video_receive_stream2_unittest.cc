@@ -16,11 +16,11 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
 #include "absl/memory/memory.h"
-#include "api/array_view.h"
 #include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
 #include "api/metronome/test/fake_metronome.h"
@@ -107,7 +107,6 @@ constexpr uint8_t kH264PayloadType = 99;
 constexpr uint8_t kH265PayloadType = 100;
 constexpr uint8_t kAv1PayloadType = 101;
 constexpr uint32_t kRemoteSsrc = 1111;
-constexpr uint32_t kLocalSsrc = 2222;
 
 class FakeVideoRenderer : public VideoSinkInterface<VideoFrame> {
  public:
@@ -213,7 +212,7 @@ class VideoReceiveStream2Test : public ::testing::TestWithParam<bool> {
         .WillByDefault(Invoke(&fake_decoder_, &test::FakeDecoder::Release));
     ON_CALL(mock_transport_, SendRtcp)
         .WillByDefault(
-            [this](ArrayView<const uint8_t> packet, ::testing::Unused) {
+            [this](std::span<const uint8_t> packet, ::testing::Unused) {
               return rtcp_packet_parser_.Parse(packet);
             });
   }
@@ -228,7 +227,6 @@ class VideoReceiveStream2Test : public ::testing::TestWithParam<bool> {
 
   void SetUp() override {
     config_.rtp.remote_ssrc = kRemoteSsrc;
-    config_.rtp.local_ssrc = kLocalSsrc;
     config_.renderer = &fake_renderer_;
     VideoReceiveStreamInterface::Decoder h264_decoder;
     h264_decoder.payload_type = kH264PayloadType;
@@ -706,7 +704,7 @@ std::unique_ptr<test::FakeEncodedFrame> MakeFrameWithResolution(
                    .PayloadType(kH264PayloadType)
                    .AsLast()
                    .Build();
-  frame->SetFrameType(frame_type);
+  frame->set_frame_type(frame_type);
   frame->_encodedWidth = width;
   frame->_encodedHeight = height;
   return frame;
@@ -913,23 +911,23 @@ TEST_P(VideoReceiveStream2Test, FramesScheduledInOrder) {
       .Times(1);
 
   // `key_frame` arrives at the start time...
-  key_frame->SetReceivedTime(env_.clock().CurrentTime().ms());
+  key_frame->SetReceivedTime(env_.clock().CurrentTime());
   video_receive_stream_->OnCompleteFrame(std::move(key_frame));
   // ...and it is decoded and rendered right away.
   EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()), RenderedFrame());
 
   // `delta_frame2` arrives on time, which is two inter-frame durations later...
   time_controller_.AdvanceTime(2 * k30FpsDelay);
-  int64_t delta_frame2_received_time_ms = env_.clock().CurrentTime().ms();
-  delta_frame2->SetReceivedTime(delta_frame2_received_time_ms);
+  Timestamp delta_frame2_received_time = env_.clock().CurrentTime();
+  delta_frame2->SetReceivedTime(delta_frame2_received_time);
   video_receive_stream_->OnCompleteFrame(std::move(delta_frame2));
   // ...but it doesn't render, since it is not yet decodable.
   EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()),
               DidNotReceiveFrame());
 
   // `delta_frame1` arrives back-to-back with `delta_frame2`...
-  delta_frame1->SetReceivedTime(env_.clock().CurrentTime().ms());
-  EXPECT_EQ(delta_frame1->ReceivedTime(), delta_frame2_received_time_ms);
+  delta_frame1->SetReceivedTime(env_.clock().CurrentTime());
+  EXPECT_EQ(delta_frame1->ReceivedTimestamp(), delta_frame2_received_time);
   video_receive_stream_->OnCompleteFrame(std::move(delta_frame1));
   // ...so it is decoded and rendered right away (since it is late).
   EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()), RenderedFrame());
@@ -965,7 +963,7 @@ TEST_P(VideoReceiveStream2Test, WaitsforAllSpatialLayers) {
 
   // No decodes should be called until `sl2` is received.
   EXPECT_CALL(mock_decoder_, Decode(_, _)).Times(0);
-  sl0->SetReceivedTime(env_.clock().CurrentTime().ms());
+  sl0->SetReceivedTime(env_.clock().CurrentTime());
   video_receive_stream_->OnCompleteFrame(std::move(sl0));
   EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()),
               DidNotReceiveFrame());

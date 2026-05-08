@@ -444,9 +444,8 @@ template <typename T>
 void TenuringTracer::traceBufferedCells(Arena* arena, ArenaCellSet* cells) {
   for (size_t i = 0; i < MaxArenaCellIndex; i += cells->BitsPerWord) {
     ArenaCellSet::WordT bitset = cells->getWord(i / cells->BitsPerWord);
-    static_assert(std::is_same_v<ArenaCellSet::WordT, uint32_t> ||
-                      std::is_same_v<ArenaCellSet::WordT, uint64_t>,
-                  "unexpected word size");
+    static_assert(std::is_same_v<ArenaCellSet::WordT, uint32_t>,
+                  "unexpected word type");
 
     while (bitset) {
       size_t bit = i + std::countr_zero(bitset);
@@ -664,9 +663,13 @@ void JSLinearString::maybeCloneCharsOnPromotionTyped(JSLinearString* str) {
   //
   // "Nothing else is yet known to keep the base alive" == "the base is not
   // currently forwarded".
+  //
+  // If something else depends on this string, then avoid this cloning to make
+  // sure we have a reference to the base string (without adding additional
+  // complexity to maintain one.)
   bool baseKnownLiveYet = IsForwarded(root);
   bool cloneToSaveSpace =
-      !baseKnownLiveYet &&
+      !baseKnownLiveYet && !str->isDependedOn() &&
       JSDependentString::smallComparedToBase(str->length(), root->length());
 
   if (!cloneToSaveSpace) {

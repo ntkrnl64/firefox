@@ -4,10 +4,13 @@
 
 package mozilla.components.concept.engine.ipprotection
 
+import mozilla.components.ExperimentalAndroidComponentsApi
+
 /**
  * App-to-engine handle for controlling the IP protection proxy. Returned by
  * [mozilla.components.concept.engine.Engine.registerIPProtectionDelegate].
  */
+@ExperimentalAndroidComponentsApi
 interface IPProtectionHandler {
 
     /**
@@ -19,6 +22,11 @@ interface IPProtectionHandler {
      * Deactivates the IP protection proxy.
      */
     fun deactivate()
+
+    /**
+     * Initializes the proxy state machine.
+     */
+    fun init()
 
     /**
      * Sets the [TokenProvider] used to supply authentication tokens to the IP protection service.
@@ -47,6 +55,7 @@ interface IPProtectionHandler {
     /**
      * Holds the current IP protection service and proxy state along with usage information.
      */
+    // refactor to enum in https://bugzilla.mozilla.org/show_bug.cgi?id=2030410
     data class StateInfo(
         val serviceState: Int = SERVICE_STATE_UNINITIALIZED,
         val proxyState: Int = PROXY_STATE_NOT_READY,
@@ -55,6 +64,9 @@ interface IPProtectionHandler {
         val max: Long = -1L,
         val resetTime: String? = null,
     ) {
+        val isEnrollmentNeeded: Boolean
+            get() = serviceState == SERVICE_STATE_UNAUTHENTICATED
+
         companion object {
             const val SERVICE_STATE_UNINITIALIZED = 0
             const val SERVICE_STATE_UNAVAILABLE = 1
@@ -67,6 +79,28 @@ interface IPProtectionHandler {
             const val PROXY_STATE_ACTIVE = 3
             const val PROXY_STATE_ERROR = 4
             const val PROXY_STATE_PAUSED = 5
+        }
+
+        override fun toString(): String {
+            val service = when (serviceState) {
+                SERVICE_STATE_UNINITIALIZED -> "UNINITIALIZED"
+                SERVICE_STATE_UNAVAILABLE -> "UNAVAILABLE"
+                SERVICE_STATE_UNAUTHENTICATED -> "UNAUTHENTICATED"
+                SERVICE_STATE_READY -> "READY"
+                else -> "UNKNOWN($serviceState)"
+            }
+            val proxy = when (proxyState) {
+                PROXY_STATE_NOT_READY -> "NOT_READY"
+                PROXY_STATE_READY -> "READY"
+                PROXY_STATE_ACTIVATING -> "ACTIVATING"
+                PROXY_STATE_ACTIVE -> "ACTIVE"
+                PROXY_STATE_ERROR -> "ERROR"
+                PROXY_STATE_PAUSED -> "PAUSED"
+                else -> "UNKNOWN($proxyState)"
+            }
+            return "StateInfo(serviceState=$service, proxyState=$proxy," +
+                " remaining=$remaining, max=$max, resetTime=$resetTime," +
+                " lastError=$lastError)"
         }
     }
 }

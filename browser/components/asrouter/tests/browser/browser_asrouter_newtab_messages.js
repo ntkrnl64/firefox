@@ -34,45 +34,9 @@ add_setup(async function () {
     await ASRouter.resetMessageState();
   });
 
-  /**
-   * @backward-compat { version 150 }
-   *
-   * Our test message was added to PanelTestProvider in version 150. This test,
-   * however, runs in the newtab train-hop CI jobs, which means that we have
-   * to shim the test message until the PanelTestProvider change reaches 150.
-   */
-  if (Services.vc.compare(AppConstants.MOZ_APP_VERSION, "150.0a1") < 0) {
-    gTestNewTabMessage = {
-      id: "TEST_ASROUTER_NEWTAB_MESSAGE",
-      template: "newtab_message",
-      content: {
-        messageType: "ASRouterNewTabMessage",
-        imageSrc:
-          // eslint-disable-next-line mozilla/no-newtab-refs-outside-newtab
-          "chrome://newtab/content/data/content/assets/kit-in-circle.svg",
-        heading: "Test Heading",
-        body: "This is a test message body.",
-        primaryButton: {
-          label: "Primary Action",
-          action: {
-            type: "OPEN_URL",
-            data: { args: "https://www.mozilla.org/" },
-          },
-        },
-      },
-      frequency: {
-        lifetime: 3,
-      },
-      trigger: {
-        id: "newtabMessageCheck",
-      },
-      groups: [],
-    };
-  } else {
-    gTestNewTabMessage = await PanelTestProvider.getMessages().then(msgs =>
-      msgs.find(msg => msg.id === TEST_MESSAGE_ID)
-    );
-  }
+  gTestNewTabMessage = await PanelTestProvider.getMessages().then(msgs =>
+    msgs.find(msg => msg.id === TEST_MESSAGE_ID)
+  );
   Assert.ok(gTestNewTabMessage, "Found a test fxa_cta message to use.");
 });
 
@@ -595,5 +559,63 @@ add_task(async function test_secondary_button_block_message() {
     "Clicking the secondary button with BLOCK_MESSAGE permanently blocked the message."
   );
   BrowserTestUtils.removeTab(gBrowser.selectedTab);
+  sandbox.restore();
+});
+
+/**
+ * Tests that the image property, when set to the empty string, causes the image
+ * element to not be rendered.
+ */
+add_task(async function test_image_is_optional() {
+  let sandbox = sinon.createSandbox();
+
+  await withTestMessage(sandbox, gTestNewTabMessage, async () => {
+    await BrowserTestUtils.openNewForegroundTab(gBrowser, "about:newtab");
+    await SpecialPowers.spawn(
+      gBrowser.selectedBrowser,
+      [gTestNewTabMessage.content.imageSrc],
+      async imageURL => {
+        await ContentTaskUtils.waitForCondition(() => {
+          return content.document.querySelector("asrouter-newtab-message");
+        }, "Found asrouter-newtab-message");
+
+        let msgEl = content.document.querySelector("asrouter-newtab-message");
+        let shadow = Cu.waiveXrays(msgEl).shadowRoot;
+        let image = shadow.querySelector("img");
+        Assert.ok(image, "Found image in shadow DOM");
+        Assert.ok(ContentTaskUtils.isVisible(image), "Image is visible");
+        Assert.equal(
+          image.src,
+          imageURL,
+          "Image source was set to the right URL"
+        );
+      }
+    );
+    BrowserTestUtils.removeTab(gBrowser.selectedTab);
+  });
+
+  const testMessageNoImage = {
+    ...gTestNewTabMessage,
+    content: {
+      ...gTestNewTabMessage.content,
+      imageSrc: "",
+    },
+  };
+
+  await withTestMessage(sandbox, testMessageNoImage, async () => {
+    await BrowserTestUtils.openNewForegroundTab(gBrowser, "about:newtab");
+    await SpecialPowers.spawn(gBrowser.selectedBrowser, [], async () => {
+      await ContentTaskUtils.waitForCondition(() => {
+        return content.document.querySelector("asrouter-newtab-message");
+      }, "Found asrouter-newtab-message");
+
+      let msgEl = content.document.querySelector("asrouter-newtab-message");
+      let shadow = Cu.waiveXrays(msgEl).shadowRoot;
+      let image = shadow.querySelector("img");
+      Assert.ok(!image, "No image in shadow DOM");
+    });
+    BrowserTestUtils.removeTab(gBrowser.selectedTab);
+  });
+
   sandbox.restore();
 });

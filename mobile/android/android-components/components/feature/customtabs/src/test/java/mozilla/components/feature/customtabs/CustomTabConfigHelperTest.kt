@@ -51,6 +51,7 @@ import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.`when`
 import org.robolectric.annotation.Config
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class CustomTabConfigHelperTest {
@@ -434,8 +435,8 @@ class CustomTabConfigHelperTest {
 
         assertEquals(5, customTabMenu.items.size)
         assertEquals(defaultItems[0], customTabMenu.items[0])
-        assertTrue(customTabMenu.items[1] is SimpleBrowserMenuItem)
-        assertTrue(customTabMenu.items[2] is SimpleBrowserMenuItem)
+        assertIs<SimpleBrowserMenuItem>(customTabMenu.items[1])
+        assertIs<SimpleBrowserMenuItem>(customTabMenu.items[2])
         assertEquals(defaultItems[1], customTabMenu.items[3])
         assertEquals(defaultItems[2], customTabMenu.items[4])
     }

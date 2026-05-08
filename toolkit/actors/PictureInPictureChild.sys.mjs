@@ -1,4 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -51,6 +50,18 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "media.videocontrols.picture-in-picture.urlbar-button.enabled",
   false
 );
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "PIP_AUTO_CLOSE",
+  "media.videocontrols.picture-in-picture.auto-close.enabled",
+  true
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "EMPTIED_TIMEOUT_MS",
+  "media.videocontrols.picture-in-picture.auto-close.timeoutMs",
+  1000
+);
 
 const PIP_ENABLED_PREF = "media.videocontrols.picture-in-picture.enabled";
 const TOGGLE_ENABLED_PREF =
@@ -71,7 +82,6 @@ const MOUSEMOVE_PROCESSING_DELAY_MS = 50;
 const TOGGLE_HIDING_TIMEOUT_MS = 3000;
 // If you change this, also change VideoControlsWidget.SEEK_TIME_SECS:
 const SEEK_TIME_SECS = 5;
-const EMPTIED_TIMEOUT_MS = 1000;
 
 // The ToggleChild does not want to capture events from the PiP
 // windows themselves. This set contains all currently open PiP
@@ -240,10 +250,13 @@ export class PictureInPictureLauncherChild extends JSWindowActorChild {
       autoFocus,
     });
 
-    Glean.pictureinpicture["openedMethod" + reason].record({
-      firstTimeToggle: !Services.prefs.getBoolPref(TOGGLE_HAS_USED_PREF),
-      ...eventExtraKeys,
-    });
+    // Some tests don't bother setting a reason.
+    if (reason) {
+      Glean.pictureinpicture["openedMethod" + reason].record({
+        firstTimeToggle: !Services.prefs.getBoolPref(TOGGLE_HAS_USED_PREF),
+        ...eventExtraKeys,
+      });
+    }
   }
 
   /**
@@ -1488,7 +1501,7 @@ export class PictureInPictureToggleChild extends JSWindowActorChild {
    */
   isMouseOverToggle(toggle, event) {
     let toggleRect =
-      toggle.ownerGlobal.windowUtils.getBoundsWithoutFlushing(toggle);
+      toggle.documentGlobal.windowUtils.getBoundsWithoutFlushing(toggle);
 
     // The way the toggle is currently implemented with
     // absolute positioning, the root toggle element bounds don't actually
@@ -1501,7 +1514,7 @@ export class PictureInPictureToggleChild extends JSWindowActorChild {
     let clickableChildren = toggle.querySelectorAll(".clickable");
     for (let child of clickableChildren) {
       let childRect = lazy.Rect.fromRect(
-        child.ownerGlobal.windowUtils.getBoundsWithoutFlushing(child)
+        child.documentGlobal.windowUtils.getBoundsWithoutFlushing(child)
       );
       toggleRect.expandToContain(childRect);
     }
@@ -1541,7 +1554,7 @@ export class PictureInPictureToggleChild extends JSWindowActorChild {
 
     let toggle = this.getToggleElement(shadowRoot);
     if (this.isMouseOverToggle(toggle, event)) {
-      let devicePixelRatio = toggle.ownerGlobal.devicePixelRatio;
+      let devicePixelRatio = toggle.documentGlobal.devicePixelRatio;
       this.sendAsyncMessage("PictureInPicture:OpenToggleContextMenu", {
         screenXDevPx: event.screenX * devicePixelRatio,
         screenYDevPx: event.screenY * devicePixelRatio,
@@ -1742,7 +1755,7 @@ export class PictureInPictureChild extends JSWindowActorChild {
       isScrubberShowing,
     } = data;
     let textTracks = this.document.getElementById("texttracks");
-    const originatingWindow = this.getWeakVideo().ownerGlobal;
+    const originatingWindow = this.getWeakVideo().documentGlobal;
     const isReducedMotionEnabled = originatingWindow.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
@@ -1787,7 +1800,7 @@ export class PictureInPictureChild extends JSWindowActorChild {
   updateWebVTTTextTracksDisplay(textTrackCues) {
     let pipWindowTracksContainer = this.document.getElementById("texttracks");
     let playerVideo = this.document.getElementById("playervideo");
-    let playerVideoWindow = playerVideo.ownerGlobal;
+    let playerVideoWindow = playerVideo.documentGlobal;
 
     // To prevent overlap with previous cues, clear all text from the pip window
     pipWindowTracksContainer.replaceChildren();
@@ -2021,15 +2034,17 @@ export class PictureInPictureChild extends JSWindowActorChild {
           clearTimeout(this.emptiedTimeout);
           this.emptiedTimeout = null;
         }
-        let video = this.getWeakVideo();
-        // We may want to keep the pip window open if the video
-        // is still in DOM. But if video src is no longer defined,
-        // close Picture-in-Picture.
-        this.emptiedTimeout = setTimeout(() => {
-          if (!video || !video.src) {
-            this.closePictureInPicture({ reason: "VideoElEmptied" });
-          }
-        }, EMPTIED_TIMEOUT_MS);
+        if (lazy.PIP_AUTO_CLOSE) {
+          let video = this.getWeakVideo();
+          // We may want to keep the pip window open if the video
+          // is still in DOM. But if video src is no longer defined,
+          // close Picture-in-Picture.
+          this.emptiedTimeout = setTimeout(() => {
+            if (!video || !video.src) {
+              this.closePictureInPicture({ reason: "VideoElEmptied" });
+            }
+          }, lazy.EMPTIED_TIMEOUT_MS);
+        }
         break;
       }
       case "change": {
@@ -2329,7 +2344,7 @@ export class PictureInPictureChild extends JSWindowActorChild {
       this.observerFunction
     );
 
-    let originatingWindow = originatingVideo.ownerGlobal;
+    let originatingWindow = originatingVideo.documentGlobal;
     if (originatingWindow) {
       originatingWindow.addEventListener("pagehide", this);
       originatingVideo.addEventListener("play", this);
@@ -2382,7 +2397,7 @@ export class PictureInPictureChild extends JSWindowActorChild {
       this.observerFunction
     );
 
-    let originatingWindow = originatingVideo.ownerGlobal;
+    let originatingWindow = originatingVideo.documentGlobal;
     if (originatingWindow) {
       originatingWindow.removeEventListener("pagehide", this);
       originatingVideo.removeEventListener("play", this);
@@ -2397,17 +2412,19 @@ export class PictureInPictureChild extends JSWindowActorChild {
         this.removeTextTracks(originatingVideo);
       }
 
-      let chromeEventHandler = originatingWindow.docShell.chromeEventHandler;
-      chromeEventHandler.removeEventListener(
-        "MozDOMFullscreen:Request",
-        this,
-        true
-      );
-      chromeEventHandler.removeEventListener(
-        "MozStopPictureInPicture",
-        this,
-        true
-      );
+      let chromeEventHandler = originatingWindow.docShell?.chromeEventHandler;
+      if (chromeEventHandler) {
+        chromeEventHandler.removeEventListener(
+          "MozDOMFullscreen:Request",
+          this,
+          true
+        );
+        chromeEventHandler.removeEventListener(
+          "MozStopPictureInPicture",
+          this,
+          true
+        );
+      }
     }
   }
 
@@ -2905,7 +2922,7 @@ class PictureInPictureChildVideoWrapper {
       "pictureinpicture@mozilla.org"
     );
     let wrapperScriptUrl = addonPolicy.getURL(videoWrapperScriptPath);
-    let originatingWin = video.ownerGlobal;
+    let originatingWin = video.documentGlobal;
     let originatingDoc = video.ownerDocument;
 
     let sandbox = Cu.Sandbox([originatingDoc.nodePrincipal], {

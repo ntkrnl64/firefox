@@ -15,6 +15,7 @@
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/dom/BrowserChild.h"
+#include "mozilla/dom/ContentList.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 #include "mozilla/dom/OffscreenCanvas.h"
@@ -28,7 +29,6 @@
 #include "nsContentUtils.h"
 #include "nsGfxCIID.h"
 #include "nsICanvasRenderingContextInternal.h"
-#include "nsIHTMLCollection.h"
 #include "nsIObserverService.h"
 #include "nsIPermissionManager.h"
 #include "nsIPrincipal.h"
@@ -474,7 +474,7 @@ bool IsImageExtractionAllowed(dom::OffscreenCanvas* aOffscreenCanvas,
     }
 
     if (NS_IsMainThread()) {
-      nsCOMPtr<nsIGlobalObject> global = canvasRef->GetOwnerGlobal();
+      nsCOMPtr<nsIGlobalObject> global = canvasRef->GetRelevantGlobal();
       NS_ENSURE_TRUE_VOID(global);
 
       RefPtr<nsPIDOMWindowInner> window = global->GetAsInnerWindow();
@@ -545,14 +545,20 @@ ImageExtraction ImageExtractionResult(dom::OffscreenCanvas* aOffscreenCanvas,
     return ImageExtraction::Placeholder;
   }
 
+  if (GetCanvasExtractDataPermission(aPrincipal) ==
+      nsIPermissionManager::ALLOW_ACTION) {
+    return ImageExtraction::Unrestricted;
+  }
+
+  if (aOffscreenCanvas->ShouldResistFingerprinting(
+          RFPTarget::EfficientCanvasRandomization)) {
+    return ImageExtraction::EfficientRandomize;
+  }
+
   if (aOffscreenCanvas->ShouldResistFingerprinting(
           RFPTarget::CanvasRandomization) ||
       aOffscreenCanvas->ShouldResistFingerprinting(
           RFPTarget::WebGLRandomization)) {
-    if (GetCanvasExtractDataPermission(aPrincipal) ==
-        nsIPermissionManager::ALLOW_ACTION) {
-      return ImageExtraction::Unrestricted;
-    }
     return ImageExtraction::Randomize;
   }
 
@@ -687,7 +693,7 @@ void DoDrawImageSecurityCheck(dom::OffscreenCanvas* aOffscreenCanvas,
   }
 
   // If we are on a worker thread, we might not have any principals at all.
-  nsIGlobalObject* global = aOffscreenCanvas->GetOwnerGlobal();
+  nsIGlobalObject* global = aOffscreenCanvas->GetRelevantGlobal();
   nsIPrincipal* canvasPrincipal = global ? global->PrincipalOrNull() : nullptr;
   if (!aPrincipal || !canvasPrincipal) {
     aOffscreenCanvas->SetWriteOnly();

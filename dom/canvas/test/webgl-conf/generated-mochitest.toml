@@ -8636,6 +8636,7 @@ subsuite = "webgl2-core"
 skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && debug",
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64' && debug",
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && debug", # Bug 2034604
 ]
 fail-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",
@@ -9484,6 +9485,9 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__bufferdata-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
+fail-if = [
+  "os == 'win' && arch == 'x86'",
+]
 
 ["generated/test_2_conformance2__wasm__buffersubdata-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9493,6 +9497,9 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__buffersubdata-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
+fail-if = [
+  "os == 'win' && arch == 'x86'",
+]
 
 ["generated/test_2_conformance2__wasm__getbuffersubdata-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9502,6 +9509,9 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__getbuffersubdata-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
+fail-if = [
+  "os == 'win' && arch == 'x86'",
+]
 
 ["generated/test_2_conformance2__wasm__readpixels-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9511,6 +9521,9 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__readpixels-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
+fail-if = [
+  "os == 'win' && arch == 'x86'",
+]
 
 ["generated/test_2_conformance2__wasm__teximage2d-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9520,6 +9533,9 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__teximage2d-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
+fail-if = [
+  "os == 'win' && arch == 'x86'",
+]
 
 ["generated/test_2_conformance2__wasm__texsubimage2d-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9529,6 +9545,9 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__texsubimage2d-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
+fail-if = [
+  "os == 'win' && arch == 'x86'",
+]
 
 ["generated/test_2_conformance__attribs__gl-bindAttribLocation-aliasing.html"]
 subsuite = "webgl2-core"

@@ -43,7 +43,12 @@ from ..dirutils import mkdir
 from ..serialized_logging import read_serialized_record
 from ..telemetry import get_cpu_brand
 from ..testing import install_test_files
-from ..util import FileAvoidWrite, construct_log_filename, resolve_target_to_make
+from ..util import (
+    FileAvoidWrite,
+    construct_log_filename,
+    is_running_under_coding_agent,
+    resolve_target_to_make,
+)
 from .clobber import Clobberer
 
 RE_BUILD_OUTPUT = re.compile(
@@ -167,7 +172,7 @@ class TierStatus:
 def record_cargo_timings(resource_monitor, timings_path):
     cargo_start = 0
     try:
-        with open(timings_path) as fh:
+        with open(timings_path, encoding="utf-8") as fh:
             # Extrace the UNIT_DATA list from the cargo timing HTML file.
             unit_data = dropwhile(lambda l: l.rstrip() != "const UNIT_DATA = [", fh)
             unit_data = islice(unit_data, 1, None)
@@ -733,8 +738,13 @@ class BuildOutputManager(OutputManager):
 
     def _is_third_party_path(self, filepath):
         path = mozpath.normsep(filepath)
+        # Handle the case where we have relative path from Unified build
+        if not os.path.isabs(path):
+            stripped = re.sub(r"^([./\\])*[/\\]", "", path)
+            if os.path.exists(stripped):
+                path = mozpath.abspath(stripped)
         if not path.startswith(self.monitor.topsrcdir):
-            return True
+            return True  # generated file
         if not self._third_party_dirs:
             return False
         path = path[len(self.monitor.topsrcdir) + 1 :]
@@ -1434,7 +1444,6 @@ class BuildDriver(MozbuildObject):
             mozbuild_metrics.ccache.set(get_substs_flag("CCACHE"))
             using_sccache = get_substs_flag("MOZ_USING_SCCACHE")
             mozbuild_metrics.sccache.set(using_sccache)
-            mozbuild_metrics.icecream.set(get_substs_flag("CXX_IS_ICECREAM"))
             mozbuild_metrics.project.set(substs.get("MOZ_BUILD_APP", ""))
             mozbuild_metrics.target.set(target)
 
@@ -1495,12 +1504,19 @@ class BuildDriver(MozbuildObject):
                             and not allow_subdirectory_build
                             and (Path(self.topsrcdir) / target).is_dir()
                         ):
+                            message = "Build argument '{target}' is a subdirectory and was ignored."
+                            # Don't tell agents how to override, because they do
+                            # override
+                            if not is_running_under_coding_agent:
+                                message += (
+                                    "\nUse --allow-subdirectory-build to override."
+                                )
+
                             self.log(
                                 logging.WARNING,
                                 "build",
                                 {"target": target},
-                                "Build argument '{target}' is a subdirectory and was ignored. "
-                                "Use --allow-subdirectory-build to override.",
+                                message,
                             )
                             continue
 
@@ -1895,7 +1911,7 @@ class BuildDriver(MozbuildObject):
 
         return status
 
-    def install_tests(self):
+    def install_tests(self, force=False):
         """Install test files."""
 
         if self.is_clobber_needed():
@@ -1906,7 +1922,18 @@ class BuildDriver(MozbuildObject):
             )
             sys.exit(1)
 
-        install_test_files(mozpath.normpath(self.topsrcdir), self.topobjdir, "_tests")
+        skipped = install_test_files(
+            mozpath.normpath(self.topsrcdir),
+            self.topobjdir,
+            "_tests",
+            force=force,
+        )
+        if skipped:
+            print(
+                "Skipping test file installation (up to date). "
+                "Run with --force to force reinstallation.",
+                file=sys.stderr,
+            )
 
     def _clobber_configure(self):
         # This is an optimistic treatment of the CLOBBER file for when we have
@@ -2030,7 +2057,7 @@ class BuildDriver(MozbuildObject):
         # Copy the original mozconfig to the objdir.
         mozconfig_objdir = mozpath.join(self.topobjdir, ".mozconfig")
         if mozconfig["path"]:
-            with open(mozconfig["path"]) as ifh:
+            with open(mozconfig["path"], "rb") as ifh:
                 with FileAvoidWrite(mozconfig_objdir) as ofh:
                     ofh.write(ifh.read())
         else:

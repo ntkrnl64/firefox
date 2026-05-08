@@ -173,7 +173,7 @@
         style="@style/QuickSettingsText.Icon"
         android:layout_width="0dp"
         android:layout_height="@dimen/quicksettings_item_height"
-        app:drawableStartCompat="@drawable/ic_link"
+        app:drawableStartCompat="@drawable/mozac_ic_link_24"
         android:text="@string/preference_phone_feature_media_key_system_access"
         android:visibility="gone"
         app:layout_constraintBottom_toTopOf="@id/localDeviceAccessLabel"

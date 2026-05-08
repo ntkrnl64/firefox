@@ -22,6 +22,7 @@
 #include "gc/Scheduling.h"
 #include "gc/Statistics.h"
 #include "gc/StoreBuffer.h"
+#include "js/friend/CycleCollector.h"
 #include "js/friend/PerformanceHint.h"
 #include "js/GCAnnotations.h"
 #include "js/Realm.h"
@@ -110,13 +111,15 @@ class ChunkPool {
 
   void sort();
 
+  // Linear time, use with caution.
+  bool contains(ArenaChunk* chunk) const;
+
  private:
   ArenaChunk* mergeSort(ArenaChunk* list, size_t count);
   bool isSorted() const;
 
 #ifdef DEBUG
  public:
-  bool contains(ArenaChunk* chunk) const;
   bool verify() const;
   void verifyChunks() const;
 #endif
@@ -149,7 +152,7 @@ class BackgroundMarkTask : public GCParallelTask {
   bool isOverBudget() { return budget.isOverBudget(); }
 
  private:
-  bool isConcurrent;
+  bool isConcurrent = false;
   JS::SliceBudget budget;
   JS::SliceBudget::InterruptRequestFlag interruptRequest;
   friend class GCRuntime;
@@ -533,7 +536,7 @@ class GCRuntime {
   void setHostCleanupFinalizationRegistryCallback(
       JSHostCleanupFinalizationRegistryCallback callback, void* data);
   void callHostCleanupFinalizationRegistryCallback(JSFunction* doCleanup,
-                                                   JSObject* hostDefinedData);
+                                                   JSObject* incumbentGlobal);
   [[nodiscard]] bool addWeakPointerZonesCallback(
       JSWeakPointerZonesCallback callback, void* data);
   void removeWeakPointerZonesCallback(JSWeakPointerZonesCallback callback);
@@ -747,6 +750,18 @@ class GCRuntime {
                        Handle<WeakRefObject*> weakRef);
   void traceKeptObjects(JSTracer* trc);
 
+  void maybeClearWeakRefTargets(JS::ShouldClearWeakRefTargetCallback callback,
+                                void* data);
+
+  static bool isFinalizationObserverTarget(const Value& target);
+
+  static bool relocateFinalizationObserverTarget(const Value& oldTarget,
+                                                 const Value& newTarget);
+
+  static void clearWeakRefTargets(JS::Compartment* source, const Value& target);
+  static void clearWeakRefTargets(const CompartmentFilter& sourceFilter,
+                                  JS::Realm* targetFilter);
+
   JS::GCReason lastStartReason() const { return initialReason; }
 
   void updateAllocationRates();
@@ -838,7 +853,7 @@ class GCRuntime {
   // receive a request to do GC work.
   void checkCanCallAPI();
 
-  // Check if the system state is such that GC has been supressed
+  // Check if the system state is such that GC has been suppressed
   // or otherwise delayed.
   [[nodiscard]] bool checkIfGCAllowedInCurrentState(JS::GCReason reason);
 

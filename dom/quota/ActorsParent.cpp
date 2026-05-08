@@ -2118,8 +2118,10 @@ uint64_t QuotaManager::CollectOriginsForEviction(
                         });
 
         if (!match) {
-          MOZ_ASSERT(!originInfo->mCanonicalQuotaObjects.Count(),
-                     "Inactive origin shouldn't have open files!");
+          // Inactive origins shouldn't have open files
+          if (NS_WARN_IF(originInfo->mCanonicalQuotaObjects.Count())) {
+            continue;
+          }
           aInactiveOriginInfos.InsertElementSorted(
               originInfo, OriginInfoAccessTimeComparator());
         }
@@ -9399,9 +9401,9 @@ nsresult StorageOperationBase::OriginProps::Init(
   }();
 
   mLeafName = leafName;
-  mSpec = spec;
+  mSpec = std::move(spec);
   mAttrs = std::move(attrs);
-  mOriginalSuffix = originalSuffix;
+  mOriginalSuffix = std::move(originalSuffix);
   mPersistenceType.init(persistenceType);
   if (result == OriginParser::ObsoleteOrigin) {
     mType = eObsolete;

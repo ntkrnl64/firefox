@@ -366,6 +366,14 @@ size_t ArrayType::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const {
   return 0;
 }
 
+#ifdef ENABLE_WASM_JSPI
+const FuncType& ContType::funcType() const { return funcTypeDef_->funcType(); }
+
+size_t ContType::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const {
+  return 0;
+}
+#endif  // ENABLE_WASM_JSPI
+
 size_t TypeDef::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const {
   switch (kind_) {
     case TypeDefKind::Struct: {
@@ -377,6 +385,11 @@ size_t TypeDef::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const {
     case TypeDefKind::Array: {
       return arrayType_.sizeOfExcludingThis(mallocSizeOf);
     }
+#ifdef ENABLE_WASM_JSPI
+    case TypeDefKind::Cont: {
+      return contType_.sizeOfExcludingThis(mallocSizeOf);
+    }
+#endif
     case TypeDefKind::None: {
       return 0;
     }

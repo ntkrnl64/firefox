@@ -1375,6 +1375,7 @@
     string: String
   result_type: String
   movable: true
+  folds_to: custom
   congruent_to: if_operands_equal
   # Strings are immutable, so there is no implicit dependency.
   alias_set: none
@@ -1657,7 +1658,7 @@
 
 - name: BoxNonStrictThis
   operands:
-    def: Value
+    def: ValueOrObject
   arguments:
     globalThis: JSObject*
   result_type: Object
@@ -1930,7 +1931,6 @@
   result_type: Int32
   movable: true
   congruent_to: if_operands_equal
-  folds_to: custom
   alias_set:
     load: ObjectFields
   compute_range: custom
@@ -2377,25 +2377,6 @@
     iterator: Object
   result_type: Object
   can_recover: true
-
-# Used to fold Object.keys(obj).length into a single operation.
-#
-# This should not be used with a Proxy, as proxies can have a user-defined
-# `ownKeys` function which can have arbitrary outputs.
-#
-# This MIR node is created by folding an MObjectKeys with an MArrayLength, as
-# part of MArrayLength::foldsTo.
-- name: ObjectKeysLength
-  operands:
-    object: Object
-  result_type: Int32
-  movable: false
-  congruent_to: if_operands_equal
-  alias_set:
-    load: ObjectFields
-  clone: true
-  possibly_calls: true
-  generate_lir: true
 
 - name: LoadUnboxedScalar
   gen_boilerplate: false
@@ -3415,7 +3396,9 @@
   gen_boilerplate: false
 
 - name: GetIteratorCache
-  gen_boilerplate: false
+  operands:
+    value: ValueOrObject
+  result_type: Object
 
 - name: OptimizeSpreadCallCache
   operands:
@@ -3491,8 +3474,12 @@
 - name: HasOwnCache
   gen_boilerplate: false
 
+# Implementation for instanceof operator with specific rhs.
 - name: InstanceOf
-  gen_boilerplate: false
+  operands:
+    obj: ValueOrObject
+    proto: Object
+  result_type: Boolean
 
 # Implementation for instanceof operator with unknown rhs.
 - name: InstanceOfCache
@@ -3600,7 +3587,14 @@
   gen_boilerplate: false
 
 - name: IsCallable
-  gen_boilerplate: false
+  operands:
+    object: ValueOrObject
+  result_type: Boolean
+  movable: true
+  congruent_to: if_operands_equal
+  folds_to: custom
+  alias_set:
+    load: ObjectFields
 
 - name: IsConstructor
   operands:
@@ -3652,8 +3646,12 @@
 - name: GuardToFunction
   gen_boilerplate: false
 
+# Note: we might call a proxy trap, so this instruction is effectful.
 - name: IsArray
-  gen_boilerplate: false
+  operands:
+    value: ValueOrObject
+  result_type: Boolean
+  folds_to: custom
 
 - name: IsTypedArray
   gen_boilerplate: false
@@ -4559,6 +4557,89 @@
   generate_lir: true
   lir_temps: 2
 
+- name: DateNow
+  result_type: Double
+  alias_set: none
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 1
+
+- name: DateParse
+  operands:
+    string: String
+  result_type: Double
+  # Date.parse reads the current time zone, so there's actually load-dependency
+  # on the time zone. AliasSet doesn't have a flag to model this dependency and
+  # because it seems wasteful to use one of the few remaining bits for it, this
+  # instruction can neither be marked as movable nor implement congruentTo.
+  alias_set: none
+  folds_to: custom
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 1
+
+- name: TimeClip
+  operands:
+    time: Double
+  result_type: Double
+  movable: true
+  congruent_to: if_operands_equal
+  alias_set: none
+  folds_to: custom
+  generate_lir: true
+
+- name: LocalTimeToUTC
+  operands:
+    localTime: Int64
+  result_type: Double
+  type_policy: none
+  # Neither movable nor implements congruentTo, see DateParse.
+  alias_set: none
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 1
+
+- name: YearFromTime
+  operands:
+    utcTime: Double
+  result_type: Double
+  # Neither movable nor implements congruentTo, see DateParse.
+  alias_set: none
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 1
+
+- name: MonthFromTime
+  operands:
+    utcTime: Double
+  result_type: Double
+  # Neither movable nor implements congruentTo, see DateParse.
+  alias_set: none
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 1
+
+- name: DateFromTime
+  operands:
+    utcTime: Double
+  result_type: Double
+  # Neither movable nor implements congruentTo, see DateParse.
+  alias_set: none
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 1
+
+- name: NewDateObject
+  operands:
+    utcTime: Double
+  arguments:
+    templateObject: JSObject*
+  result_type: Object
+  alias_set: none
+  can_recover: true
+  generate_lir: true
+  lir_temps: 1
+
 - name: PostIntPtrConversion
   gen_boilerplate: false
 
@@ -4744,6 +4825,47 @@
 - name: WasmReturnCall
   gen_boilerplate: false
 
+#ifdef ENABLE_WASM_JSPI
+- name: WasmFindHandler
+  operands:
+    instance: Pointer
+    tag: WasmAnyRef
+  arguments:
+    trap: wasm::Trap
+    trapSiteDesc: wasm::TrapSiteDesc
+  result_type: Pointer
+  movable: false
+  guard: true
+  type_policy: none
+  generate_lir: true
+  lir_temps: 4
+
+- name: WasmSuspend
+  operands:
+    instance: Pointer
+    suspendedCont: WasmAnyRef
+    handler: Pointer
+  arguments:
+    callSiteDesc: wasm::CallSiteDesc
+  type_policy: none
+  possibly_calls: true
+  generate_lir: true
+  lir_temps: 3
+
+- name: WasmResumeBarrier
+  operands:
+    instance: Pointer
+    cont: WasmAnyRef
+  movable: false
+  guard: true
+  type_policy: none
+  generate_lir: true
+  lir_temps: 1
+
+- name: WasmResume
+  gen_boilerplate: false
+#endif
+
 - name: WasmSelect
   gen_boilerplate: false
 
@@ -4752,37 +4874,6 @@
 
 - name: Rotate
   gen_boilerplate: false
-
-- name: WasmStackSwitchToMain
-  operands:
-    instance: Pointer
-    suspender: WasmAnyRef
-    fn: WasmAnyRef
-    data: WasmAnyRef
-  result_type: WasmAnyRef
-  type_policy: none
-  possibly_calls: true
-  generate_lir: true
-
-- name: WasmStackSwitchToSuspendable
-  operands:
-    instance: Pointer
-    suspender: WasmAnyRef
-    fn: WasmAnyRef
-    data: WasmAnyRef
-  type_policy: none
-  possibly_calls: true
-  generate_lir: true
-
-- name: WasmStackContinueOnSuspendable
-  operands:
-    instance: Pointer
-    suspender: WasmAnyRef
-    result: WasmAnyRef
-  type_policy: none
-  possibly_calls: true
-  generate_lir: true
-  lir_temps: 2
 
 - name: WasmBinarySimd128
   gen_boilerplate: false

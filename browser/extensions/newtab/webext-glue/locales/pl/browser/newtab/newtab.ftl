@@ -8,9 +8,13 @@
 newtab-page-title = Nowa karta
 newtab-settings-button =
     .title = Dostosuj stronę nowej karty
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button =
     .title = Dostosuj tę stronę
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button-label once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button-label = Dostosuj
+newtab-customize-panel-label =
+    .label = Dostosuj
 newtab-personalize-settings-icon-label =
     .title = Personalizuj nową kartę
     .aria-label = Ustawienia
@@ -144,6 +148,9 @@ newtab-menu-report = Zgłoś
 # Context menu option to personalize New Tab recommended stories by blocking a section of stories,
 # e.g. "Sports". "Block" is a verb here.
 newtab-menu-section-block = Blokuj
+# "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
+# e.g. Following the travel section of stories.
+newtab-menu-section-unfollow-topic = Przestań obserwować
 # "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
 # e.g. Following the travel section of stories.
 newtab-menu-section-unfollow = Przestań obserwować temat
@@ -310,9 +317,24 @@ newtab-error-fallback-refresh-link = Odśwież stronę, by spróbować ponownie
 
 newtab-custom-shortcuts-title = Skróty
 newtab-custom-shortcuts-subtitle = Zachowane i odwiedzane strony.
+#  (developer note): @nova-cleanup(remove-string): Remove old string once Nova lands. The newtab-custom-shortcuts-nova string will take over
 newtab-custom-shortcuts-toggle =
     .label = Skróty
     .description = Zachowane i odwiedzane strony.
+newtab-custom-shortcuts-nova =
+    .label = Skróty
+newtab-custom-row-description =
+    .description = Liczba wierszy
+# Variables
+#   $num (number) - Number of rows to display
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be using "row"/"rows" anymore for the dropdown
+newtab-custom-row-selector2 =
+    .label =
+        { $num ->
+            [one] { $num } wiersz
+            [few] { $num } wiersze
+           *[many] { $num } wierszy
+        }
 # Variables
 #   $num (number) - Number of rows to display
 newtab-custom-row-selector =
@@ -324,9 +346,12 @@ newtab-custom-row-selector =
 newtab-custom-sponsored-sites = Sponsorowane skróty
 newtab-custom-pocket-title = Polecane przez { -pocket-brand-name }
 newtab-custom-pocket-subtitle = Wyjątkowe rzeczy wybrane przez { -pocket-brand-name }, część rodziny { -brand-product-name(case: "gen") }.
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be having a description under "Recommended stories" anymore
 newtab-custom-stories-toggle =
     .label = Polecane artykuły
     .description = Wyjątkowe rzeczy wybrane przez rodzinę { -brand-product-name(case: "gen") }
+newtab-recommended-stories-toggle =
+    .label = Polecane artykuły
 newtab-custom-stories-personalized-toggle =
     .label = Artykuły
 newtab-custom-stories-personalized-checkbox-label = Spersonalizowane artykuły na podstawie działań użytkownika
@@ -360,8 +385,11 @@ newtab-custom-settings = Więcej ustawień
 
 newtab-wallpaper-title = Tapety
 newtab-wallpaper-reset = Przywróć domyślne
+#  (developer note): @nova-cleanup(remove-string): Remove old "Upload an image" string once Nova lands. The new "Add an image"  string will take over
 newtab-wallpaper-upload-image = Dodaj obraz
 newtab-wallpaper-custom-color = Wybierz kolor
+newtab-wallpaper-toggle-title =
+    .label = Tapety
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = Obraz przekracza ograniczenie rozmiaru pliku wynoszące { $file_size } MB. Spróbuj dodać mniejszy plik.
@@ -384,6 +412,7 @@ newtab-wallpaper-light-fox-anniversary = Lis na łące na tle mglistych gór
 
 ## Solid Colors
 
+#  (developer note): @nova-cleanup(remove-string): Remove old "Solid colors" string once Nova lands. The simplified "Colors" string will take over
 newtab-wallpaper-category-title-colors = Jednolite kolory
 newtab-wallpaper-blue = Niebieski
 newtab-wallpaper-light-blue = Jasnoniebieski
@@ -459,7 +488,7 @@ newtab-wallpaper-celestial-lunar-eclipse = Zaćmienie Księżyca
 newtab-wallpaper-celestial-earth-night = Zdjęcie nocne z niskiej orbity okołoziemskiej
 newtab-wallpaper-celestial-starry-sky = Gwiaździste niebo
 newtab-wallpaper-celestial-eclipse-time-lapse = Poklatkowe zaćmienie Księżyca
-newtab-wallpaper-celestial-black-hole = Ilustracja galaktyki z czarną dziurą
+newtab-wallpaper-celestial-black-hole = Ilustracja przedstawiająca galaktykę z czarną dziurą
 newtab-wallpaper-celestial-river = Zdjęcie satelitarne rzeki
 
 ## New Tab Weather
@@ -490,7 +519,6 @@ newtab-weather-menu-temperature-option-fahrenheit = Stopnie Fahrenheita
 newtab-weather-menu-temperature-option-celsius = Stopnie Celsjusza
 newtab-weather-menu-change-temperature-units-fahrenheit = Przełącz na stopnie Fahrenheita
 newtab-weather-menu-change-temperature-units-celsius = Przełącz na stopnie Celsjusza
-newtab-weather-menu-hide-weather-v2 = Ukryj pogodę
 newtab-weather-menu-hide-weather = Ukryj pogodę na stronie nowej karty
 newtab-weather-menu-learn-more = Więcej informacji
 newtab-weather-menu-detect-my-location = Wykryj moje położenie
@@ -503,6 +531,12 @@ newtab-weather-opt-in-yes =
     .label = Tak
 # We'll be showing static (fake) weather data if the user has not opted in to using their location
 newtab-weather-static-city = Nowy Jork
+# "Highest" here refers to the highest temperature of the day
+newtab-weather-high =
+    .aria-label = Najwyższa
+# "Lowest" here refers to the lowest temperature of the day
+newtab-weather-low =
+    .aria-label = Najniższa
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-see-forecast-description =
@@ -576,6 +610,7 @@ newtab-section-confirm-block-topic-p2 = Zablokowane tematy nie będą już wyśw
 # Variables:
 #   $topic (string) - Name of topic that user is blocking
 newtab-section-block-topic-button = Zablokuj temat „{ $topic }”
+newtab-section-block-cancel-button = Anuluj
 
 ## Strings for custom wallpaper highlight
 
@@ -639,6 +674,18 @@ newtab-toast-thanks-for-reporting =
     .message = Dziękujemy za zgłoszenie.
 newtab-toast-widgets-hidden =
     .message = Aby z powrotem dodać widżety, kliknij ikonę ołówka.
+# Variables:
+#   $topic (string) - Topic that the user has followed
+newtab-section-toast-follow =
+    .message = Od teraz obserwujesz temat „{ $topic }”.
+# Variables:
+#   $topic (string) - Topic that the user has unfollowed
+newtab-section-toast-unfollow =
+    .message = Już nie obserwujesz tematu „{ $topic }”.
+# Variables:
+#   $topic (string) - Topic that the user has blocked
+newtab-section-toast-block =
+    .message = Nie będziemy już wyświetlać artykułów na temat „{ $topic }”.
 
 ## Strings for task / to-do list productivity widget
 
@@ -655,11 +702,16 @@ newtab-widget-lists-label-beta =
 newtab-widget-lists-completed-list = Ukończone ({ $number })
 newtab-widget-task-list-menu-copy = Kopiuj
 newtab-widget-lists-menu-edit = Edytuj nazwę listy
+newtab-widget-lists-menu-edit2 =
+    .aria-label = Edytuj nazwę listy
 newtab-widget-lists-menu-create = Utwórz nową listę
 newtab-widget-lists-menu-delete = Usuń tę listę
 newtab-widget-lists-menu-copy = Kopiuj listę do schowka
-newtab-widget-lists-menu-hide = Ukryj wszystkie listy
 newtab-widget-lists-menu-learn-more = Więcej informacji
+newtab-widget-lists-button-add-item = Dodaj pozycję
+newtab-widget-lists-input-add-an-item2 =
+    .placeholder = Dodaj pozycję
+    .aria-label = Dodaj pozycję
 newtab-widget-lists-input-add-an-item =
     .placeholder = Dodaj pozycję
 newtab-widget-lists-input-error = Wpisz tekst, aby dodać pozycję.
@@ -676,10 +728,18 @@ newtab-widget-lists-name-label-default =
 newtab-widget-lists-name-placeholder-default =
     .placeholder = Lista zadań
 # The placeholder value of the name field for a newly created list
+newtab-widget-lists-name-placeholder-new2 =
+    .placeholder = Nowa lista
+    .aria-label = Edytuj nazwę listy
+# The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nowa lista
 newtab-widget-section-title = Widżety
 newtab-widget-menu-hide = Ukryj widżet
+newtab-widget-menu-change-size = Zmień rozmiar
+newtab-widget-size-small = Mały
+newtab-widget-size-medium = Średni
+newtab-widget-size-large = Duży
 # Tooltip for hide all widgets button
 newtab-widget-section-hide-all-button =
     .title = Ukryj widżety
@@ -692,8 +752,7 @@ newtab-widget-section-minimize =
     .aria-label = Zwiń wszystkie widżety do małego rozmiaru
 newtab-widget-section-feedback = Powiedz nam, co sądzisz
 
-## Strings for timer productivity widget
-## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+## Strings introduced by the Nova redesign of the Timer widget
 
 newtab-widget-timer-notification-title = Minutnik
 newtab-widget-timer-notification-focus = Czas na skupienie minął. Dobra robota. Potrzebujesz przerwy?
@@ -711,7 +770,6 @@ newtab-widget-timer-reset =
     .title = Przywróć
 newtab-widget-timer-menu-notifications = Wyłącz powiadomienia
 newtab-widget-timer-menu-notifications-on = Włącz powiadomienia
-newtab-widget-timer-menu-hide = Ukryj minutnik
 newtab-widget-timer-menu-learn-more = Więcej informacji
 # The title displays above a set of top news headlines.
 newtab-daily-briefing-card-title = Najważniejsze nagłówki
@@ -722,6 +780,12 @@ newtab-daily-briefing-card-timestamp = Zaktualizowano { $minutes } min temu
 newtab-widget-message-title = Nie trać koncentracji dzięki listom i wbudowanemu minutnikowi
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Od szybkich przypomnień po codzienne listy zadań, od sesji skupienia po przerwy na rozciągnięcie — nie trać koncentracji ani czasu.
+# "Make Firefox yours" refers to about:newtab. The call to action here ("Try it now")
+# is to customize the new tab page with a background image or color from
+# the built-in wallpaper collection or uploading your own image.
+newtab-promo-card-title-addons = Ustaw { -brand-product-name(case: "acc") } po swojemu
+newtab-promo-card-body-addons = Wybierz tapetę z naszej kolekcji lub utwórz własną.
+newtab-promo-card-cta-addons = Wypróbuj teraz
 newtab-promo-card-title = Wspieraj { -brand-product-name(case: "acc") }
 newtab-promo-card-body = Nasi sponsorzy wspierają naszą misję budowania lepszej sieci.
 newtab-promo-card-cta = Więcej informacji

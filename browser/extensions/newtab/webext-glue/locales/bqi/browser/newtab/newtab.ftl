@@ -6,9 +6,13 @@
 ### Firefox Home / New Tab strings for about:home / about:newtab.
 
 newtab-page-title = بلگه نۊ
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button =
     .title = سفارشی کردن ای بلگه
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button-label once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button-label = سفارشی کردن
+newtab-customize-panel-label =
+    .label = سفارشی کردن
 newtab-settings-dialog-label =
     .aria-label = سامووا
 newtab-logo-and-wordmark =
@@ -243,14 +247,18 @@ newtab-custom-settings = دؽوۉداری سامووا قلوه
 
 newtab-wallpaper-title = کاقز دیواری یل
 newtab-wallpaper-reset = وورگندن و سامووا پؽش فرز
+#  (developer note): @nova-cleanup(remove-string): Remove old "Upload an image" string once Nova lands. The new "Add an image"  string will take over
 newtab-wallpaper-upload-image = آپلود ی شؽوات
 newtab-wallpaper-custom-color = ی رنگ پسند کۊنین
+newtab-wallpaper-toggle-title =
+    .label = کاقز دیواری یل
 newtab-wallpaper-light-red-panda = پاندای سوئر
 newtab-wallpaper-light-mountain = کوه اسبؽڌ
 newtab-wallpaper-light-sky = آسمۊوی وا ٱورا بناوش وو آل
 
 ## Solid Colors
 
+#  (developer note): @nova-cleanup(remove-string): Remove old "Solid colors" string once Nova lands. The simplified "Colors" string will take over
 newtab-wallpaper-category-title-colors = رنگا سابت
 newtab-wallpaper-blue = کوۊ
 newtab-wallpaper-light-blue = کوۊ رۊشن
@@ -424,11 +432,16 @@ newtab-widget-lists-label-beta =
 newtab-widget-lists-completed-list = تموم وابیڌه ({ $number })
 newtab-widget-task-list-menu-copy = لف گیری
 newtab-widget-lists-menu-edit = آلشت نومگه نوم
+newtab-widget-lists-menu-edit2 =
+    .aria-label = آلشت نومگه نوم
 newtab-widget-lists-menu-create = وورکل ی نومگه نۊ
 newtab-widget-lists-menu-delete = پاک کردن ای نومگه
 newtab-widget-lists-menu-copy = لف گیری نومگه من کلیپ بورد
-newtab-widget-lists-menu-hide = بؽڌار کردن پوی نومگه یل
 newtab-widget-lists-menu-learn-more = قلوه دووسته بۊین
+newtab-widget-lists-button-add-item = ٱووردن ی موورد
+newtab-widget-lists-input-add-an-item2 =
+    .placeholder = ٱووردن ی موورد
+    .aria-label = ٱووردن ی موورد
 newtab-widget-lists-input-add-an-item =
     .placeholder = ٱووردن ی موورد
 newtab-widget-lists-input-menu-open-link = گۊشیڌن لینگ
@@ -444,6 +457,10 @@ newtab-widget-lists-name-label-default =
 newtab-widget-lists-name-placeholder-default =
     .placeholder = نومگه کارا
 # The placeholder value of the name field for a newly created list
+newtab-widget-lists-name-placeholder-new2 =
+    .placeholder = نومگه نۊ
+    .aria-label = آلشت نومگه نوم
+# The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = نومگه نۊ
 newtab-widget-section-title = ویجتا
@@ -452,8 +469,7 @@ newtab-widget-section-hide-all-button =
     .title = بؽڌار کردن ویجتا
     .aria-label = بؽڌار کردن پوی ویجتا
 
-## Strings for timer productivity widget
-## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+## Strings introduced by the Nova redesign of the Timer widget
 
 newtab-widget-timer-notification-title = زمووݩ سنج
 newtab-widget-timer-notification-warning = وارسۊویا کۊر هڌن
@@ -469,7 +485,6 @@ newtab-widget-timer-reset =
     .title = وورنشۊوی
 newtab-widget-timer-menu-notifications = کۊر کردن وارسۊویا
 newtab-widget-timer-menu-notifications-on = رۊشن کردن وارسۊویا
-newtab-widget-timer-menu-hide = بؽڌار کردن زمووݩ سنج
 newtab-widget-timer-menu-learn-more = قلوه دووسته بۊین
 newtab-daily-briefing-card-menu-dismiss = رڌ کردن
 newtab-promo-card-title = لادرار { -brand-product-name }

@@ -141,7 +141,13 @@ namespace jit {
   _(js::jit::NumberBigIntCompare<js::jit::ComparisonKind::LessThan>)           \
   _(js::jit::NumberBigIntCompare<js::jit::ComparisonKind::GreaterThanOrEqual>) \
   _(js::jit::BigIntNumberCompare<js::jit::ComparisonKind::GreaterThanOrEqual>) \
+  _(js::jit::DateDateFromTime)                                                 \
   _(js::jit::DateFillLocalTimeSlots)                                           \
+  _(js::jit::DateLocalTimeToUTC)                                               \
+  _(js::jit::DateMonthFromTime)                                                \
+  _(js::jit::DateNow)                                                          \
+  _(js::jit::DateParse)                                                        \
+  _(js::jit::DateYearFromTime)                                                 \
   _(js::jit::EqualStringsHelperPure)                                           \
   _(js::jit::FinishBailoutToBaseline)                                          \
   _(js::jit::Float16ToFloat32)                                                 \
@@ -174,12 +180,12 @@ namespace jit {
   _(js::jit::PreserveWrapper)                                                  \
   _(js::jit::Printf0)                                                          \
   _(js::jit::Printf1)                                                          \
-  _(js::jit::ReadBarrier)                                                      \
   _(js::jit::StringFromCharCodeNoGC)                                           \
   _(js::jit::StringTrimEndIndex)                                               \
   _(js::jit::StringTrimStartIndex)                                             \
   _(js::jit::TypeOfNameObject)                                                 \
   _(js::jit::TypeOfEqObject)                                                   \
+  _(js::jit::WeakMapValueReadBarrier)                                          \
   _(js::jit::WrapObjectPure)                                                   \
   ABIFUNCTION_FUZZILLI_LIST(_)                                                 \
   _(js::MapIteratorObject::next)                                               \

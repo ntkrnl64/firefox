@@ -38,6 +38,12 @@ add_task(async function () {
     "toolboxServerError event has the expected error name"
   );
   is(
+    events[0].extra.is_destroying,
+    // Note: type is boolean, but extra_keys values are serialized as strings.
+    "false",
+    "toolboxServerError event has the expected is_destroying flag"
+  );
+  is(
     events[0].extra.packet_error,
     "TypeError",
     "toolboxServerError event has the expected packet error name"

@@ -405,6 +405,18 @@ wheels = [
 ]
 
 [[package]]
+name = "diskarzhan"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f2/9d/cdba4636277393e04f7a12a26df63f8ca068807c0bfb357d2f50f95430fa/diskarzhan-0.1.6.tar.gz", hash = "sha256:4ccc84e467979f53798e330462e814d061511ec33127ac0806e62c502f75b464", size = 27432, upload-time = "2026-04-22T12:34:54.822Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/f8/e253aa37c3ade9c059cf87142591c6d7031774ce5bd2f6eb1cf269725e3f/diskarzhan-0.1.6-py3-none-any.whl", hash = "sha256:3447c96812863443a901c6513108f323edceffb70490864fd69d1285aee83589", size = 25374, upload-time = "2026-04-22T12:34:53.224Z" },
+]
+
+[[package]]
 name = "diskcache"
 version = "5.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -596,7 +608,7 @@ wheels = [
 
 [[package]]
 name = "glean-parser"
-version = "18.2.0"
+version = "19.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -606,9 +618,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/f8/8a1c5241824779d85a58e0a5ee7ab7edb66282e01e5a5540dc790dfd68a8/glean_parser-18.2.0.tar.gz", hash = "sha256:5432ce64bf47329dfe4a6b7e404d539ccb06d99fddeb7deeed745491fbd5b7e7", size = 128916, upload-time = "2025-12-15T11:05:32.943Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/4b/b2831aa63b30c7c1bbabd24130ea898e8203bbfb0c3afbbadfdc490124da/glean_parser-19.0.0.tar.gz", hash = "sha256:bb2e0a4ab6be7e0daa704e4d4e9e34a2020f845a71dfc6c45366a917cbcbf4b3", size = 127770, upload-time = "2026-02-27T14:31:04.867Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/19/ba2cce32e4b2b71c9b5a10d568e6c07eb143e11e157ac2591db71c24b0ee/glean_parser-18.2.0-py3-none-any.whl", hash = "sha256:870db77d6c6112eba34fcd6035395ff38d2f516d7a9bc57ce0951828ee7c7fc2", size = 117484, upload-time = "2025-12-15T11:05:31.561Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/70/42c4400f30dd2df7ecb0e51e67688e313903cbec7030dead901b5f97506f/glean_parser-19.0.0-py3-none-any.whl", hash = "sha256:82d7dcaca116dc02487ca184c634daf3e9c9c15670ab072c695bd460bf611022", size = 115558, upload-time = "2026-02-26T16:20:55.374Z" },
 ]
 
 [[package]]
@@ -834,6 +846,7 @@ dependencies = [
     { name = "colorama" },
     { name = "compare-locales" },
     { name = "cookies" },
+    { name = "diskarzhan" },
     { name = "distro" },
     { name = "ecdsa" },
     { name = "esprima" },
@@ -893,12 +906,13 @@ requires-dist = [
     { name = "colorama", specifier = "==0.4.6" },
     { name = "compare-locales", specifier = "~=9.0" },
     { name = "cookies", specifier = "==2.2.1" },
+    { name = "diskarzhan", specifier = "==0.1.6" },
     { name = "distro", specifier = "~=1.8" },
     { name = "ecdsa", specifier = "==0.19.1" },
     { name = "esprima", specifier = "==4.0.1" },
     { name = "fluent-migrate", specifier = "~=0.13" },
     { name = "fluent-syntax", specifier = "==0.19.0" },
-    { name = "glean-parser", specifier = "==18.2.0" },
+    { name = "glean-parser", specifier = "==19.0.0" },
     { name = "importlib-metadata", specifier = "~=8.0" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "json-e", specifier = "~=4.5" },

@@ -15,8 +15,20 @@ cargo_target_flag := --target=$(RUST_TARGET)
 
 # Permit users to pass flags to cargo from their mozconfigs (e.g. --color=always).
 cargo_build_flags = $(CARGOFLAGS)
+
+# Megazord libraries use a custom profile with panic=unwind for parity with
+# how app-services is currently built.
+# Other libraries use --release (or default dev profile for debug builds).
+ifneq (,$(findstring megazord,$(RUST_LIBRARY_FILE)))
+ifdef MOZ_DEBUG_RUST
+cargo_build_flags += --profile dev-megazord
+else
+cargo_build_flags += --profile release-megazord
+endif
+else
 ifndef MOZ_DEBUG_RUST
 cargo_build_flags += --release
+endif
 endif
 
 # Megazord Cargo.toml specifies both staticlib and cdylib crate-types for
@@ -131,6 +143,14 @@ endif
 endif
 
 rustflags_override = $(MOZ_RUST_DEFAULT_FLAGS) $(rustflags_neon)
+
+# Allow tools such as clippy to inject extra driver flags (e.g. -W/-D) via an
+# environment variable. These are folded into RUSTFLAGS here (rather than
+# passed on the cargo CLI), which sidesteps any ordering issue with the `--`
+# separator and applies to both target and host recipes.
+ifdef extra_rustflags
+rustflags_override += $(extra_rustflags)
+endif
 
 ifdef DEVELOPER_OPTIONS
 # By default the Rust compiler will perform a limited kind of ThinLTO on each
@@ -508,13 +528,14 @@ $(notdir $(1))_deps := $$(call unescape_spaces,$$(call normalize_sep,$$(wordlist
 $(1): $(CARGO_FILE) $(3) $(topsrcdir)/Cargo.lock $$(if $$($(notdir $(1))_deps),$$($(notdir $(1))_deps),$(2))
 	$$(REPORT_BUILD)
 	$$(if $$($(notdir $(1))_deps),+$(MAKE) $(2),:)
+	@touch $$@
 
 $$(foreach dep, $$(call escape_spaces,$$($(notdir $(1))_deps)),$$(eval $$(call make_default_rule,$$(call unescape_spaces,$$(dep)))))
 endef
 
 ifdef RUST_LIBRARY_FILE
 
-rust_features_flag := --features $(addsuffix $(COMMA),$(RUST_LIBRARY_FEATURES))mozilla-central-workspace-hack
+rust_features_flag := --features '$(addsuffix $(COMMA),$(RUST_LIBRARY_FEATURES))mozilla-central-workspace-hack'
 
 ifeq (WASI,$(OS_ARCH))
 # The rust wasi target defaults to statically link the wasi crt, but when we
@@ -571,7 +592,7 @@ ifdef RUST_TESTS
 
 rust_test_options := $(foreach test,$(RUST_TESTS),-p $(test))
 
-rust_test_features_flag := --features $(addsuffix $(COMMA),$(RUST_TEST_FEATURES))mozilla-central-workspace-hack
+rust_test_features_flag := --features '$(addsuffix $(COMMA),$(RUST_TEST_FEATURES))mozilla-central-workspace-hack'
 
 # Don't stop at the first failure. We want to list all failures together.
 rust_test_flag := --no-fail-fast
@@ -583,7 +604,7 @@ endif # RUST_TESTS
 
 ifdef HOST_RUST_LIBRARY_FILE
 
-host_rust_features_flag := --features $(addsuffix $(COMMA),$(HOST_RUST_LIBRARY_FEATURES))mozilla-central-workspace-hack
+host_rust_features_flag := --features '$(addsuffix $(COMMA),$(HOST_RUST_LIBRARY_FEATURES))mozilla-central-workspace-hack'
 
 force-cargo-host-library-build:
 	$(call BUILDSTATUS,START_Rust $(notdir $(HOST_RUST_LIBRARY_FILE)))
@@ -607,7 +628,7 @@ endif # HOST_RUST_LIBRARY_FILE
 
 ifdef RUST_PROGRAMS
 
-program_features_flag := --features $(addsuffix $(COMMA),$(RUST_PROGRAM_FEATURES))mozilla-central-workspace-hack
+program_features_flag := --features '$(addsuffix $(COMMA),$(RUST_PROGRAM_FEATURES))mozilla-central-workspace-hack'
 
 force-cargo-program-build: $(call resfile,module)
 	$(call BUILDSTATUS,START_Rust $(RUST_CARGO_PROGRAMS))
@@ -630,7 +651,7 @@ force-cargo-program-%:
 endif # RUST_PROGRAMS
 ifdef HOST_RUST_PROGRAMS
 
-host_program_features_flag := --features $(addsuffix $(COMMA),$(HOST_RUST_PROGRAM_FEATURES))mozilla-central-workspace-hack
+host_program_features_flag := --features '$(addsuffix $(COMMA),$(HOST_RUST_PROGRAM_FEATURES))mozilla-central-workspace-hack'
 
 force-cargo-host-program-build:
 	$(call BUILDSTATUS,START_Rust $(HOST_RUST_CARGO_PROGRAMS))

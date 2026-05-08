@@ -15,6 +15,7 @@ smartwindow-assistant-error-account-header = To use Smart Window, you’ll need 
 smartwindow-assistant-error-budget-body = You can still browse in this window. Chat will be available again after midnight ET.
 smartwindow-assistant-error-many-requests-header = Please wait a moment and try again. Too many messages were sent in a short time.
 smartwindow-assistant-error-max-length-header = It’s time to start a new chat. This one’s reached its length limit.
+smartwindow-assistant-error-page-content-header = This request didn’t go through because something in the page or your message was flagged as potentially unsafe. Try a different request.
 smartwindow-retry-btn = Try Again
 smartwindow-clear-btn = New chat
 smartwindow-signin-btn = Sign in
@@ -34,3 +35,23 @@ aiwindow-retry =
 aiwindow-copy-message =
     .tooltiptext = Copy
     .aria-label = Copy message
+aiwindow-thumbs-up =
+    .tooltiptext = Good response
+    .aria-label = Good response
+aiwindow-thumbs-down =
+    .tooltiptext = Bad response
+    .aria-label = Bad response
+aiwindow-applied-memories-popover =
+    .aria-label = Applied memories
+
+## Jump to Bottom Button
+
+aiwindow-jump-to-bottom =
+    .tooltiptext = Jump to bottom
+    .aria-label = Jump to bottom of chat
+
+## Natural Language Action
+
+smartwindow-nl-thinking = Looking for matching tabs…
+smartwindow-nl-undo-button =
+    .label = Undo

@@ -17,26 +17,31 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
+import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.compose.content
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import kotlinx.coroutines.launch
+import mozilla.components.compose.base.LinkTextState
+import mozilla.components.concept.engine.webextension.InstallationMethod
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
 import mozilla.components.service.nimbus.evalJexlSafe
 import mozilla.components.service.nimbus.messaging.use
+import mozilla.components.support.base.ext.areNotificationsEnabledSafe
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.utils.Browsers
+import mozilla.components.support.utils.BuildManufacturerChecker
 import org.mozilla.fenix.GleanMetrics.Pings
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
 import org.mozilla.fenix.components.initializeGlean
+import org.mozilla.fenix.components.metrics.Event
 import org.mozilla.fenix.components.metrics.installSourcePackage
 import org.mozilla.fenix.components.startMetricsIfEnabled
-import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.ext.application
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.hideToolbar
@@ -84,11 +89,23 @@ class OnboardingFragment : Fragment() {
 
     private val pagesToDisplay by lazy {
         with(requireContext()) {
-            pagesToDisplay(
-                showDefaultBrowserPage = displayDefaultBrowserPage(this),
-                showNotificationPage = canShowNotificationPage(),
-                showAddWidgetPage = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(activity)),
-            ).toMutableList()
+            if (settings().rtamoAddonDownloadUrl.isNotBlank()) {
+                pagesToDisplay(
+                    showDefaultBrowserPage = false,
+                    showNotificationPage = false,
+                    showAddWidgetPage = false,
+                ).filter {
+                    it.type == OnboardingPageUiData.Type.TERMS_OF_SERVICE
+                }.toMutableList()
+            } else {
+                pagesToDisplay(
+                    showDefaultBrowserPage = displayDefaultBrowserPage(this),
+                    showNotificationPage = canShowNotificationPage(this),
+                    showAddWidgetPage = AppWidgetManager.getInstance(requireContext())
+                        ?.let { canShowAddSearchWidgetPrompt(it) }
+                        ?: false,
+                ).toMutableList()
+            }
         }
     }
 
@@ -272,7 +289,6 @@ class OnboardingFragment : Fragment() {
             },
             onFinish = {
                 onFinish(it)
-                enableSearchBarCFRForNewUser()
             },
             onImpression = {
                 telemetryRecorder.onImpression(
@@ -363,14 +379,14 @@ class OnboardingFragment : Fragment() {
                 telemetryRecorder.onNotificationPermissionClick(
                     sequenceId = pagesToDisplay.telemetrySequenceId(),
                     sequencePosition =
-                    pagesToDisplay.sequencePosition(OnboardingPageUiData.Type.NOTIFICATION_PERMISSION),
+                        pagesToDisplay.sequencePosition(OnboardingPageUiData.Type.NOTIFICATION_PERMISSION),
                 )
             },
             onSkipNotificationClick = {
                 telemetryRecorder.onSkipTurnOnNotificationsClick(
                     sequenceId = pagesToDisplay.telemetrySequenceId(),
                     sequencePosition =
-                    pagesToDisplay.sequencePosition(OnboardingPageUiData.Type.NOTIFICATION_PERMISSION),
+                        pagesToDisplay.sequencePosition(OnboardingPageUiData.Type.NOTIFICATION_PERMISSION),
                 )
             },
             onAddFirefoxWidgetClick = {
@@ -388,7 +404,6 @@ class OnboardingFragment : Fragment() {
             },
             onFinish = {
                 onFinish(it)
-                enableSearchBarCFRForNewUser()
             },
             onImpression = {
                 telemetryRecorder.onImpression(
@@ -491,6 +506,7 @@ class OnboardingFragment : Fragment() {
         requireComponents.fenixOnboarding.finish()
 
         val settings = requireContext().settings()
+        settings.onboardingCompletedTimestamp = System.currentTimeMillis()
 
         // Telemetry and daily usage ping get enabled after ToU acceptance.
         startMetricsIfEnabled(
@@ -501,6 +517,17 @@ class OnboardingFragment : Fragment() {
             isDailyUsagePingEnabled = false,
         )
 
+        requireComponents.analytics.metrics.track(Event.GrowthData.ConversionEvent6)
+
+        val downloadUrl = settings.rtamoAddonDownloadUrl
+        if (downloadUrl.isNotBlank()) {
+            settings.rtamoAddonDownloadUrl = ""
+            requireComponents.addonManager.installAddon(
+                url = downloadUrl,
+                installationMethod = InstallationMethod.RTAMO,
+            )
+        }
+
         findNavController().nav(
             id = R.id.onboardingFragment,
             directions = OnboardingFragmentDirections.actionHome(),
@@ -509,14 +536,12 @@ class OnboardingFragment : Fragment() {
         maybeAddMenuNotification()
     }
 
-    private fun enableSearchBarCFRForNewUser() {
-        requireContext().settings().shouldShowSearchBarCFR = FxNimbus.features.encourageSearchCfr.value().enabled
-    }
-
     private fun isNotDefaultBrowser(context: Context) =
         !Browsers.isDefaultBrowser(context)
 
-    private fun canShowNotificationPage() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    private fun canShowNotificationPage(context: Context) =
+        !NotificationManagerCompat.from(context.applicationContext)
+            .areNotificationsEnabledSafe() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 
     private fun pagesToDisplay(
         showDefaultBrowserPage: Boolean,
@@ -551,6 +576,7 @@ class OnboardingFragment : Fragment() {
                 showAddWidgetPage,
                 requireContext().settings().isTabStripEnabled.not(),
                 jexlConditions,
+                BuildManufacturerChecker(),
             ) { condition -> jexlHelper.evalJexlSafe(condition) }
         }
     }

@@ -48,7 +48,7 @@ class DRMFormat final {
   }
   bool UseModifiers() const {
     // Don't use modifiers if we don't have any or we have an invalid one.
-    return !(mModifiers.IsEmpty() || (mModifiers.Length() == 1 ||
+    return !(mModifiers.IsEmpty() || (mModifiers.Length() == 1 &&
                                       mModifiers[0] == DRM_FORMAT_MOD_INVALID));
   }
   const uint64_t* GetModifiers(uint32_t& aModifiersNum) {
@@ -112,6 +112,12 @@ class GlobalDMABufFormats final {
   GlobalDMABufFormats();
 
   bool SupportsDirectComposition(mozilla::gfx::SurfaceFormat aFormat) const;
+
+  // Query EGL for P010/NV12 modifiers on X11 where no Wayland compositor
+  // feedback is available.  Must be called only when hardware video decoding
+  // is known to be enabled; otherwise the EGL initialisation cost is paid
+  // for nothing at startup.
+  void AppendEGLVideoModifiers();
 
  private:
   void LoadFormatModifiers();

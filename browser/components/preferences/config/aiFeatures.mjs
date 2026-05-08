@@ -28,7 +28,7 @@ const lazy = XPCOMUtils.declareLazy({
   GenAI: "resource:///modules/GenAI.sys.mjs",
   MemoryStore:
     "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs",
-  MODELS:
+  FALLBACK_MODELS:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowConstants.sys.mjs",
 });
 
@@ -45,6 +45,7 @@ Preferences.addAll([
   { id: "browser.smartwindow.memories.generateFromHistory", type: "bool" },
   { id: "browser.smartwindow.model", type: "string" },
   { id: "browser.smartwindow.preferences.endpoint", type: "string" },
+  { id: "browser.smartwindow.sidebar.openByDefault", type: "bool" },
   { id: "browser.smartwindow.tos.consentTime", type: "int" },
   { id: "browser.preferences.aiControls.showUnavailable", type: "bool" },
 ]);
@@ -300,6 +301,11 @@ const AI_CONTROL_OPTIONS = [
     l10nId: "preferences-ai-controls-state-blocked",
   },
 ];
+
+const modelL10nArgs = key => ({
+  model: lazy.FALLBACK_MODELS[key].model,
+  ownerName: lazy.FALLBACK_MODELS[key].ownerName,
+});
 
 /**
  * Validates that a URL is trustworthy (HTTPS or localhost).
@@ -680,6 +686,11 @@ Preferences.addSetting({
 });
 
 Preferences.addSetting({
+  id: "openSidebarByDefault",
+  pref: "browser.smartwindow.sidebar.openByDefault",
+});
+
+Preferences.addSetting({
   id: "smartWindowEndpoint",
   pref: "browser.smartwindow.endpoint",
 });
@@ -731,7 +742,9 @@ Preferences.addSetting({
     },
     set(value, deps, setting) {
       const prev = deps.smartWindowFirstRunModelChoice.value;
-      previousAssistantModel = prev ? lazy.MODELS[prev].modelName : "No model";
+      previousAssistantModel = prev
+        ? lazy.FALLBACK_MODELS[prev].model
+        : "No model";
 
       customRadioSelected = value === "0";
       if (customRadioSelected) {
@@ -751,12 +764,12 @@ Preferences.addSetting({
       // sending telemetry only for the preset models
       // custom model telemetry is sent after user hits the save button
       if (value !== "0") {
-        const new_model = lazy.MODELS[value].modelName;
+        const new_model = lazy.FALLBACK_MODELS[value].model;
         Glean.smartWindow.settingsModel.record({
           previous_model: previousAssistantModel,
           new_model,
         });
-        previousAssistantModel = value;
+        previousAssistantModel = new_model;
       }
     },
   });
@@ -858,7 +871,7 @@ Preferences.addSetting({
       return;
     }
 
-    const new_model = lazy.MODELS["0"].modelName;
+    const new_model = lazy.FALLBACK_MODELS["0"].model;
     Glean.smartWindow.settingsModel.record({
       previous_model: previousAssistantModel,
       new_model,
@@ -1368,6 +1381,17 @@ SettingGroupManager.registerGroups({
       },
     ],
   },
+  assistantDefaultGroup: {
+    l10nId: "ai-window-default-section",
+    headingLevel: 2,
+    items: [
+      {
+        id: "openSidebarByDefault",
+        l10nId: "ai-window-open-sidebar",
+        control: "moz-checkbox",
+      },
+    ],
+  },
   assistantModelGroup: {
     l10nId: "smart-window-model-section",
     headingLevel: 2,
@@ -1381,21 +1405,21 @@ SettingGroupManager.registerGroups({
             value: "1",
             l10nId: "smart-window-model-fast",
             get l10nArgs() {
-              return lazy.MODELS["1"];
+              return modelL10nArgs("1");
             },
           },
           {
             value: "2",
             l10nId: "smart-window-model-flexible",
             get l10nArgs() {
-              return lazy.MODELS["2"];
+              return modelL10nArgs("2");
             },
           },
           {
             value: "3",
             l10nId: "smart-window-model-personal",
             get l10nArgs() {
-              return lazy.MODELS["3"];
+              return modelL10nArgs("3");
             },
           },
           {

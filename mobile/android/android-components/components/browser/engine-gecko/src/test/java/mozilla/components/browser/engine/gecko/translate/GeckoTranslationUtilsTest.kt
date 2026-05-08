@@ -26,6 +26,7 @@ import org.mozilla.geckoview.TranslationsController.Language
 import org.mozilla.geckoview.TranslationsController.TranslationsException
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import kotlin.test.assertIs
 import org.mozilla.geckoview.TranslationsController.RuntimeTranslation.LanguageModel as GeckoViewLanguageModel
 import org.mozilla.geckoview.TranslationsController.RuntimeTranslation.TranslationSupport as GeckoViewTranslationSupport
 
@@ -96,16 +97,16 @@ class GeckoTranslationUtilsTest {
         val genericException = RuntimeException("Some other error")
 
         val error1 = geckoException.intoTranslationError()
-        assertTrue(error1 is TranslationError.ModelCouldNotDownloadError)
-        assertEquals(geckoException, (error1 as TranslationError.ModelCouldNotDownloadError).cause)
+        assertIs<TranslationError.ModelCouldNotDownloadError>(error1)
+        assertEquals(geckoException, error1.cause)
 
         val error2 = unknownGeckoException.intoTranslationError()
-        assertTrue(error2 is TranslationError.UnknownError)
-        assertEquals(unknownGeckoException, (error2 as TranslationError.UnknownError).cause)
+        assertIs<TranslationError.UnknownError>(error2)
+        assertEquals(unknownGeckoException, error2.cause)
 
         val error3 = genericException.intoTranslationError()
-        assertTrue(error3 is TranslationError.UnknownError)
-        assertEquals(genericException, (error3 as TranslationError.UnknownError).cause)
+        assertIs<TranslationError.UnknownError>(error3)
+        assertEquals(genericException, error3.cause)
     }
 
     @Test
@@ -185,7 +186,7 @@ class GeckoTranslationUtilsTest {
                 },
                 onError = { throwable ->
                     onErrorCalled = true
-                    assertTrue(throwable is RuntimeException)
+                    assertIs<RuntimeException>(throwable)
                     assertEquals("Some error", throwable.message)
                     GeckoResult<Void>()
                 },
@@ -366,7 +367,7 @@ class GeckoTranslationUtilsTest {
             },
             onError = { error ->
                 onErrorCalled = true
-                assertTrue(error is IllegalArgumentException)
+                assertIs<IllegalArgumentException>(error)
                 assertTrue(error.message!!.contains("The language setting $invalidSettingString is not mapped"))
             },
         )
@@ -447,7 +448,7 @@ class GeckoTranslationUtilsTest {
             },
             onError = { error ->
                 onErrorCalled = true
-                assertTrue(error is IllegalArgumentException)
+                assertIs<IllegalArgumentException>(error)
                 assertTrue(error.message!!.contains("The language setting $invalidSettingString is not mapped"))
             },
         )

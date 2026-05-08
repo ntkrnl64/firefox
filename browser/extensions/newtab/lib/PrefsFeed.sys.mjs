@@ -257,6 +257,18 @@ export class PrefsFeed {
         .setStringPref("weather.display", valueObj.weather.display);
     }
 
+    // Write widgets.weather.size to the default branch so trainhop overrides
+    // the migration default computed by getWeatherWidgetSize() while a user's
+    // explicit size pick (user branch) still wins.
+    if (
+      typeof valueObj.widgets?.weatherSize === "string" &&
+      valueObj.widgets.weatherSize
+    ) {
+      Services.prefs
+        .getDefaultBranch(this._prefs._branchStr)
+        .setStringPref("widgets.weather.size", valueObj.widgets.weatherSize);
+    }
+
     // Write topSitesRows to the default branch to enable experiments with
     // the default row count without overriding an explicit user choice.
     if (valueObj.topSites?.topSitesRows) {
@@ -288,14 +300,8 @@ export class PrefsFeed {
    *
    */
   _getAdsBackendFeatures() {
-    /**
-     * @backward-compat { version 149 }
-     *
-     * We can replace `adsBackend?` with `adsBackend` once 149 hits the
-     * release channel.
-     */
     const allEnrollments =
-      lazy.NimbusFeatures.adsBackend?.getAllEnrollments() || [];
+      lazy.NimbusFeatures.adsBackend.getAllEnrollments() || [];
 
     const valueObj = {};
     allEnrollments.reduce((accumulator, currentValue) => {
@@ -464,13 +470,7 @@ export class PrefsFeed {
     );
     lazy.NimbusFeatures.newtabWidgets.onUpdate(this.onWidgetsUpdated);
     lazy.NimbusFeatures.newtabOhttpImages.onUpdate(this.onOhttpImagesUpdated);
-    /**
-     * @backward-compat { version 149 }
-     *
-     * We can replace `adsBackend?` with `adsBackend` once 149 hits the
-     * release channel.
-     */
-    lazy.NimbusFeatures.adsBackend?.onUpdate(this.onAdsBackendUpdated);
+    lazy.NimbusFeatures.adsBackend.onUpdate(this.onAdsBackendUpdated);
 
     // Get the initial value of each activity stream pref
     const values = {};
@@ -580,13 +580,7 @@ export class PrefsFeed {
     );
     lazy.NimbusFeatures.newtabWidgets.offUpdate(this.onWidgetsUpdated);
     lazy.NimbusFeatures.newtabOhttpImages.offUpdate(this.onOhttpImagesUpdated);
-    /**
-     * @backward-compat { version 149 }
-     *
-     * We can replace `adsBackend?` with `adsBackend` once 149 hits the
-     * release channel.
-     */
-    lazy.NimbusFeatures.adsBackend?.offUpdate(this.onAdsBackendUpdated);
+    lazy.NimbusFeatures.adsBackend.offUpdate(this.onAdsBackendUpdated);
 
     if (this.geo === "") {
       Services.obs.removeObserver(this, lazy.Region.REGION_TOPIC);

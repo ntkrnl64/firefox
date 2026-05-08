@@ -16,7 +16,6 @@
 #include "mozilla/dom/XULPopupElementBinding.h"
 #include "nsCOMPtr.h"
 #include "nsDOMCSSDeclaration.h"
-#include "nsGkAtoms.h"
 #include "nsIContent.h"
 #include "nsMenuPopupFrame.h"
 #include "nsNameSpaceManager.h"
@@ -328,6 +327,13 @@ bool XULPopupElement::IsWaylandPopup() const {
 #else
   return false;
 #endif
+}
+
+bool XULPopupElement::IsNativeMenu() const {
+  if (nsMenuPopupFrame* menuPopupFrame = do_QueryFrame(GetPrimaryFrame())) {
+    return menuPopupFrame->IsNativeMenu();
+  }
+  return false;
 }
 
 }  // namespace mozilla::dom

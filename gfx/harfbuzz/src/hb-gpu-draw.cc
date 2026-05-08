@@ -46,12 +46,24 @@ acc_update_extents (hb_gpu_draw_t *g, double x, double y)
 
 static void
 acc_emit (hb_gpu_draw_t *g,
+	  bool contour_start,
 	  double p1x, double p1y,
 	  double p2x, double p2y,
 	  double p3x, double p3y)
 {
-  hb_gpu_curve_t c = {p1x, p1y, p2x, p2y, p3x, p3y};
-  g->curves.push (c);
+  if (unlikely (g->num_curves >= HB_GPU_DRAW_MAX_CURVES))
+  {
+    g->success = false;
+    return;
+  }
+
+  hb_gpu_curve_t c = {p1x, p1y, p2x, p2y, p3x, p3y, contour_start};
+  if (unlikely (!g->curves.push_or_fail (c)))
+  {
+    g->success = false;
+    return;
+  }
+
   g->num_curves++;
   g->current_x = p3x;
   g->current_y = p3y;
@@ -69,18 +81,23 @@ acc_emit_conic (hb_gpu_draw_t *g,
   if (g->current_x == x && g->current_y == y)
     return;
 
+  bool contour_start = g->need_moveto;
   if (g->need_moveto) {
     g->start_x = g->current_x;
     g->start_y = g->current_y;
     g->need_moveto = false;
   }
 
-  acc_emit (g, g->current_x, g->current_y, cx, cy, x, y);
+  acc_emit (g, contour_start,
+	    g->current_x, g->current_y, cx, cy, x, y);
 }
 
 void
 hb_gpu_draw_t::acc_move_to (double x, double y)
 {
+  if (unlikely (!success))
+    return;
+
   need_moveto = true;
   current_x = x;
   current_y = y;
@@ -89,18 +106,27 @@ hb_gpu_draw_t::acc_move_to (double x, double y)
 void
 hb_gpu_draw_t::acc_line_to (double x, double y)
 {
+  if (unlikely (!success))
+    return;
+
   acc_emit_conic (this, current_x, current_y, x, y);
 }
 
 void
 hb_gpu_draw_t::acc_conic_to (double cx, double cy, double x, double y)
 {
+  if (unlikely (!success))
+    return;
+
   acc_emit_conic (this, cx, cy, x, y);
 }
 
 void
 hb_gpu_draw_t::acc_close_path ()
 {
+  if (unlikely (!success))
+    return;
+
   if (!need_moveto &&
       (current_x != start_x || current_y != start_y))
     acc_line_to (start_x, start_y);
@@ -112,6 +138,9 @@ hb_gpu_draw_t::acc_cubic_to (double c1x, double c1y,
 			       double c2x, double c2y,
 			       double x, double y)
 {
+  if (unlikely (!success))
+    return;
+
   double c0x = current_x, c0y = current_y;
 
   if (c0x == x && c0y == y &&
@@ -242,35 +271,55 @@ struct hb_gpu_texel_t
   int16_t r, g, b, a;
 };
 
-struct hb_gpu_blob_data_t
+static hb_position_t
+clamp_to_hb_position (double v)
 {
-  char *buf;
-  unsigned capacity;
-};
-
-static void
-_hb_gpu_blob_data_destroy (void *user_data)
-{
-  auto *bd = (hb_gpu_blob_data_t *) user_data;
-  hb_free (bd->buf);
-  hb_free (bd);
+  return (hb_position_t) hb_clamp (v,
+				   (double) hb_int_min (hb_position_t),
+				   (double) hb_int_max (hb_position_t));
 }
 
-static int16_t
+static inline int16_t
 quantize (double v)
 {
   return (int16_t) round (v * HB_GPU_UNITS_PER_EM);
 }
 
-static bool
-quantize_fits_i16 (double v)
+static inline int16_t
+quantize_down (double v)
 {
-  double q = round (v * HB_GPU_UNITS_PER_EM);
+  return (int16_t) floor (v * HB_GPU_UNITS_PER_EM);
+}
+
+static inline int16_t
+quantize_up (double v)
+{
+  return (int16_t) ceil (v * HB_GPU_UNITS_PER_EM);
+}
+
+static inline double
+dequantize (int16_t v)
+{
+  return (double) v / HB_GPU_UNITS_PER_EM;
+}
+
+static inline bool
+quantize_down_fits_i16 (double v)
+{
+  double q = floor (v * HB_GPU_UNITS_PER_EM);
   return q >= INT16_MIN &&
 	 q <= INT16_MAX;
 }
 
-static int16_t
+static inline bool
+quantize_up_fits_i16 (double v)
+{
+  double q = ceil (v * HB_GPU_UNITS_PER_EM);
+  return q >= INT16_MIN &&
+	 q <= INT16_MAX;
+}
+
+static inline int16_t
 encode_offset (unsigned offset)
 {
   return (int16_t) (offset - 32768u);
@@ -295,26 +344,83 @@ encode_curve_info (const hb_gpu_curve_t *c)
   return info;
 }
 
+static void
+_hb_gpu_draw_get_extents (hb_gpu_draw_t      *draw,
+			  hb_glyph_extents_t *extents)
+{
+  if (unlikely (!draw->success) ||
+      draw->num_curves == 0 ||
+      draw->ext_min_x == HUGE_VAL)
+  {
+    extents->x_bearing = 0;
+    extents->y_bearing = 0;
+    extents->width = 0;
+    extents->height = 0;
+    return;
+  }
+
+  double min_x = floor (draw->ext_min_x);
+  double min_y = floor (draw->ext_min_y);
+  double max_x = ceil  (draw->ext_max_x);
+  double max_y = ceil  (draw->ext_max_y);
+
+  if (unlikely (!std::isfinite (min_x) ||
+		!std::isfinite (min_y) ||
+		!std::isfinite (max_x) ||
+		!std::isfinite (max_y)))
+  {
+    extents->x_bearing = 0;
+    extents->y_bearing = 0;
+    extents->width = 0;
+    extents->height = 0;
+    return;
+  }
+
+  extents->x_bearing = clamp_to_hb_position (min_x);
+  extents->y_bearing = clamp_to_hb_position (max_y);
+  extents->width     = clamp_to_hb_position (max_x - min_x);
+  extents->height    = clamp_to_hb_position (min_y - max_y);
+}
+
+
 /**
  * hb_gpu_draw_encode:
  * @draw: a GPU shape encoder
+ * @extents: (out) (nullable): where to store the computed glyph
+ *           extents (in font units, Y-up).  Pass `NULL` if not
+ *           needed.
  *
  * Encodes the accumulated outlines into a compact blob
  * suitable for GPU rendering.  The blob data is an array of
  * RGBA16I texels (8 bytes each) to be uploaded to a texture
  * buffer object.
  *
- * The returned blob owns its own copy of the data.
+ * The returned blob owns its own copy of the data.  On success
+ * @draw is auto-cleared so it can be reused for the next glyph;
+ * user configuration (font scale) is preserved.
  *
  * Return value: (transfer full):
- * An #hb_blob_t containing the encoded data, or
- * `NULL` if encoding fails.
+ * An #hb_blob_t containing the encoded data, or `NULL` if encoding
+ * failed (allocation failure or accumulation error).  When the
+ * encoder accumulated no outline (e.g. the glyph has no ink, like a
+ * space), returns the empty-blob singleton instead of `NULL`, so
+ * callers can distinguish "nothing to render" (length 0) from a
+ * real failure (`NULL`).
  *
  * Since: 14.0.0
  **/
 hb_blob_t *
-hb_gpu_draw_encode (hb_gpu_draw_t *draw)
+hb_gpu_draw_encode (hb_gpu_draw_t      *draw,
+                    hb_glyph_extents_t *extents)
 {
+  /* Capture computed extents before auto-clear wipes them. */
+  if (extents)
+    _hb_gpu_draw_get_extents (draw, extents);
+  HB_SCOPE_GUARD (hb_gpu_draw_clear (draw));
+
+  if (unlikely (!draw->success))
+    return nullptr;
+
   const hb_gpu_curve_t *curves = draw->curves.arrayZ;
   unsigned num_curves = draw->curves.length;
 
@@ -323,13 +429,32 @@ hb_gpu_draw_encode (hb_gpu_draw_t *draw)
 
   hb_gpu_encode_scratch_t &s = draw->scratch;
 
-  /* Compute per-curve info and extents */
-  s.curve_infos.resize (num_curves);
+  s.curve_infos.reset_if_error ();
+  s.hband_curve_counts.reset_if_error ();
+  s.vband_curve_counts.reset_if_error ();
+  s.hband_offsets.reset_if_error ();
+  s.vband_offsets.reset_if_error ();
+  s.hband_curves.reset_if_error ();
+  s.hband_curves_asc.reset_if_error ();
+  s.vband_curves.reset_if_error ();
+  s.vband_curves_asc.reset_if_error ();
+  s.hband_cursors.reset_if_error ();
+  s.vband_cursors.reset_if_error ();
+  s.curve_texel_offset.reset_if_error ();
 
-  double min_x = draw->ext_min_x;
-  double min_y = draw->ext_min_y;
-  double max_x = draw->ext_max_x;
-  double max_y = draw->ext_max_y;
+  /* Compute per-curve info and extents */
+  if (unlikely (!s.curve_infos.resize (num_curves)))
+    return nullptr;
+
+  int16_t min_x_q = quantize_down (draw->ext_min_x);
+  int16_t min_y_q = quantize_down (draw->ext_min_y);
+  int16_t max_x_q = quantize_up (draw->ext_max_x);
+  int16_t max_y_q = quantize_up (draw->ext_max_y);
+
+  double min_x = dequantize (min_x_q);
+  double min_y = dequantize (min_y_q);
+  double max_x = dequantize (max_x_q);
+  double max_y = dequantize (max_y_q);
 
   for (unsigned i = 0; i < num_curves; i++)
     s.curve_infos.arrayZ[i] = encode_curve_info (&curves[i]);
@@ -349,8 +474,10 @@ hb_gpu_draw_encode (hb_gpu_draw_t *draw)
   double hband_size = height / num_hbands;
   double vband_size = width  / num_vbands;
 
-  s.hband_curve_counts.resize (num_hbands);
-  s.vband_curve_counts.resize (num_vbands);
+  if (unlikely (!s.hband_curve_counts.resize (num_hbands) ||
+		!s.vband_curve_counts.resize (num_vbands)))
+    return nullptr;
+
   for (unsigned b = 0; b < num_hbands; b++) s.hband_curve_counts.arrayZ[b] = 0;
   for (unsigned b = 0; b < num_vbands; b++) s.vband_curve_counts.arrayZ[b] = 0;
 
@@ -391,28 +518,38 @@ hb_gpu_draw_encode (hb_gpu_draw_t *draw)
     }
   }
 
-  s.hband_offsets.resize (num_hbands);
-  s.vband_offsets.resize (num_vbands);
+  if (unlikely (!s.hband_offsets.resize (num_hbands) ||
+		!s.vband_offsets.resize (num_vbands)))
+    return nullptr;
+
   unsigned total_hband_indices = 0;
   unsigned total_vband_indices = 0;
 
   for (unsigned b = 0; b < num_hbands; b++) {
     s.hband_offsets.arrayZ[b] = total_hband_indices;
-    total_hband_indices += s.hband_curve_counts.arrayZ[b];
+    if (unlikely (hb_unsigned_add_overflows (total_hband_indices,
+					     s.hband_curve_counts.arrayZ[b],
+					     &total_hband_indices)))
+      return nullptr;
   }
 
   for (unsigned b = 0; b < num_vbands; b++) {
     s.vband_offsets.arrayZ[b] = total_vband_indices;
-    total_vband_indices += s.vband_curve_counts.arrayZ[b];
+    if (unlikely (hb_unsigned_add_overflows (total_vband_indices,
+					     s.vband_curve_counts.arrayZ[b],
+					     &total_vband_indices)))
+      return nullptr;
   }
 
   /* Assign curves to bands */
-  s.hband_curves.resize (total_hband_indices);
-  s.hband_curves_asc.resize (total_hband_indices);
-  s.vband_curves.resize (total_vband_indices);
-  s.vband_curves_asc.resize (total_vband_indices);
-  s.hband_cursors.resize (num_hbands);
-  s.vband_cursors.resize (num_vbands);
+  if (unlikely (!s.hband_curves.resize (total_hband_indices) ||
+		!s.hband_curves_asc.resize (total_hband_indices) ||
+		!s.vband_curves.resize (total_vband_indices) ||
+		!s.vband_curves_asc.resize (total_vband_indices) ||
+		!s.hband_cursors.resize (num_hbands) ||
+		!s.vband_cursors.resize (num_vbands)))
+    return nullptr;
+
   for (unsigned b = 0; b < num_hbands; b++) s.hband_cursors.arrayZ[b] = s.hband_offsets.arrayZ[b];
   for (unsigned b = 0; b < num_vbands; b++) s.vband_cursors.arrayZ[b] = s.vband_offsets.arrayZ[b];
 
@@ -465,87 +602,107 @@ hb_gpu_draw_encode (hb_gpu_draw_t *draw)
   }
 
   /* Compute sizes */
-  unsigned total_curve_indices = (total_hband_indices + total_vband_indices) * 2;
+  unsigned total_curve_indices;
+  if (unlikely (hb_unsigned_add_overflows (total_hband_indices,
+					   total_vband_indices,
+					   &total_curve_indices) ||
+		hb_unsigned_mul_overflows (total_curve_indices,
+					   2,
+					   &total_curve_indices)))
+    return nullptr;
 
   unsigned header_len = 2;
 
   unsigned num_contour_breaks = 0;
   for (unsigned i = 0; i + 1 < num_curves; i++)
-    if (curves[i].p3x != curves[i + 1].p1x ||
-	curves[i].p3y != curves[i + 1].p1y)
+    if (curves[i + 1].contour_start)
       num_contour_breaks++;
 
-  unsigned curve_data_len = num_curves + num_contour_breaks + 1;
-  unsigned band_headers_len = num_hbands + num_vbands;
-  unsigned total_len = header_len + band_headers_len + total_curve_indices + curve_data_len;
-
-  /* Validate fits in uint16 offsets (stored as int16 with bias) */
-  if (total_len - 1 > (unsigned) UINT16_MAX)
+  unsigned curve_data_len;
+  if (unlikely (hb_unsigned_add_overflows (num_curves,
+					   num_contour_breaks,
+					   &curve_data_len) ||
+		hb_unsigned_add_overflows (curve_data_len,
+					   1,
+					   &curve_data_len)))
     return nullptr;
 
-  if (!quantize_fits_i16 (min_x) ||
-      !quantize_fits_i16 (min_y) ||
-      !quantize_fits_i16 (max_x) ||
-      !quantize_fits_i16 (max_y))
+  unsigned band_headers_len;
+  if (unlikely (hb_unsigned_add_overflows (num_hbands,
+					   num_vbands,
+					   &band_headers_len)))
+    return nullptr;
+
+  unsigned total_len = header_len;
+  if (unlikely (hb_unsigned_add_overflows (total_len,
+					   band_headers_len,
+					   &total_len) ||
+		hb_unsigned_add_overflows (total_len,
+					   total_curve_indices,
+					   &total_len) ||
+		hb_unsigned_add_overflows (total_len,
+					   curve_data_len,
+					   &total_len)))
+    return nullptr;
+
+  /* Validate fits in uint16 offsets (stored as int16 with bias) */
+  if (total_len > (unsigned) UINT16_MAX + 1u)
+    return nullptr;
+
+  if (!quantize_down_fits_i16 (draw->ext_min_x) ||
+      !quantize_down_fits_i16 (draw->ext_min_y) ||
+      !quantize_up_fits_i16 (draw->ext_max_x) ||
+      !quantize_up_fits_i16 (draw->ext_max_y))
     return nullptr;
 
   /* Allocate or reuse encode buffer */
-  unsigned needed_bytes = total_len * sizeof (hb_gpu_texel_t);
-  hb_gpu_texel_t *buf = nullptr;
+  unsigned needed_bytes;
+  if (unlikely (hb_unsigned_mul_overflows (total_len,
+					   sizeof (hb_gpu_texel_t),
+					   &needed_bytes)))
+    return nullptr;
   unsigned buf_capacity = 0;
+  char *replaced_recycled_buf = nullptr;
+  char *buf_raw = hb_blob_t::recycle_acquire (draw->recycled_blob, needed_bytes,
+					&buf_capacity, &replaced_recycled_buf);
+  if (unlikely (!buf_raw))
+    return nullptr;
+  hb_gpu_texel_t *buf = (hb_gpu_texel_t *) (void *) buf_raw;
 
-  if (draw->recycled_blob &&
-      draw->recycled_blob->destroy == _hb_gpu_blob_data_destroy)
+  unsigned curve_data_offset = header_len;
+  if (unlikely (hb_unsigned_add_overflows (curve_data_offset,
+					   band_headers_len,
+					   &curve_data_offset) ||
+		hb_unsigned_add_overflows (curve_data_offset,
+					   total_curve_indices,
+					   &curve_data_offset)))
   {
-    auto *bd = (hb_gpu_blob_data_t *) draw->recycled_blob->user_data;
-    if (bd->capacity >= needed_bytes)
-    {
-      buf = (hb_gpu_texel_t *) (void *) bd->buf;
-      buf_capacity = bd->capacity;
-    }
-    else
-    {
-      unsigned alloc_bytes = needed_bytes + needed_bytes / 2;
-      char *new_buf = (char *) hb_realloc (bd->buf, alloc_bytes);
-      if (new_buf)
-      {
-	bd->buf = new_buf;
-	bd->capacity = alloc_bytes;
-	buf = (hb_gpu_texel_t *) (void *) new_buf;
-	buf_capacity = alloc_bytes;
-      }
-    }
+    hb_blob_t::recycle_abort ((char *) buf, draw->recycled_blob);
+    return nullptr;
   }
-
-  if (!buf)
-  {
-    buf_capacity = needed_bytes;
-    buf = (hb_gpu_texel_t *) hb_malloc (needed_bytes);
-    if (unlikely (!buf))
-      return nullptr;
-  }
-
-  unsigned curve_data_offset = header_len + band_headers_len + total_curve_indices;
 
   /* Pack header */
-  buf[0].r = quantize (min_x);
-  buf[0].g = quantize (min_y);
-  buf[0].b = quantize (max_x);
-  buf[0].a = quantize (max_y);
+  buf[0].r = min_x_q;
+  buf[0].g = min_y_q;
+  buf[0].b = max_x_q;
+  buf[0].a = max_y_q;
   buf[1].r = (int16_t) num_hbands;
   buf[1].g = (int16_t) num_vbands;
-  buf[1].b = 0;
-  buf[1].a = 0;
+  buf[1].b = (int16_t) hb_clamp (draw->x_scale, -32768, 32767);
+  buf[1].a = (int16_t) hb_clamp (draw->y_scale, -32768, 32767);
 
   /* Pack curve data with shared endpoints */
-  s.curve_texel_offset.resize (num_curves);
+  if (unlikely (!s.curve_texel_offset.resize (num_curves)))
+  {
+    hb_blob_t::recycle_abort ((char *) buf, draw->recycled_blob);
+    return nullptr;
+  }
+
   unsigned texel = curve_data_offset;
 
   for (unsigned i = 0; i < num_curves; i++)
   {
-    bool contour_start = (i == 0 ||
-			  curves[i - 1].p3x != curves[i].p1x ||
-			  curves[i - 1].p3y != curves[i].p1y);
+    bool contour_start = curves[i].contour_start;
 
     if (contour_start) {
       s.curve_texel_offset.arrayZ[i] = texel;
@@ -558,9 +715,8 @@ hb_gpu_draw_encode (hb_gpu_draw_t *draw)
       s.curve_texel_offset.arrayZ[i] = texel - 1;
     }
 
-    bool has_next = (i + 1 < num_curves &&
-		     curves[i].p3x == curves[i + 1].p1x &&
-		     curves[i].p3y == curves[i + 1].p1y);
+    bool has_next = i + 1 < num_curves &&
+		    !curves[i + 1].contour_start;
 
     buf[texel].r = quantize (curves[i].p3x);
     buf[texel].g = quantize (curves[i].p3y);
@@ -678,42 +834,10 @@ hb_gpu_draw_encode (hb_gpu_draw_t *draw)
     buf[hdr].a = vband_split;
   }
 
-  if (draw->recycled_blob)
-  {
-    hb_blob_t *blob = draw->recycled_blob;
-    draw->recycled_blob = nullptr;
-
-    if (blob->destroy == _hb_gpu_blob_data_destroy)
-    {
-      /* Our blob — update the closure's buf pointer (may have been realloc'd). */
-      auto *bd = (hb_gpu_blob_data_t *) blob->user_data;
-      bd->buf = (char *) buf;
-      bd->capacity = buf_capacity;
-      blob->data = (const char *) buf;
-      blob->length = needed_bytes;
-      return blob;
-    }
-
-    /* Foreign blob — can't reuse buffer, replace entirely. */
-    blob->replace_buffer ((const char *) buf, needed_bytes,
-			  HB_MEMORY_MODE_WRITABLE,
-			  buf, free);
-    return blob;
-  }
-
-  /* No recycled blob — create new one with closure. */
-  hb_gpu_blob_data_t *bd = (hb_gpu_blob_data_t *) hb_malloc (sizeof (*bd));
-  if (unlikely (!bd))
-  {
-    hb_free (buf);
-    return nullptr;
-  }
-  bd->buf = (char *) buf;
-  bd->capacity = buf_capacity;
-
-  return hb_blob_create ((const char *) buf, needed_bytes,
-			 HB_MEMORY_MODE_WRITABLE,
-			 bd, _hb_gpu_blob_data_destroy);
+  hb_blob_t *recycled = draw->recycled_blob;
+  draw->recycled_blob = nullptr;
+  return hb_blob_t::recycle_finalize ((char *) buf, buf_capacity, needed_bytes,
+				recycled, replaced_recycled_buf);
 }
 
 
@@ -764,7 +888,12 @@ hb_gpu_draw_reference (hb_gpu_draw_t *draw)
 void
 hb_gpu_draw_destroy (hb_gpu_draw_t *draw)
 {
-  if (!hb_object_destroy (draw)) return;
+  if (!hb_object_should_destroy (draw))
+    return;
+
+  hb_blob_destroy (draw->recycled_blob);
+
+  hb_object_actually_destroy (draw);
   hb_free (draw);
 }
 
@@ -805,7 +934,7 @@ hb_gpu_draw_set_user_data (hb_gpu_draw_t     *draw,
  * Since: 14.0.0
  **/
 void *
-hb_gpu_draw_get_user_data (hb_gpu_draw_t     *draw,
+hb_gpu_draw_get_user_data (const hb_gpu_draw_t     *draw,
 			     hb_user_data_key_t *key)
 {
   return hb_object_get_user_data (draw, key);
@@ -813,96 +942,157 @@ hb_gpu_draw_get_user_data (hb_gpu_draw_t     *draw,
 
 /**
  * hb_gpu_draw_get_funcs:
+ * @draw: a GPU draw context.
  *
- * Fetches the singleton #hb_draw_funcs_t that feeds outline data
- * into an #hb_gpu_draw_t.  Pass the #hb_gpu_draw_t as the
- * @draw_data argument when calling the draw functions.
+ * Fetches the #hb_draw_funcs_t that feeds outline data into
+ * @draw.  Pass @draw as the @draw_data argument when calling
+ * the draw functions.
  *
  * Return value: (transfer none):
  * The GPU draw functions
  *
- * Since: 14.0.0
+ * Since: 14.2.0
  **/
 hb_draw_funcs_t *
-hb_gpu_draw_get_funcs (void)
+hb_gpu_draw_get_funcs (const hb_gpu_draw_t *draw HB_UNUSED)
 {
   return static_gpu_draw_funcs.get_unconst ();
+}
+
+/**
+ * hb_gpu_draw_set_scale:
+ * @draw: a GPU shape encoder
+ * @x_scale: horizontal scale (typically from hb_font_get_scale())
+ * @y_scale: vertical scale
+ *
+ * Sets the font scale so the encoded blob can embed it for
+ * shader use (e.g. computing pixels-per-em).  Called
+ * automatically by hb_gpu_draw_glyph().
+ *
+ * Since: 14.1.0
+ **/
+void
+hb_gpu_draw_set_scale (hb_gpu_draw_t *draw,
+		       int            x_scale,
+		       int            y_scale)
+{
+  draw->x_scale = x_scale;
+  draw->y_scale = y_scale;
+}
+
+/**
+ * hb_gpu_draw_get_scale:
+ * @draw: a GPU shape encoder
+ * @x_scale: (out): horizontal scale
+ * @y_scale: (out): vertical scale
+ *
+ * Gets the font scale previously set via hb_gpu_draw_set_scale() or
+ * hb_gpu_draw_glyph().
+ *
+ * Since: 14.2.0
+ **/
+void
+hb_gpu_draw_get_scale (const hb_gpu_draw_t *draw,
+		       int                 *x_scale,
+		       int                 *y_scale)
+{
+  if (x_scale) *x_scale = draw->x_scale;
+  if (y_scale) *y_scale = draw->y_scale;
+}
+
+/**
+ * hb_gpu_draw_glyph_or_fail:
+ * @draw: a GPU shape encoder
+ * @font: font to draw from
+ * @glyph: glyph ID to draw
+ *
+ * Convenience to draw one glyph outline.  Equivalent to:
+ *
+ * |[<!-- language="plain" -->
+ * hb_gpu_draw_set_scale (draw, x_scale, y_scale);
+ * hb_font_draw_glyph_or_fail (font, glyph,
+ *   hb_gpu_draw_get_funcs (draw), draw);
+ * ]|
+ *
+ * Return value: `true` if the glyph was drawn, `false` if the font
+ * has no outlines for @glyph.
+ *
+ * Since: 14.2.0
+ **/
+hb_bool_t
+hb_gpu_draw_glyph_or_fail (hb_gpu_draw_t  *draw,
+			   hb_font_t      *font,
+			   hb_codepoint_t  glyph)
+{
+  int x_scale, y_scale;
+  hb_font_get_scale (font, &x_scale, &y_scale);
+  hb_gpu_draw_set_scale (draw, x_scale, y_scale);
+
+  return hb_font_draw_glyph_or_fail (font, glyph,
+				     hb_gpu_draw_get_funcs (draw),
+				     draw);
 }
 
 /**
  * hb_gpu_draw_glyph:
  * @draw: a GPU shape encoder
  * @font: font to draw from
- * @codepoint: glyph ID to draw
+ * @glyph: glyph ID to draw
  *
- * Convenience wrapper that draws a single glyph outline into the
- * encoder using hb_font_draw_glyph().
+ * Draws a single glyph outline into the encoder.  Equivalent to
+ * hb_gpu_draw_glyph_or_fail() with the return value ignored.
  *
  * Since: 14.0.0
  **/
 void
-hb_gpu_draw_glyph (hb_gpu_draw_t *draw,
-			  hb_font_t      *font,
-			  hb_codepoint_t  codepoint)
+hb_gpu_draw_glyph (hb_gpu_draw_t  *draw,
+		   hb_font_t      *font,
+		   hb_codepoint_t  glyph)
 {
-  hb_font_draw_glyph (font, codepoint,
-		       hb_gpu_draw_get_funcs (),
-		       draw);
+  hb_gpu_draw_glyph_or_fail (draw, font, glyph);
 }
 
 /**
- * hb_gpu_draw_get_extents:
- * @draw: a GPU shape encoder
- * @extents: (out): glyph extents
- *
- * Fetches the extents of the accumulated outlines.
- *
- * Since: 14.0.0
- **/
-void
-hb_gpu_draw_get_extents (hb_gpu_draw_t     *draw,
-			   hb_glyph_extents_t *extents)
-{
-  if (draw->num_curves == 0 || draw->ext_min_x == HUGE_VAL)
-  {
-    extents->x_bearing = 0;
-    extents->y_bearing = 0;
-    extents->width = 0;
-    extents->height = 0;
-    return;
-  }
-
-  extents->x_bearing = (hb_position_t) floor (draw->ext_min_x);
-  extents->y_bearing = (hb_position_t) ceil  (draw->ext_max_y);
-  extents->width     = (hb_position_t) ceil  (draw->ext_max_x) -
-		       (hb_position_t) floor (draw->ext_min_x);
-  extents->height    = (hb_position_t) floor (draw->ext_min_y) -
-		       (hb_position_t) ceil  (draw->ext_max_y);
-}
-
-/**
- * hb_gpu_draw_reset:
+ * hb_gpu_draw_clear:
  * @draw: a GPU shape encoder
  *
- * Resets the encoder, discarding all accumulated outlines.
- * The internal encode buffer is kept for reuse.
+ * Discards accumulated outlines so @draw can be reused for another
+ * encode.  User configuration (font scale) is preserved.  Call
+ * hb_gpu_draw_reset() to also reset user configuration to defaults.
  *
- * Since: 14.0.0
+ * Since: 14.2.0
  **/
 void
-hb_gpu_draw_reset (hb_gpu_draw_t *draw)
+hb_gpu_draw_clear (hb_gpu_draw_t *draw)
 {
   draw->start_x = draw->start_y = 0;
   draw->current_x = draw->current_y = 0;
   draw->need_moveto = true;
   draw->num_curves = 0;
   draw->success = true;
-  draw->curves.clear ();
+  draw->curves.reset ();
 
   draw->ext_min_x =  HUGE_VAL;
   draw->ext_min_y =  HUGE_VAL;
   draw->ext_max_x = -HUGE_VAL;
   draw->ext_max_y = -HUGE_VAL;
+}
+
+/**
+ * hb_gpu_draw_reset:
+ * @draw: a GPU shape encoder
+ *
+ * Resets the encoder, discarding all accumulated outlines and
+ * resetting user configuration to defaults.
+ *
+ * Since: 14.0.0
+ **/
+void
+hb_gpu_draw_reset (hb_gpu_draw_t *draw)
+{
+  draw->x_scale = 0;
+  draw->y_scale = 0;
+  hb_gpu_draw_clear (draw);
 }
 
 /**
@@ -923,10 +1113,64 @@ void
 hb_gpu_draw_recycle_blob (hb_gpu_draw_t *draw,
 			    hb_blob_t      *blob)
 {
-  hb_blob_destroy (draw->recycled_blob);
-  draw->recycled_blob = nullptr;
-  if (!blob || blob == hb_blob_get_empty ())
-    return;
-  draw->recycled_blob = blob;
+  hb_blob_t::recycle_stash (&draw->recycled_blob, blob);
 }
 
+
+#include "hb-gpu-draw-fragment-glsl.hh"
+#include "hb-gpu-draw-fragment-msl.hh"
+#include "hb-gpu-draw-fragment-wgsl.hh"
+#include "hb-gpu-draw-fragment-hlsl.hh"
+
+/**
+ * hb_gpu_draw_shader_source:
+ * @stage: pipeline stage (vertex or fragment)
+ * @lang: shader language variant
+ *
+ * Returns the draw-renderer-specific shader source for the
+ * specified stage and language.  The returned string is static
+ * and must not be freed.
+ *
+ * This source assumes the shared helpers returned by
+ * hb_gpu_shader_source() are concatenated ahead of it.  The
+ * caller should assemble the full shader as
+ * `#version`-directive + hb_gpu_shader_source() +
+ * hb_gpu_draw_shader_source() + caller's `main()`.
+ *
+ * The vertex stage currently has no draw-specific helpers; this
+ * function returns an empty string for that stage so the caller
+ * can concatenate unconditionally.
+ *
+ * Return value: (transfer none):
+ * A shader source string, or `NULL` if @stage or @lang is
+ * unsupported.
+ *
+ * Since: 14.2.0
+ **/
+const char *
+hb_gpu_draw_shader_source (hb_gpu_shader_stage_t stage,
+			   hb_gpu_shader_lang_t  lang)
+{
+  switch (stage) {
+  case HB_GPU_SHADER_STAGE_FRAGMENT:
+    switch (lang) {
+    case HB_GPU_SHADER_LANG_GLSL: return hb_gpu_draw_fragment_glsl;
+    case HB_GPU_SHADER_LANG_MSL:  return hb_gpu_draw_fragment_msl;
+    case HB_GPU_SHADER_LANG_WGSL: return hb_gpu_draw_fragment_wgsl;
+    case HB_GPU_SHADER_LANG_HLSL: return hb_gpu_draw_fragment_hlsl;
+    case HB_GPU_SHADER_LANG_INVALID:
+    default: return nullptr;
+    }
+  case HB_GPU_SHADER_STAGE_VERTEX:
+    switch (lang) {
+    case HB_GPU_SHADER_LANG_GLSL:
+    case HB_GPU_SHADER_LANG_MSL:
+    case HB_GPU_SHADER_LANG_WGSL:
+    case HB_GPU_SHADER_LANG_HLSL: return "";
+    case HB_GPU_SHADER_LANG_INVALID:
+    default: return nullptr;
+    }
+  default:
+    return nullptr;
+  }
+}

@@ -1,7 +1,7 @@
 "use strict";
 
-const { AWScreenUtils } = ChromeUtils.importESModule(
-  "resource:///modules/aboutwelcome/AWScreenUtils.sys.mjs"
+const { ASRouterScreenUtils } = ChromeUtils.importESModule(
+  "resource:///modules/asrouter/ASRouterScreenUtils.sys.mjs"
 );
 
 const TEST_DEFAULT_CONTENT = [
@@ -54,6 +54,12 @@ const TEST_DEFAULT_CONTENT = [
 ];
 
 const TEST_DEFAULT_JSON = JSON.stringify(TEST_DEFAULT_CONTENT);
+
+add_setup(async () => {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.backup.restore.enabled", false]],
+  });
+});
 
 add_task(async function second_screen_filtered_by_targeting() {
   const sandbox = sinon.createSandbox();

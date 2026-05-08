@@ -36,10 +36,12 @@ using namespace mozilla;
 using namespace mozilla::gfx;
 using namespace mozilla::unicode;
 
-void gfxCharacterMap::NotifyMaybeReleased(gfxCharacterMap* aCmap) {
+void gfxCharacterMap::NotifyMaybeReleased(gfxCharacterMap* aCmap,
+                                          uint32_t aHash) {
   // Tell gfxPlatformFontList that a charmap's refcount was decremented,
-  // so it should check whether the object is to be deleted.
-  gfxPlatformFontList::PlatformFontList()->MaybeRemoveCmap(aCmap);
+  // so it should check whether the object is to be deleted. aCmap may be
+  // dangling; aHash was captured while it was alive.
+  gfxPlatformFontList::PlatformFontList()->MaybeRemoveCmap(aCmap, aHash);
 }
 
 gfxFontEntry::gfxFontEntry(const nsACString& aName, bool aIsStandardFace)
@@ -126,10 +128,16 @@ void gfxFontEntry::InitializeFrom(fontlist::Face* aFace,
 }
 
 bool gfxFontEntry::TrySetShmemCharacterMap() {
-  MOZ_ASSERT(mShmemFace);
-  auto* list = gfxPlatformFontList::PlatformFontList()->SharedFontList();
-  const auto* shmemCmap =
-      mShmemFace->mCharacterMap.ToPtr<const SharedBitSet>(list);
+  auto* pfl = gfxPlatformFontList::PlatformFontList();
+  // Hold the platform-fontlist lock so InitFontList() cannot reset
+  // mSharedFontList while we dereference it.
+  gfxPlatformFontList::AutoLock lock(pfl->mLock);
+  auto* face = mShmemFace;
+  if (!face) {
+    return false;
+  }
+  auto* list = pfl->SharedFontList();
+  const auto* shmemCmap = face->mCharacterMap.ToPtr<const SharedBitSet>(list);
   mShmemCharacterMap.exchange(shmemCmap);
   return shmemCmap != nullptr;
 }
@@ -558,13 +566,10 @@ gfxFontEntry::GetGrSandboxAdvanceCallbackHandle() {
 }
 
 tainted_opaque_gr<gr_face*> gfxFontEntry::GetGrFace() {
-  if (!mGrFaceInitialized) {
-    // When possible, the below code will use WASM as a sandboxing mechanism.
-    // At this time the wasm sandbox does not support threads.
-    // If Thebes is updated to make callst to the sandbox on multiple threaads,
-    // we need to make sure the underlying sandbox supports threading.
-    MOZ_ASSERT(NS_IsMainThread());
+  // Graphite shaping is only available on the main thread.
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
 
+  if (!mGrFaceInitialized) {
     mSandboxData = new GrSandboxData();
 
     auto p_faceOps = mSandboxData->sandbox.malloc_in_sandbox<gr_face_ops>();
@@ -633,6 +638,8 @@ bool gfxFontEntry::HasFontTable(uint32_t aTableTag) {
 }
 
 tainted_boolean_hint gfxFontEntry::HasGraphiteSpaceContextuals() {
+  // Graphite shaping is only available on the main thread.
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
   LazyFlag flag = mHasGraphiteSpaceContextuals;
   if (flag == LazyFlag::Uninitialized) {
     auto face = GetGrFace();

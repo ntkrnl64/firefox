@@ -4,6 +4,7 @@
 
 package mozilla.components.feature.summarize
 
+import android.os.Build
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -109,16 +110,14 @@ private fun SummarizationScreen(
     ApplyHaptics(state)
 
     val loadingAlpha by animateFloatAsState(
-        targetValue = if (state.isLoading) 1f else 0f,
+        targetValue = if (state.isLoading && useGradient) 1f else 0f,
         animationSpec = if (state.isLoading) snap() else state.tween,
         label = "gradientAlpha",
     )
 
     SummarizationScreenScaffold(
         modifier = modifier
-            .thenConditional(Modifier.summaryLoadingGradient(loadingAlpha)) {
-                loadingAlpha > 0
-            }
+            .summaryLoadingGradientCompat(loadingAlpha)
             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
             .nestedScroll(rememberNestedScrollInteropConnection()),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 1f - loadingAlpha),
@@ -126,6 +125,19 @@ private fun SummarizationScreen(
         SummarizationScreenContent(store, settingsStore)
     }
 }
+
+private val useGradient get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+private fun Modifier.summaryLoadingGradientCompat(loadingAlpha: Float): Modifier =
+    this.thenConditional(
+        if (useGradient) {
+            Modifier.summaryLoadingGradient(loadingAlpha)
+        } else {
+            Modifier
+        },
+    ) {
+        loadingAlpha > 0
+    }
 
 @Composable
 private fun SummarizationScreenContent(
@@ -136,6 +148,8 @@ private fun SummarizationScreenContent(
 
     when (val state = state) {
         is SummarizationState.Inert -> Unit
+
+        is SummarizationState.LearnMoreAboutShakeConsent,
         is SummarizationState.ShakeConsentRequired,
             -> {
             OffDeviceSummarizationConsent(
@@ -156,6 +170,7 @@ private fun SummarizationScreenContent(
         is SummarizationState.Loading -> {
             SummarizingContent(
                 modifier = Modifier.height(252.dp),
+                useGradientColors = useGradient,
             )
         }
 
@@ -182,9 +197,15 @@ private fun SummarizationScreenContent(
         is SummarizationState.Error -> {
             when (state.error) {
                 is SummarizationError.DownloadFailed -> DownloadError()
-                is SummarizationError.ContentTooLong -> ContentTooLongError()
+                is SummarizationError.ContentTooLong ->
+                    ContentTooLongError(
+                        onDismiss = { store.dispatch(ErrorAction.ErrorDismissed) },
+                    )
                 is SummarizationError.SummarizationFailed ->
-                    InfoError(errorCode = state.error.exception.errorCode)
+                    InfoError(
+                        errorCode = state.error.exception.errorCode,
+                        onDismiss = { store.dispatch(ErrorAction.ErrorDismissed) },
+                    )
             }
         }
 
@@ -196,8 +217,19 @@ private fun SummarizationScreenContent(
 private fun ApplyHaptics(state: SummarizationState) {
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(state) {
-        if (state.isSummarized) {
-            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+        when (state) {
+            is SummarizationState.Inert -> {
+                if (state.initializedWithShake) {
+                    haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
+                }
+            }
+            is SummarizationState.Summarized -> {
+                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            }
+            is SummarizationState.Error -> {
+                haptic.performHapticFeedback(HapticFeedbackType.Reject)
+            }
+            else -> {}
         }
     }
 }

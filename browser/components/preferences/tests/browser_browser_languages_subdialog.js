@@ -184,7 +184,7 @@ function assertAvailableLocales(list, locales) {
 }
 
 function getDialogId(dialogDoc) {
-  return dialogDoc.ownerGlobal.arguments[0].telemetryId;
+  return dialogDoc.documentGlobal.arguments[0].telemetryId;
 }
 
 function assertTelemetryRecorded(events) {
@@ -248,6 +248,10 @@ async function openDialog(doc, search = false) {
     selected: dialogDoc.getElementById("selectedLocales"),
   };
 }
+
+add_setup(function setup() {
+  Services.telemetry.clearEvents();
+});
 
 add_task(async function testDisabledBrowserLanguages() {
   let langpacksFile = await createLanguageToolsFile();

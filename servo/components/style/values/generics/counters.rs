@@ -73,6 +73,7 @@ where
     ToTyped,
 )]
 #[repr(transparent)]
+#[typed(todo_derive_fields)]
 pub struct GenericCounterIncrement<I>(#[css(field_bound)] pub GenericCounters<I>);
 pub use self::GenericCounterIncrement as CounterIncrement;
 
@@ -108,6 +109,7 @@ impl<I> Deref for CounterIncrement<I> {
     ToTyped,
 )]
 #[repr(transparent)]
+#[typed(todo_derive_fields)]
 pub struct GenericCounterSet<I>(#[css(field_bound)] pub GenericCounters<I>);
 pub use self::GenericCounterSet as CounterSet;
 
@@ -143,6 +145,7 @@ impl<I> Deref for CounterSet<I> {
     ToTyped,
 )]
 #[repr(transparent)]
+#[typed(todo_derive_fields)]
 pub struct GenericCounterReset<I>(#[css(field_bound)] pub GenericCounters<I>);
 pub use self::GenericCounterReset as CounterReset;
 
@@ -185,7 +188,6 @@ pub struct GenericCounters<I>(
     crate::OwnedSlice<GenericCounterPair<I>>,
 );
 pub use self::GenericCounters as Counters;
-
 
 #[inline]
 fn is_decimal(counter_type: &CounterStyle) -> bool {
@@ -243,6 +245,7 @@ where
     ToTyped,
 )]
 #[repr(u8)]
+#[typed(todo_derive_fields)]
 pub enum GenericContent<Image> {
     /// `normal` reserved keyword.
     Normal,

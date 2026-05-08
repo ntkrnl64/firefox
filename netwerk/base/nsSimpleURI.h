@@ -28,11 +28,10 @@ class nsSimpleURI : public nsIURI, public nsISerializable {
   virtual ~nsSimpleURI() = default;
 
  public:
+  NS_INLINE_DECL_STATIC_IID(NS_THIS_SIMPLEURI_IMPLEMENTATION_CID)
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIURI
   NS_DECL_NSISERIALIZABLE
-
-  static already_AddRefed<nsSimpleURI> From(nsIURI* aURI);
 
   // nsSimpleURI methods:
 

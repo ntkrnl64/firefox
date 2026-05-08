@@ -182,7 +182,15 @@ struct hb_vector_t
   {
     if (unlikely (in_error ()))
       reset_error ();
-    resize (0);
+    clear ();
+    return *this;
+  }
+
+  HB_ALWAYS_INLINE_VECTOR_ALLOCS
+  hb_vector_t &reset_if_error ()
+  {
+    if (unlikely (in_error ()))
+      reset ();
     return *this;
   }
 
@@ -264,7 +272,7 @@ struct hb_vector_t
   const Type& tail () const { return (*this)[length - 1]; }
 
   explicit operator bool () const { return length; }
-  unsigned get_size () const { return length * item_size; }
+  size_t get_size () const { return length * item_size; }
 
   /* Sink interface. */
   template <typename T>

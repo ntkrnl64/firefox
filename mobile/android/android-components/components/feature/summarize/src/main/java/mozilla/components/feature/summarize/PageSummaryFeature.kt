@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.flow
 import mozilla.components.concept.ai.controls.AIControllableFeature
 import mozilla.components.concept.ai.controls.AIFeatureMetadata
 import mozilla.components.feature.summarize.settings.SummarizationSettings
+import mozilla.components.ui.icons.R as iconsR
 
 /**
  * The feature that ties AI Controls to page summaries/shake to summarize.
@@ -25,11 +26,12 @@ class PageSummaryFeature(
     }
 
     companion object : AIFeatureMetadata {
-        override val id = AIFeatureMetadata.FeatureId("ai.summarize.page")
+        override val id = AIFeatureMetadata.FeatureId("pageSummaries")
 
         override val description = AIFeatureMetadata.Description(
             titleRes = R.string.mozac_ai_controls_page_summary_title,
             descriptionRes = R.string.mozac_ai_controls_page_summary_description,
+            iconRes = iconsR.drawable.mozac_ic_lightning_24,
         )
     }
 }

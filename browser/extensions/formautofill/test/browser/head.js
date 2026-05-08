@@ -885,7 +885,11 @@ async function clickDoorhangerButton(buttonType, index = 0) {
     await dropdownPromise;
 
     button = notification.querySelectorAll("menuitem")[index];
-    notification.menupopup.activateItem(button);
+    if (notification.menupopup.isNativeMenu) {
+      notification.menupopup.activateItem(button);
+    } else {
+      button.click();
+    }
   }
 
   info("expecting notification popup hidden");
@@ -908,8 +912,10 @@ async function clickAddressDoorhangerButton(buttonType, subType) {
     } else if (subType == ADDRESS_MENU_LEARN_MORE) {
       button = AutofillDoorhanger.learnMoreButton(notification);
     }
-    menupopup.activateItem(button);
-    return;
+    if (menupopup.isNativeMenu) {
+      menupopup.activateItem(button);
+      return;
+    }
   } else {
     await clickDoorhangerButton(buttonType);
     return;
@@ -1078,7 +1084,7 @@ async function verifyConfirmationHint(
   forceClose,
   anchorID = "identity-icon-box"
 ) {
-  let hintElem = browser.ownerGlobal.ConfirmationHint._panel;
+  let hintElem = browser.documentGlobal.ConfirmationHint._panel;
   let popupshown = BrowserTestUtils.waitForPopupEvent(hintElem, "shown");
   let popuphidden;
 

@@ -188,7 +188,7 @@ void HTMLScriptElement::GetInnerText(
   if (aError.Failed()) {
     return;
   }
-  aValue.SetAsNullIsEmptyString() = innerText.AsAString();
+  aValue.SetAsNullIsEmptyString() = std::move(innerText);
 }
 
 void HTMLScriptElement::SetInnerText(
@@ -290,7 +290,7 @@ void HTMLScriptElement::FreezeExecutionAttrs(const Document* aOwnerDoc) {
                                                 OwnerDoc(), GetBaseURI());
 
       if (!mUri) {
-        AutoTArray<nsString, 2> params = {u"src"_ns, src};
+        AutoTArray<nsString, 2> params = {u"src"_ns, std::move(src)};
 
         nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "HTML"_ns,
                                         OwnerDoc(),

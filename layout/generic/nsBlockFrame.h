@@ -40,11 +40,13 @@ enum class LineReflowStatus {
 };
 
 class nsBlockInFlowLineIterator;
+class nsLineLayout;
 namespace mozilla {
 class BlockReflowState;
 class PresShell;
 class ServoRestyleState;
 class ServoStyleSet;
+
 }  // namespace mozilla
 
 /**
@@ -528,8 +530,18 @@ class nsBlockFrame : public nsContainerFrame {
            IsComboboxControlFrame();
   }
 
+  bool IsTextInput() const {
+    return Style()->GetPseudoType() ==
+               mozilla::PseudoStyleType::MozScrolledContent &&
+           mParent->IsTextInputFrame();
+  }
+
+  bool IsSingleLineTextInput() const {
+    return IsTextInput() && mContent->IsHTMLElement(nsGkAtoms::input);
+  }
+
   bool IsButtonLike() const {
-    if (mContent->IsHTMLElement(nsGkAtoms::button)) {
+    if (mContent->IsAnyOfHTMLElements(nsGkAtoms::button)) {
       // NOTE(emilio): We need the IsAnonBox check to deal with things like the
       // :-moz-anonymous-item of a <button> with display: grid. We don't want
       // that to e.g. center its contents. But we do want the scrolled-content
@@ -541,10 +553,16 @@ class nsBlockFrame : public nsContainerFrame {
     return IsButtonControlFrame();
   }
 
+  bool IsButtonOrTextInput() const { return IsButtonLike() || IsTextInput(); }
+
   /** Returns the effective align-content of this frame */
   mozilla::StyleAlignFlags EffectiveAlignContent() const {
     if (IsButtonLike()) {
       return mozilla::StyleAlignFlags::CENTER;
+    }
+    if (IsSingleLineTextInput()) {
+      return mozilla::StyleAlignFlags::CENTER |
+             mozilla::StyleAlignFlags::UNSAFE;
     }
     return StylePosition()->mAlignContent.primary;
   }

@@ -2,8 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use kvstore::skv::store::{Store, StorePath};
-use kvstore::skv::{Database, GetOptions, Key};
+use kvstore::{Database, GetOptions, Key, Store, StorePath};
 use lockstore_rs::bytes_to_value;
 use lockstore_rs::crypto::{
     decrypt_with_key, encrypt_with_key, generate_random_key, generate_random_nonce, secure_delete,
@@ -94,14 +93,14 @@ fn test_secure_delete_nonexistent_key() {
 fn test_cipher_suite_str_roundtrip() {
     for cs in [CipherSuite::Aes256Gcm, CipherSuite::ChaCha20Poly1305] {
         let s = cs.as_str();
-        assert_eq!(CipherSuite::from_str(s), Some(cs));
+        assert_eq!(CipherSuite::parse(s), Some(cs));
     }
 }
 
 #[test]
 fn test_cipher_suite_from_str_unknown() {
-    assert_eq!(CipherSuite::from_str("unknown"), None);
-    assert_eq!(CipherSuite::from_str(""), None);
+    assert_eq!(CipherSuite::parse("unknown"), None);
+    assert_eq!(CipherSuite::parse(""), None);
 }
 
 #[test]

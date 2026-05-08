@@ -83,6 +83,75 @@ features:
         description: The drawable displayed in the app menu for Settings
         type: String
         default: mozac_ic_settings
+  gecko-nimbus-validation:
+    description: "Feature for validating Nimbus Gecko functionality"
+    variables:
+      test-preference:
+        description: "A test gecko preference"
+        type: Option<String>
+        gecko-pref:
+          pref: "gecko.nimbus.test"
+          branch: "default"
+      test-preference-2:
+        description: "A second test gecko preference"
+        type: Option<Int>
+        gecko-pref:
+          pref: "gecko.nimbus.test.two"
+          branch: "user"
+  nimbus-qa-string-default:
+    description: "A feature for testing string pref-setting on the default branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<String>
+        gecko-pref:
+          pref: "nimbus.qa.pref-string-default"
+          branch: "default"
+  nimbus-qa-string-user:
+    description: "A feature for testing string pref-setting on the user branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<String>
+        gecko-pref:
+          pref: "nimbus.qa.pref-string-user"
+          branch: "user"
+  nimbus-qa-int-default:
+    description: "A feature for testing int pref-setting on the default branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Int>
+        gecko-pref:
+          pref: "nimbus.qa.pref-int-default"
+          branch: "default"
+  nimbus-qa-int-user:
+    description: "A feature for testing int pref-setting on the user branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Int>
+        gecko-pref:
+          pref: "nimbus.qa.pref-int-user"
+          branch: "user"
+  nimbus-qa-bool-default:
+    description: "A feature for testing boolean pref-setting on the default branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Boolean>
+        gecko-pref:
+          pref: "nimbus.qa.pref-bool-default"
+          branch: "default"
+  nimbus-qa-bool-user:
+    description: "A feature for testing boolean pref-setting on the user branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Boolean>
+        gecko-pref:
+          pref: "nimbus.qa.pref-bool-user"
+          branch: "user"
   cookie-banners:
     description: Features for cookie banner handling.
     variables:
@@ -251,6 +320,16 @@ features:
         type: Boolean
         description: If true, shake to summarize will be enabled
         default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+      - channel: nightly
+        value:
+          enabled: true
+      - channel: beta
+        value:
+          enabled: true
 
   setup-checklist:
     description: A feature on the home page that allows the user to track onboarding setup progress.
@@ -380,15 +459,6 @@ features:
       - channel: nightly
         value:
           enabled: true
-
-  composable-toolbar:
-    description: Use a composable toolbar instead of the View based one.
-    variables:
-      enabled:
-        description: >
-          When the feature is enabled the user will see a new composable toolbar instead the previous View based one.
-        type: Boolean
-        default: true
 
   minimal-addressbar:
     description: Show a smaller height bottom addressbar with just the URL.
@@ -760,6 +830,28 @@ features:
         type: String
         default: ""
 
+  networking-happy-eyeballs:
+    description: "Networking (Necko) Happy Eyeballs V3 configuration"
+    variables:
+      enabled:
+        description: Whether to enable the Happy Eyeballs v3 algorithm for connection establishment
+        type: Option<Boolean>
+        gecko-pref:
+          pref: "network.http.happy_eyeballs_enabled"
+          branch: "default"
+      resolution-delay:
+        description: Time in ms to wait after the first DNS response before starting connections
+        type: Option<Int>
+        gecko-pref:
+          pref: "network.http.happy_eyeballs_resolution_delay"
+          branch: "default"
+      connection-attempt-delay:
+        description: Time in ms between successive connection attempts
+        type: Option<Int>
+        gecko-pref:
+          pref: "network.http.happy_eyeballs_connection_attempt_delay"
+          branch: "default"
+
   pki:
     description: Certificate verification configuration
     variables:
@@ -791,18 +883,6 @@ features:
           Enables or disables javascript.options.mem.gc_parallel_marking preference.
         type: Boolean
         default: false
-
-  encourage-search-cfr:
-    description: A feature that shows a CFR on first launch to encourage users to make a search
-    variables:
-      enabled:
-        description: When true, the CFR will show
-        type: Boolean
-        default: false
-      cfrText:
-        description: The text to show in the CFR
-        type: Text
-        default: ""
 
   enable-popups:
     description: A feature that enables or disables in app popups
@@ -930,6 +1010,15 @@ features:
         description: >
           Whether or not to enable the tab search feature.
         type: Boolean
+        default: true
+
+  tab-groups:
+    description: Control the visibility of the tab groups feature.
+    variables:
+      enabled:
+        description: >
+          Whether or not to enable the tab groups feature.
+        type: Boolean
         default: false
     defaults:
       - channel: release
@@ -941,13 +1030,12 @@ features:
       - channel: nightly
         value:
           enabled: true
-
-  tab-groups:
-    description: Control the visibility of the tab groups feature.
+  tab-groups-drag-and-drop:
+    description: Control the visibility of drag and drop for tab groups.
     variables:
       enabled:
         description: >
-          Whether or not to enable the tab groups feature.
+          Whether or not to enable drag and drop for tab groups.
         type: Boolean
         default: false
     defaults:
@@ -1058,11 +1146,43 @@ features:
         value:
           enabled: true
 
+  ip-protection:
+    description: Feature to enable IP Protection (VPN) for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, IP Protection feature is enabled.
+        type: Boolean
+        default: false
+      show-beta-badge:
+        description: If true, a BETA badge is shown next to the IP Protection entry in the settings list.
+        type: Boolean
+        default: true
+      show-onboarding-bottom-sheet:
+        description: If true, the IP Protection onboarding bottom sheet is shown to the user.
+        type: Boolean
+        default: false
+      data-limit-gigabyte:
+        description: Specifies the VPN data limit for unpaid users in GB (e.g. 50 GB).
+        type: Int
+        default: 50
+      allowed-regions:
+        description: Country codes whose users are eligible for IP Protection.
+        type: List<String>
+        default: ["US", "CA", "DE", "FR", "GB"]
+
   native-share-sheet:
     description: Feature to enable the Native Share Sheet for users on Firefox on Android.
     variables:
       enabled:
         description: If true, Native Share Sheet is enabled.
+        type: Boolean
+        default: false
+
+  add-shortcuts-improvement:
+    description: Feature to enable Add Shortcuts improvement for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Add Shortcuts improvement is enabled.
         type: Boolean
         default: false
 
@@ -1073,6 +1193,21 @@ features:
         description: If true, Merino Client is enabled.
         type: Boolean
         default: false
+
+  merino-manifest:
+    description: Feature to enable the Merino Manifest for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Merino Manifest is enabled.
+        type: Boolean
+        default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+      - channel: nightly
+        value:
+          enabled: true
 
   mozilla-ads-client:
     description: Feature to enable the Mozilla Ads Client for users on Firefox on Android.
@@ -1096,6 +1231,13 @@ features:
         description: If true, Private Mode and Stories Entry Point Experiment is enabled.
         type: Boolean
         default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+      - channel: nightly
+        value:
+          enabled: true
 
   search-optimization-option:
     description: Feature to enable the Search Optimization cards for users on Firefox on Android.
@@ -1138,6 +1280,29 @@ features:
       - channel: nightly
         value:
           enabled: true
+
+  google-lens-integration:
+    description: A feature that enables Google Lens integration for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Google Lens integration is enabled.
+        type: Boolean
+        default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+      - channel: nightly
+        value:
+          enabled: false
+
+  homepage-sports-widget:
+    description: Feature to enable Homepage Sports Widget for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Homepage Sports Widget is enabled.
+        type: Boolean
+        default: false
 
 types:
   objects:

@@ -90,6 +90,7 @@
 #include <stdlib.h>
 
 #include "xpcpublic.h"
+#include "js/friend/CycleCollector.h"
 #include "js/HashTable.h"
 #include "js/GCHashTable.h"
 #include "js/Object.h"              // JS::GetClass, JS::GetCompartment
@@ -510,7 +511,6 @@ class XPCJSRuntime final : public mozilla::CycleCollectedJSRuntime {
   void DispatchDeferredDeletion(bool aContinuation,
                                 bool aPurge = false) override;
 
-  void CustomGCCallback(JSGCStatus status) override;
   void CustomOutOfMemoryCallback() override;
   void OnLargeAllocationFailure();
   static void GCSliceCallback(JSContext* cx, JS::GCProgress progress,
@@ -529,9 +529,6 @@ class XPCJSRuntime final : public mozilla::CycleCollectedJSRuntime {
   bool GCIsRunning() const { return mGCIsRunning; }
 
   ~XPCJSRuntime();
-
-  void AddGCCallback(xpcGCCallback cb);
-  void RemoveGCCallback(xpcGCCallback cb);
 
   JSObject* GetUAWidgetScope(JSContext* cx, nsIPrincipal* principal);
 
@@ -601,7 +598,6 @@ class XPCJSRuntime final : public mozilla::CycleCollectedJSRuntime {
   nsTArray<nsISupports*> mNativesToReleaseArray;
   bool mDoingFinalization;
   mozilla::LinkedList<nsXPCWrappedJS> mSubjectToFinalizationWJS;
-  nsTArray<xpcGCCallback> extraGCCallbacks;
   JS::GCSliceCallback mPrevGCSliceCallback;
   JS::DoCycleCollectionCallback mPrevDoCycleCollectionCallback;
   mozilla::WeakPtr<SandboxPrivate> mUnprivilegedJunkScope;
@@ -793,8 +789,6 @@ class XPCWrappedNativeScope final
   bool GetComponentsJSObject(JSContext* cx, JS::MutableHandleObject obj);
 
   JSObject* GetExpandoChain(JS::HandleObject target);
-
-  JSObject* DetachExpandoChain(JS::HandleObject target);
 
   bool SetExpandoChain(JSContext* cx, JS::HandleObject target,
                        JS::HandleObject chain);

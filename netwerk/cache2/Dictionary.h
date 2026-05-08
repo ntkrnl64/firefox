@@ -122,6 +122,7 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // Accumulate a hash while saving a file being received to the cache
   void AccumulateHash(const char* aBuf, int32_t aCount);
   void FinishHash();
+  void FinishHashOnMainThread();
 
   // return a pointer to the data and length
   uint8_t* DictionaryData(size_t* aLength) const;
@@ -228,6 +229,11 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
 
   // We're blocked from taking over for the old entry for now
   bool mBlocked{false};
+
+  // Set during Prefetch in OnCacheEntryAvailable if the stored response
+  // headers still contain Content-Encoding. Non-empty means data on disk
+  // is likely still compressed (decompressor wasn't applied before save).
+  nsCString mStoredContentEncoding;
 };
 
 // XXX Do we want to pre-read dictionaries into RAM at startup (lazily)?
@@ -247,7 +253,7 @@ class DictionaryOriginReader final : public nsICacheEntryOpenCallback,
   NS_DECL_NSIREQUESTOBSERVER
   NS_DECL_NSISTREAMLISTENER
 
-  DictionaryOriginReader() {}
+  DictionaryOriginReader() = default;
 
   void Start(
       bool aCreate, DictionaryOrigin* aOrigin, nsACString& aKey, nsIURI* aURI,
@@ -256,11 +262,11 @@ class DictionaryOriginReader final : public nsICacheEntryOpenCallback,
   void FinishMatch();
 
  private:
-  ~DictionaryOriginReader() {}
+  ~DictionaryOriginReader() = default;
 
   RefPtr<DictionaryOrigin> mOrigin;
   nsCOMPtr<nsIURI> mURI;
-  ExtContentPolicyType mType;
+  ExtContentPolicyType mType = ExtContentPolicyType::TYPE_INVALID;
   std::function<nsresult(bool, DictionaryCacheEntry*)> mCallback;
   RefPtr<DictionaryCache> mCache;
 };
@@ -298,7 +304,7 @@ class DictionaryOrigin : public nsICacheEntryMetaDataVisitor {
   }
 
  private:
-  virtual ~DictionaryOrigin() {}
+  virtual ~DictionaryOrigin() = default;
 
   nsCString mOrigin;
   nsCOMPtr<nsICacheEntry> mEntry;
@@ -324,7 +330,7 @@ class DictionaryCache final : public nsIObserver {
     (void)rv;
     MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
   }
-  ~DictionaryCache() {}
+  ~DictionaryCache() = default;
 
   friend class DictionaryOriginReader;
   friend class DictionaryCacheEntry;

@@ -511,6 +511,11 @@
       "type": "string"
     },
 
+    "DefaultSerialGuardSetting": {
+      "type": "number",
+      "enum": [2, 3]
+    },
+
     "DisableAccounts": {
       "type": "boolean"
     },
@@ -889,6 +894,9 @@
             "updates_disabled": {
               "type": "boolean"
             },
+            "update_url": {
+              "type": "URL"
+            },
             "default_area": {
               "type": "string",
               "enum": ["navbar", "menupanel"]
@@ -912,6 +920,9 @@
       "type": "object",
       "properties": {
         "Search": {
+          "type": "boolean"
+        },
+        "Weather": {
           "type": "boolean"
         },
         "TopSites": {
@@ -1861,6 +1872,10 @@
     },
 
     "WindowsSSO": {
+      "type": "boolean"
+    },
+
+    "XSLTEnabled": {
       "type": "boolean"
     }
   }

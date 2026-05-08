@@ -79,6 +79,9 @@ class SipccSdpAttributeList : public SdpAttributeList {
 
   virtual ~SipccSdpAttributeList();
 
+  SipccSdpAttributeList(const SipccSdpAttributeList& orig) = delete;
+  SipccSdpAttributeList& operator=(const SipccSdpAttributeList& rhs) = delete;
+
  private:
   static const std::string kEmptyString;
   static const size_t kNumAttributeTypes = SdpAttribute::kLastAttribute + 1;
@@ -133,9 +136,6 @@ class SipccSdpAttributeList : public SdpAttributeList {
   const SipccSdpAttributeList* mSessionLevel;
 
   SdpAttribute* mAttributes[kNumAttributeTypes];
-
-  SipccSdpAttributeList(const SipccSdpAttributeList& orig) = delete;
-  SipccSdpAttributeList& operator=(const SipccSdpAttributeList& rhs) = delete;
 };
 
 }  // namespace mozilla

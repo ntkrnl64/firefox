@@ -25,7 +25,7 @@
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/RWLock.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/RestyleManager.h"
 #include "mozilla/ServoBindings.h"
 #include "mozilla/ServoElementSnapshot.h"
@@ -88,32 +88,9 @@ using namespace mozilla;
 using namespace mozilla::css;
 using namespace mozilla::dom;
 
-// Definitions of the global traversal stats.
-bool ServoTraversalStatistics::sActive = false;
-ServoTraversalStatistics ServoTraversalStatistics::sSingleton;
+ServoTraversalStatistics* ServoTraversalStatistics::sSingleton = nullptr;
 
-static StaticAutoPtr<RWLock> sServoFFILock;
-
-static const LangGroupFontPrefs* ThreadSafeGetLangGroupFontPrefs(
-    const Document& aDocument, nsAtom* aLanguage) {
-  bool needsCache = false;
-  {
-    AutoReadLock guard(*sServoFFILock);
-    if (auto* prefs = aDocument.GetFontPrefsForLang(aLanguage, &needsCache)) {
-      return prefs;
-    }
-  }
-  MOZ_ASSERT(needsCache);
-  AutoWriteLock guard(*sServoFFILock);
-  return aDocument.GetFontPrefsForLang(aLanguage);
-}
-
-static const nsFont& ThreadSafeGetDefaultVariableFont(const Document& aDocument,
-                                                      nsAtom* aLanguage) {
-  return ThreadSafeGetLangGroupFontPrefs(aDocument, aLanguage)
-      ->mDefaultVariableFont;
-}
-
+static StaticAutoPtr<Mutex> sServoFFILock;
 /*
  * Does this child count as significant for selector matching?
  *
@@ -189,10 +166,8 @@ void Gecko_GetQueryContainerSize(const Element* aElement, nscoord* aOutWidth,
 }
 
 void Gecko_ComputedStyle_Init(ComputedStyle* aStyle,
-                              const ServoComputedData* aValues,
-                              PseudoStyleType aPseudoType) {
-  new (KnownNotNull, aStyle)
-      ComputedStyle(aPseudoType, ServoComputedDataForgotten(aValues));
+                              const ServoComputedData* aValues) {
+  new (KnownNotNull, aStyle) ComputedStyle(ServoComputedDataForgotten(aValues));
 }
 
 ServoComputedData::ServoComputedData(const ServoComputedDataForgotten aValue) {
@@ -377,7 +352,7 @@ nscoord Gecko_CalcLineHeight(const StyleLineHeight* aLh,
                              const nsStyleFont* aAgainstFont,
                              const mozilla::dom::Element* aElement) {
   // Normal line-height depends on font metrics.
-  AutoWriteLock guard(*sServoFFILock);
+  MutexAutoLock guard(*sServoFFILock);
   return ReflowInput::CalcLineHeight(*aLh, *aAgainstFont,
                                      const_cast<nsPresContext*>(aPc), aVertical,
                                      aElement, NS_UNCONSTRAINEDSIZE, 1.0f);
@@ -581,20 +556,25 @@ void Gecko_UpdateAnimations(const Element* aElement,
   if (aTasks & UpdateAnimationsTasks::TimelineScopes) {
     presContext->TimelineManager()->UpdateTimelineScopes(element,
                                                          aComputedData);
+    // We could try to limit the impact here, at least for changes involving not
+    // `all`. However, defer any such optimization until after bug 2024012.
+    presContext->AnimationManager()->UpdateAllNamedTimelineAnimations();
   }
 
   // Handle scroll/view timelines first because CSS animations may refer to the
   // timeline defined by itself.
   if (aTasks & UpdateAnimationsTasks::ScrollTimelines) {
-    presContext->TimelineManager()->UpdateTimelines(
+    const auto affected = presContext->TimelineManager()->UpdateTimelines(
         const_cast<Element*>(element), pseudoRequest, aComputedData,
         TimelineManager::ProgressTimelineType::Scroll);
+    presContext->AnimationManager()->UpdateNamedTimelineAnimations(affected);
   }
 
   if (aTasks & UpdateAnimationsTasks::ViewTimelines) {
-    presContext->TimelineManager()->UpdateTimelines(
+    const auto affected = presContext->TimelineManager()->UpdateTimelines(
         const_cast<Element*>(element), pseudoRequest, aComputedData,
         TimelineManager::ProgressTimelineType::View);
+    presContext->AnimationManager()->UpdateNamedTimelineAnimations(affected);
   }
 
   if (aTasks & UpdateAnimationsTasks::CSSAnimations) {
@@ -903,13 +883,18 @@ bool Gecko_IsSelectListBox(const Element* aElement) {
 }
 
 bool Gecko_LookupAttrValue(const Element* aElement, nsAtom& aNamespace,
-                           const nsAtom& aName, nsAString& aResult) {
+                           nsAtom& aName, nsAString& aResult) {
   int32_t attrNameSpace = kNameSpaceID_None;
   if (!aNamespace.IsEmpty()) {
     attrNameSpace = nsNameSpaceManager::GetInstance()->GetNameSpaceID(
         &aNamespace, nsContentUtils::IsChromeDoc(aElement->OwnerDoc()));
   }
-  return aElement->GetAttr(attrNameSpace, &aName, aResult);
+  if (aName.IsAsciiLowercase() || !aElement->OwnerDoc()->IsHTMLDocument()) {
+    return aElement->GetAttr(attrNameSpace, &aName, aResult);
+  }
+  RefPtr<nsAtom> lowercaseName(&aName);
+  ToLowerCaseASCII(lowercaseName);
+  return aElement->GetAttr(attrNameSpace, lowercaseName, aResult);
 }
 
 template <typename Implementor>
@@ -1009,7 +994,7 @@ void Gecko_nsFont_InitSystem(nsFont* aDest, StyleSystemFont aFontId,
                              const nsStyleFont* aFont,
                              const Document* aDocument) {
   const nsFont& defaultVariableFont =
-      ThreadSafeGetDefaultVariableFont(*aDocument, aFont->mLanguage);
+      aDocument->GetFontPrefsForLang(aFont->mLanguage)->mDefaultVariableFont;
 
   // We have passed uninitialized memory to this function,
   // initialize it. We can't simply return an nsFont because then
@@ -1025,14 +1010,12 @@ void Gecko_nsFont_Destroy(nsFont* aDest) { aDest->~nsFont(); }
 
 StyleGenericFontFamily Gecko_nsStyleFont_ComputeFallbackFontTypeForLanguage(
     const Document* aDoc, nsAtom* aLanguage) {
-  return ThreadSafeGetLangGroupFontPrefs(*aDoc, aLanguage)->GetDefaultGeneric();
+  return aDoc->GetFontPrefsForLang(aLanguage)->GetDefaultGeneric();
 }
 
 Length Gecko_GetBaseSize(const Document* aDoc, nsAtom* aLang,
                          StyleGenericFontFamily aGeneric) {
-  return ThreadSafeGetLangGroupFontPrefs(*aDoc, aLang)
-      ->GetDefaultFont(aGeneric)
-      ->size;
+  return aDoc->GetFontPrefsForLang(aLang)->GetDefaultFont(aGeneric)->size;
 }
 
 gfxFontFeatureValueSet* Gecko_ConstructFontFeatureValueSet() {
@@ -1303,29 +1286,11 @@ Length Gecko_nsStyleFont_ComputeMinSize(const nsStyleFont* aFont,
   if (!aFont->MinFontSizeEnabled()) {
     return {0};
   }
-  Length minFontSize;
-  bool needsCache = false;
-
-  auto MinFontSize = [&](bool* aNeedsToCache) {
-    const auto* prefs =
-        aDocument->GetFontPrefsForLang(aFont->mLanguage, aNeedsToCache);
-    return prefs ? prefs->mMinimumFontSize : Length{0};
-  };
-
-  {
-    AutoReadLock guard(*sServoFFILock);
-    minFontSize = MinFontSize(&needsCache);
-  }
-
-  if (needsCache) {
-    AutoWriteLock guard(*sServoFFILock);
-    minFontSize = MinFontSize(nullptr);
-  }
-
+  Length minFontSize =
+      aDocument->GetFontPrefsForLang(aFont->mLanguage)->mMinimumFontSize;
   if (minFontSize.ToCSSPixels() <= 0.0f) {
     return {0};
   }
-
   minFontSize.ScaleBy(aFont->mMinFontSizeRatio._0);
   return minFontSize;
 }
@@ -1341,7 +1306,7 @@ void InitializeServo() {
   gUACacheReporter = new UACacheReporter();
   RegisterWeakMemoryReporter(gUACacheReporter);
 
-  sServoFFILock = new RWLock("Servo::FFILock");
+  sServoFFILock = new Mutex("Servo::FFILock");
 }
 
 void ShutdownServo() {
@@ -1358,8 +1323,8 @@ void ShutdownServo() {
 
 void AssertIsMainThreadOrServoFontMetricsLocked() {
   if (!NS_IsMainThread()) {
-    MOZ_ASSERT(sServoFFILock &&
-               sServoFFILock->LockedForWritingByCurrentThread());
+    MOZ_ASSERT(sServoFFILock);
+    sServoFFILock->AssertCurrentThreadOwns();
   }
 }
 
@@ -1370,7 +1335,7 @@ GeckoFontMetrics Gecko_GetFontMetrics(const nsPresContext* aPresContext,
                                       const nsStyleFont* aFont,
                                       Length aFontSize,
                                       StyleQueryFontMetricsFlags flags) {
-  AutoWriteLock guard(*sServoFFILock);
+  MutexAutoLock guard(*sServoFFILock);
 
   // Getting font metrics can require some main thread only work to be
   // done, such as work that needs to touch non-threadsafe refcounted
@@ -1626,7 +1591,7 @@ void Gecko_ReportUnexpectedCSSError(const uint64_t aWindowId, nsIURI* aURI,
   reporter.OutputError(selectorsValue, lineNumber + 1, colNumber, aURI);
 }
 
-void Gecko_ContentList_AppendAll(nsSimpleContentList* aList,
+void Gecko_ContentList_AppendAll(SimpleContentList* aList,
                                  const Element** aElements, size_t aLength) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aElements);
@@ -1976,7 +1941,7 @@ bool Gecko_GetAnchorPosOffset(const AnchorPosOffsetResolutionParams* aParams,
   const auto usesCBWM = AnchorSideUsesCBWM(aAnchorSideKeyword);
   const auto cbwm = containingBlock->GetWritingMode();
   const auto wm =
-      usesCBWM ? aParams->mBaseParams.mFrame->GetWritingMode() : cbwm;
+      usesCBWM ? cbwm : aParams->mBaseParams.mFrame->GetWritingMode();
   const auto [rect, logicalCBSize] = [&] {
     // We need `AnchorPosReferenceData` to compute the anchor offset against
     // the adjusted CB, so make the best attempt to retrieve it.

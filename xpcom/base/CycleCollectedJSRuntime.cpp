@@ -58,6 +58,7 @@
 
 #include "js/Debug.h"
 #include "js/RealmOptions.h"
+#include "js/friend/CycleCollector.h"
 #include "js/friend/DumpFunctions.h"  // js::DumpHeap
 #include "js/GCAPI.h"
 #include "js/HeapAPI.h"
@@ -300,7 +301,7 @@ struct FixWeakMappingGrayBitsTracer : public js::WeakMapTracer {
     }
   }
 
-  MOZ_INIT_OUTSIDE_CTOR bool mAnyMarked;
+  bool mAnyMarked = false;
 };
 
 #ifdef DEBUG
@@ -1786,7 +1787,11 @@ void CycleCollectedJSRuntime::JSObjectsTenured(JS::GCContext* aGCContext) {
       continue;
     }
     JSObject* wrapper = cache->GetWrapperMaybeDead();
-    MOZ_DIAGNOSTIC_ASSERT(wrapper);
+    if (MOZ_UNLIKELY(!wrapper)) {
+      // Wrapper might have been cleared temporarily while updating reflector
+      // global.
+      continue;
+    }
 
     if (js::gc::InCollectedNurseryRegion(wrapper)) {
       MOZ_ASSERT(!cache->PreservingWrapper());
@@ -1940,7 +1945,8 @@ IncrementalFinalizeRunnable::Run() {
   }
 
   MOZ_ASSERT(mRuntime->mFinalizeRunnable == this);
-  auto timerId = glean::cycle_collector::deferred_finalize_async.Start();
+  auto timerId =
+      glean::cycle_collector::deferred_finalize_async.ProcessGet().Start();
   ReleaseNow(true);
 
   if (mDeferredFinalizeFunctions.Length()) {
@@ -1952,8 +1958,8 @@ IncrementalFinalizeRunnable::Run() {
     MOZ_ASSERT(!mRuntime);
   }
 
-  glean::cycle_collector::deferred_finalize_async.StopAndAccumulate(
-      std::move(timerId));
+  glean::cycle_collector::deferred_finalize_async.ProcessGet()
+      .StopAndAccumulate(std::move(timerId));
 
   return NS_OK;
 }

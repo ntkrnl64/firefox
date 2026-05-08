@@ -1,29 +1,23 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Mon, 29 Dec 2025 13:18:00 -0600
-Subject: Bug 2006933 - (fix-932f274e86) don't include rtc_error.h, forward
- declare RTCError
+Date: Mon, 6 Apr 2026 14:37:00 -0500
+Subject: Bug 2029247 - (fix-0fc5aeecfb) base-toolchains build fix
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/fb61f91d422c3d77545d0d10778314eb958fc8c6
+Upstream was assigning a -2 to a uint16_t.
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/f5dfd2e6901c9d79ee528bf3801ded81b6dd65c9
 ---
- api/rtp_parameters.h | 2 +-
+ rtc_base/network_constants.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/api/rtp_parameters.h b/api/rtp_parameters.h
-index ab268104f4..039a41150c 100644
---- a/api/rtp_parameters.h
-+++ b/api/rtp_parameters.h
-@@ -23,13 +23,13 @@
- #include "absl/strings/string_view.h"
- #include "api/media_types.h"
- #include "api/priority.h"
--#include "api/rtc_error.h"
- #include "api/rtp_transceiver_direction.h"
- #include "api/video/resolution.h"
- #include "api/video_codecs/scalability_mode.h"
- #include "rtc_base/system/rtc_export.h"
+diff --git a/rtc_base/network_constants.h b/rtc_base/network_constants.h
+index 8c43576c61..ca25d2b465 100644
+--- a/rtc_base/network_constants.h
++++ b/rtc_base/network_constants.h
+@@ -38,7 +38,7 @@ constexpr uint16_t kNetworkCostVpn = 1;
  
- namespace webrtc {
-+class RTCError;
- class StringBuilder;
+ // Add -2 to the network cost when using network slicing so that e.g. premium 5G
+ // slice is preferred over regular 5G, everything else being equal.
+-constexpr uint16_t kNetworkCostSlice = -2;
++constexpr int16_t kNetworkCostSlice = -2;
  
- using CodecParameterMap = std::map<std::string, std::string>;
+ // Aliases for correct wrap-around with network slice cost.
+ constexpr uint16_t kNetworkCostCellular5GSlice =  // 248

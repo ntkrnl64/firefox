@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -20,6 +21,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,6 +42,7 @@ import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import mozilla.components.feature.top.sites.TopSite
+import mozilla.components.support.utils.ext.isLandscape
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.GleanMetrics.History
 import org.mozilla.fenix.GleanMetrics.HomeBookmarks
@@ -44,9 +50,14 @@ import org.mozilla.fenix.GleanMetrics.RecentlyVisitedHomepage
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.appstate.setup.checklist.SetupChecklistState
+import org.mozilla.fenix.components.appstate.sports.SportsWidgetState
 import org.mozilla.fenix.components.components
+import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.compose.MessageCard
 import org.mozilla.fenix.compose.home.HomeSectionHeader
+import org.mozilla.fenix.debugsettings.sportswidget.SportsWidgetDebugTool
+import org.mozilla.fenix.ext.isLargeWindow
+import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.home.bookmarks.Bookmark
 import org.mozilla.fenix.home.bookmarks.interactor.BookmarksInteractor
 import org.mozilla.fenix.home.bookmarks.view.Bookmarks
@@ -70,11 +81,16 @@ import org.mozilla.fenix.home.recentvisits.view.RecentlyVisited
 import org.mozilla.fenix.home.sessioncontrol.CollectionInteractor
 import org.mozilla.fenix.home.sessioncontrol.MessageCardInteractor
 import org.mozilla.fenix.home.setup.ui.SetupChecklist
+import org.mozilla.fenix.home.sports.ui.CountdownPromoCard
+import org.mozilla.fenix.home.sports.ui.FollowTeamPromoCard
+import org.mozilla.fenix.home.sports.ui.MatchCard
+import org.mozilla.fenix.home.sports.ui.SportsCountrySelectorBottomSheet
 import org.mozilla.fenix.home.store.HeaderState
 import org.mozilla.fenix.home.store.HomepageState
 import org.mozilla.fenix.home.store.NimbusMessageState
 import org.mozilla.fenix.home.termsofuse.PrivacyNoticeBanner
 import org.mozilla.fenix.home.termsofuse.PrivacyNoticeBannerInteractor
+import org.mozilla.fenix.home.toolbar.HomeToolbarComposable
 import org.mozilla.fenix.home.topsites.TopSiteColors
 import org.mozilla.fenix.home.topsites.TopSites
 import org.mozilla.fenix.home.topsites.interactor.TopSiteInteractor
@@ -93,6 +109,9 @@ import mozilla.components.ui.icons.R as iconsR
  * @param interactor [HomepageInteractor] for interactions with the homepage UI.
  * @param onTopSitesItemBound Invoked during the composition of a top site item.
  * @param modifier [Modifier] to be applied to the layout.
+ * @param navigationBarContent Optional composable rendered at the bottom of the homepage when the
+ * toolbar is positioned at the top. When the toolbar is at the bottom, the navigation bar is
+ * rendered by [HomeToolbarComposable] instead and this content is not shown.
  */
 @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
 @Composable
@@ -101,9 +120,11 @@ internal fun Homepage(
     interactor: HomepageInteractor,
     onTopSitesItemBound: () -> Unit,
     modifier: Modifier = Modifier,
+    navigationBarContent: (@Composable () -> Unit)? = null,
 ) {
     val scrollState = rememberScrollState()
     val browsingModeChanged = interactor::onPrivateModeButtonClicked
+    var showSportsCountrySelector by remember { mutableStateOf(false) }
 
     BoxWithConstraints(
         modifier = modifier
@@ -138,15 +159,20 @@ internal fun Homepage(
 
             when (val headerState = state.headerState) {
                 is HeaderState.Experimental.Normal -> {
-                    val components = components
+                    val settings = components.settings
 
                     ExperimentalHomepageHeader(
                         wordmarkTextColor = headerState.wordmarkTextColor,
-                        showNewsAnimation = headerState.showNewsAnimation,
+                        showStoriesButton = headerState.showStoriesButton,
+                        showButtonAnimation = headerState.showButtonAnimation,
+                        isSportsWidgetEnabled = settings.enableHomepageSportsWidget,
                         onPrivateModeTapped = { browsingModeChanged(BrowsingMode.Private) },
                         onStoriesTapped = { interactor.onDiscoverMoreClicked() },
-                        onNewsAnimationShown = { components.settings.recordNewsButtonAnimationShown() },
-                        onLogoClicked = interactor::onLogoClicked,
+                        onNewsAnimationShown = { settings.recordNewsButtonAnimationShown() },
+                        onLogoClicked = {
+                            if (settings.showHomepageSportsWidget) showSportsCountrySelector = true
+                        },
+                        onLogoLongClicked = interactor::onLogoLongClicked,
                     )
                 }
 
@@ -157,12 +183,18 @@ internal fun Homepage(
                 }
 
                 is HeaderState.Normal -> {
+                    val settings = components.settings
+
                     HomepageHeader(
                         wordmarkTextColor = headerState.wordmarkTextColor,
                         privateBrowsingButtonColor = headerState.privateBrowsingButtonColor,
                         browsingMode = state.browsingMode,
                         browsingModeChanged = browsingModeChanged,
-                        onLogoClicked = interactor::onLogoClicked,
+                        isSportsWidgetEnabled = settings.enableHomepageSportsWidget,
+                        onLogoClicked = {
+                            if (settings.showHomepageSportsWidget) showSportsCountrySelector = true
+                        },
+                        onLogoLongClicked = interactor::onLogoLongClicked,
                     )
                 }
             }
@@ -190,7 +222,22 @@ internal fun Homepage(
                             if (showPrivacyReport) {
                                 TrackersBlockedCard(
                                     trackersBlockedCount = trackersBlockedCount,
+                                    interactor = interactor,
                                     modifier = Modifier.padding(top = 16.dp),
+                                    showLongfoxEntryPoint = showLongfoxEntryPoint,
+                                )
+                            }
+
+                            if (sportsWidgetState.isShown) {
+                                SportsWidgetSection(
+                                    sportsWidgetState = sportsWidgetState,
+                                    onDismiss = interactor::onSportsWidgetDismissed,
+                                    onCountdownWidgetDismiss = interactor::onCountdownWidgetDismissed,
+                                    onViewSchedule = interactor::onViewScheduleClicked,
+                                    onFollowTeam = {
+                                        showSportsCountrySelector = true
+                                    },
+                                    onSkip = interactor::onSkippedFollowTeam,
                                 )
                             }
 
@@ -251,7 +298,7 @@ internal fun Homepage(
                                 )
                             }
 
-                            if (showPocketStories) {
+                            if (showPocketStoriesCarousel) {
                                 Spacer(
                                     modifier = if (isMinimalLayout()) {
                                         Modifier.weight(1f)
@@ -268,9 +315,35 @@ internal fun Homepage(
                             }
 
                             Spacer(Modifier.height(bottomPadding.dp))
+
+                            if (showSportsCountrySelector) {
+                                SportsCountrySelectorBottomSheet(
+                                    selectedCountryCode = sportsWidgetState.countriesSelected.firstOrNull(),
+                                    onCountrySelected = { countryCode ->
+                                        interactor.onCountriesSelected(setOf(countryCode))
+                                        showSportsCountrySelector = false
+                                    },
+                                    onDismiss = { showSportsCountrySelector = false },
+                                )
+                            }
+
+                            if (sportsWidgetState.isDebugToolVisible) {
+                                SportsWidgetDebugTool(
+                                    state = sportsWidgetState,
+                                    appStore = components.appStore,
+                                )
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        if (navigationBarContent != null &&
+            components.settings.toolbarPosition == ToolbarPosition.TOP
+        ) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                navigationBarContent()
             }
         }
     }
@@ -338,9 +411,10 @@ internal fun TopSitesSection(
 
     TopSites(
         topSites = topSites,
-        topSiteColors = topSiteColors,
         interactor = interactor,
         onTopSitesItemBound = onTopSitesItemBound,
+        topSiteColors = topSiteColors,
+        isPager = LocalContext.current.settings().topSitesPager,
     )
 }
 
@@ -511,6 +585,50 @@ private fun CollectionsSection(
 }
 
 @Composable
+private fun SportsWidgetSection(
+    sportsWidgetState: SportsWidgetState,
+    onDismiss: () -> Unit,
+    onCountdownWidgetDismiss: () -> Unit,
+    onViewSchedule: () -> Unit,
+    onFollowTeam: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    Spacer(modifier = Modifier.height(44.dp))
+
+    val isLargeWindow = LocalContext.current.isLargeWindow()
+    val isLandscape = LocalContext.current.isLandscape()
+    val modifier = Modifier.fillMaxWidth(
+        fraction = when {
+            isLargeWindow || isLandscape -> 0.7f
+            else -> 1f
+        },
+    )
+
+    if (sportsWidgetState.isCountdownShown) {
+        val worldCupKickoffDate = "2026-06-11T00:00:00Z"
+        CountdownPromoCard(
+            dateInUtc = worldCupKickoffDate,
+            onViewSchedule = onViewSchedule,
+            onDismiss = onCountdownWidgetDismiss,
+            modifier = modifier.padding(horizontal = horizontalMargin),
+        )
+    } else if (sportsWidgetState.isFollowTeamsCardShown) {
+        FollowTeamPromoCard(
+            onFollowTeam = onFollowTeam,
+            onSkip = onSkip,
+            onDismiss = onDismiss,
+            modifier = modifier.padding(horizontal = horizontalMargin),
+        )
+    } else if (sportsWidgetState.matchCardState != null) {
+        MatchCard(
+            state = sportsWidgetState.matchCardState,
+            onMenuClick = {},
+            modifier = modifier.padding(horizontal = horizontalMargin),
+        )
+    }
+}
+
+@Composable
 @PreviewLightDark
 private fun HomepagePreview() {
     FirefoxTheme {
@@ -531,10 +649,12 @@ private fun HomepagePreview() {
                     showRecentSyncedTab = true,
                     showBookmarks = true,
                     showRecentlyVisited = true,
-                    showPocketStories = true,
+                    showPocketStoriesCarousel = true,
                     showCollections = true,
                     showPrivacyReport = true,
+                    showLongfoxEntryPoint = false,
                     trackersBlockedCount = 754,
+                    sportsWidgetState = SportsWidgetState(),
                     headerState = HeaderState.Normal(
                         wordmarkTextColor = null,
                         privateBrowsingButtonColor = colorResource(
@@ -584,10 +704,12 @@ private fun HomepageBannerPreview() {
                     showRecentSyncedTab = true,
                     showBookmarks = true,
                     showRecentlyVisited = true,
-                    showPocketStories = true,
+                    showPocketStoriesCarousel = true,
                     showCollections = true,
                     showPrivacyReport = true,
+                    showLongfoxEntryPoint = false,
                     trackersBlockedCount = 754,
+                    sportsWidgetState = SportsWidgetState(),
                     headerState = HeaderState.Normal(
                         wordmarkTextColor = null,
                         privateBrowsingButtonColor = colorResource(
@@ -637,10 +759,12 @@ private fun HomepagePreviewCollections() {
                     showRecentSyncedTab = false,
                     showBookmarks = false,
                     showRecentlyVisited = true,
-                    showPocketStories = true,
+                    showPocketStoriesCarousel = true,
                     showCollections = true,
                     showPrivacyReport = true,
+                    showLongfoxEntryPoint = false,
                     trackersBlockedCount = 754,
+                    sportsWidgetState = SportsWidgetState(),
                     headerState = HeaderState.Normal(
                         wordmarkTextColor = null,
                         privateBrowsingButtonColor = colorResource(
@@ -690,10 +814,12 @@ private fun MinimalHomepagePreview() {
                     showRecentSyncedTab = false,
                     showBookmarks = false,
                     showRecentlyVisited = false,
-                    showPocketStories = true,
+                    showPocketStoriesCarousel = true,
                     showCollections = false,
                     showPrivacyReport = true,
+                    showLongfoxEntryPoint = false,
                     trackersBlockedCount = 754,
+                    sportsWidgetState = SportsWidgetState(),
                     headerState = HeaderState.Normal(
                         wordmarkTextColor = null,
                         privateBrowsingButtonColor = colorResource(

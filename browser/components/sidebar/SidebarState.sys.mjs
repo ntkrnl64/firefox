@@ -128,6 +128,15 @@ export class SidebarState {
   }
 
   /**
+   * Get the splitter sibling for the sidebar launcher.
+   *
+   * @returns {XULElement}
+   */
+  get #launcherSplitterEl() {
+    return this.#controller.launcherSplitter;
+  }
+
+  /**
    * Get the sidebar panel element.
    *
    * @returns {XULElement}
@@ -187,7 +196,7 @@ export class SidebarState {
    * Get window object from the controller.
    */
   get #controllerGlobal() {
-    return this.#launcherContainerEl.ownerGlobal;
+    return this.#launcherContainerEl.documentGlobal;
   }
 
   /**
@@ -244,6 +253,9 @@ export class SidebarState {
     } else if (this.revampVisibility == "always-show") {
       props.launcherVisible = true;
     }
+    const hasExplicitHiddenLauncher =
+      hasPreviousVisibleState && !props.launcherVisible;
+
     for (const [key, value] of Object.entries(props)) {
       if (value === undefined) {
         // `undefined` means we should use the default value.
@@ -285,9 +297,15 @@ export class SidebarState {
     if (!this.command) {
       props.panelOpen = false;
     }
+
     this.panelOpen = !!props.panelOpen;
+    if (hasExplicitHiddenLauncher) {
+      this.launcherVisible = false;
+    }
     if (this.command && this.panelOpen) {
-      this.launcherVisible = true;
+      if (!hasExplicitHiddenLauncher) {
+        this.launcherVisible = true;
+      }
       // show() is async, so make sure we return its promise here
       return this.#controller.showInitially(this.command);
     }
@@ -478,14 +496,21 @@ export class SidebarState {
     if (!this.revampEnabled) {
       // Launcher not supported in legacy sidebar.
       this.#props.launcherVisible = false;
+      this.#launcherSplitterEl.hidden = true;
       this.#launcherContainerEl.hidden = true;
+      this.#controller._disableLauncherDragging();
+      this.#updateTabbrowser(false);
       return;
     }
     this.#props.launcherVisible = visible;
+    this.#launcherContainerEl.hidden = !visible;
+    this.#launcherSplitterEl.hidden = !visible;
     if (visible) {
       this.#launcherEverVisible = true;
+      this.#controller._enableLauncherDragging();
+    } else {
+      this.#controller._disableLauncherDragging();
     }
-    this.#launcherContainerEl.hidden = !visible;
     this.#launcherEl.requestUpdate();
     this.#updateTabbrowser(visible);
     this.#sidebarBoxEl.style.paddingInlineStart =
@@ -512,7 +537,6 @@ export class SidebarState {
     // and selectors considerably.
     const { tabContainer } = this.#controllerGlobal.gBrowser;
     const mainEl = this.#controller.sidebarContainer;
-    const splitterEl = this.#controller._launcherSplitter;
     const boxEl = this.#controller._box;
     const contentAreaEl =
       this.#controllerGlobal.document.getElementById("tabbrowser-tabbox");
@@ -520,7 +544,10 @@ export class SidebarState {
     if (mainEl?.toggleAttribute) {
       mainEl.toggleAttribute("sidebar-launcher-expanded", expanded);
     }
-    splitterEl?.toggleAttribute("sidebar-launcher-expanded", expanded);
+    this.#launcherSplitterEl?.toggleAttribute(
+      "sidebar-launcher-expanded",
+      expanded
+    );
     boxEl?.toggleAttribute("sidebar-launcher-expanded", expanded);
     contentAreaEl.toggleAttribute("sidebar-launcher-expanded", expanded);
     this.#controller.updateToolbarButton();

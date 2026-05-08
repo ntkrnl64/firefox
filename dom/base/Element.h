@@ -60,7 +60,6 @@ class JSObject;
 class mozAutoDocUpdate;
 class nsAttrName;
 class nsAttrValueOrString;
-class nsContentList;
 class nsDOMAttributeMap;
 class nsDOMCSSAttributeDeclaration;
 class nsDOMStringMap;
@@ -84,7 +83,6 @@ class nsIDOMXULRelatedElement;
 class nsIDOMXULSelectControlElement;
 class nsIDOMXULSelectControlItemElement;
 class nsIFrame;
-class nsIHTMLCollection;
 class nsIPrincipal;
 class nsIScreen;
 class nsIURI;
@@ -123,8 +121,11 @@ struct ScrollToOptions;
 struct FocusOptions;
 struct ShadowRootInit;
 struct ScrollOptions;
+struct FullscreenOptions;
+struct PointerLockOptions;
 class Attr;
 class BooleanOrScrollIntoViewOptions;
+class ContentList;
 class Document;
 class HTMLFormElement;
 class DOMIntersectionObserver;
@@ -153,9 +154,8 @@ using nsMapRuleToAttributesFunc = void (*)(mozilla::MappedDeclarationsBuilder&);
 // Declared here because of include hell.
 extern "C" bool Servo_Element_IsDisplayContents(const mozilla::dom::Element*);
 
-already_AddRefed<nsContentList> NS_GetContentList(nsINode* aRootNode,
-                                                  int32_t aMatchNameSpaceId,
-                                                  const nsAString& aTagname);
+already_AddRefed<mozilla::dom::ContentList> NS_GetContentList(
+    nsINode* aRootNode, int32_t aMatchNameSpaceId, const nsAString& aTagname);
 
 #define ELEMENT_FLAG_BIT(n_) \
   NODE_FLAG_BIT(NODE_TYPE_SPECIFIC_BITS_OFFSET + (n_))
@@ -204,8 +204,12 @@ enum : uint32_t {
   ELEMENT_CUSTOM_ELEMENT_REGISTRY_MASK =
       ELEMENT_FLAG_BIT(8) | ELEMENT_FLAG_BIT(9),
 
+  // Whether this element has an associated EditContext
+  // https://w3c.github.io/edit-context
+  ELEMENT_HAS_EDIT_CONTEXT = ELEMENT_FLAG_BIT(10),
+
   // Remaining bits are for subclasses
-  ELEMENT_TYPE_SPECIFIC_BITS_OFFSET = NODE_TYPE_SPECIFIC_BITS_OFFSET + 10
+  ELEMENT_TYPE_SPECIFIC_BITS_OFFSET = NODE_TYPE_SPECIFIC_BITS_OFFSET + 11
 };
 
 #undef ELEMENT_FLAG_BIT
@@ -682,6 +686,8 @@ class Element : public FragmentOrElement {
    * @param aData The custom element data.
    */
   void SetCustomElementData(UniquePtr<CustomElementData> aData);
+
+  void ClearCustomElementData();
 
   nsTArray<RefPtr<nsAtom>>& EnsureCustomStates();
 
@@ -1180,9 +1186,10 @@ class Element : public FragmentOrElement {
   /**
    * Append to aOutDescription a string describing the element and its
    * attributes.
-   * If aShort is true, only the id and class attributes will be listed.
    */
-  void Describe(nsAString& aOutDescription, bool aShort = false) const;
+  enum class DescriptionKind { IdOnly, IdAndClass, AllAttributes };
+  void Describe(nsAString& aOutDescription,
+                DescriptionKind aKind = DescriptionKind::AllAttributes) const;
 
   /*
    * Attribute Mapping Helpers
@@ -1309,7 +1316,7 @@ class Element : public FragmentOrElement {
   void GetAttribute(const nsAString& aName, nsAString& aReturn) {
     DOMString str;
     GetAttribute(aName, str);
-    str.ToString(aReturn);
+    aReturn.Assign(std::move(str));
   }
 
   void GetAttribute(const nsAString& aName, DOMString& aReturn);
@@ -1367,12 +1374,12 @@ class Element : public FragmentOrElement {
   bool HasAttributes() const { return HasAttrs(); }
   Element* Closest(const nsACString& aSelector, ErrorResult& aResult);
   bool Matches(const nsACString& aSelector, ErrorResult& aError);
-  already_AddRefed<nsIHTMLCollection> GetElementsByTagName(
+  already_AddRefed<HTMLCollection> GetElementsByTagName(
       const nsAString& aQualifiedName);
-  already_AddRefed<nsIHTMLCollection> GetElementsByTagNameNS(
+  already_AddRefed<HTMLCollection> GetElementsByTagNameNS(
       const nsAString& aNamespaceURI, const nsAString& aLocalName,
       ErrorResult& aError);
-  already_AddRefed<nsIHTMLCollection> GetElementsByClassName(
+  already_AddRefed<HTMLCollection> GetElementsByClassName(
       const nsAString& aClassNames);
 
   /**
@@ -1525,7 +1532,8 @@ class Element : public FragmentOrElement {
     static_assert(sizeof(PseudoStyleType) <= sizeof(uintptr_t),
                   "Need to be able to store this in a void*");
     MOZ_ASSERT(PseudoStyle::IsPseudoElement(aPseudo));
-    SetProperty(nsGkAtoms::pseudoProperty, reinterpret_cast<void*>(aPseudo));
+    SetProperty(nsGkAtoms::pseudoProperty, reinterpret_cast<void*>(aPseudo),
+                /* aDtor = */ nullptr, /* aTransfer = */ true);
   }
 
   /**
@@ -1576,8 +1584,11 @@ class Element : public FragmentOrElement {
 
   void ReleaseCapture();
 
-  already_AddRefed<Promise> RequestFullscreen(CallerType, ErrorResult&);
-  void RequestPointerLock(CallerType aCallerType);
+  already_AddRefed<Promise> RequestFullscreen(const FullscreenOptions&,
+                                              CallerType, ErrorResult&);
+  already_AddRefed<Promise> RequestPointerLock(
+      const PointerLockOptions& aOptions, CallerType aCallerType,
+      ErrorResult& aRv);
   Attr* GetAttributeNode(const nsAString& aName);
   MOZ_CAN_RUN_SCRIPT already_AddRefed<Attr> SetAttributeNode(
       Attr& aNewAttr, nsIPrincipal* aSubjectPrincipal, ErrorResult& aError);
@@ -1622,19 +1633,30 @@ class Element : public FragmentOrElement {
   already_AddRefed<ShadowRoot> AttachShadow(const ShadowRootInit&,
                                             ErrorResult&);
   bool CanAttachShadowDOM() const;
+  virtual void GetSlotNameFor(const ShadowRoot&, const nsIContent& aContent,
+                              nsAString& aName) const {
+    if (const Element* element = Element::FromNode(aContent)) {
+      element->GetAttr(nsGkAtoms::slot, aName);
+    }
+  }
+  virtual void OnChildBeforeSlotted(ShadowRoot&, nsIContent&) {}
+  virtual void OnChildUnslotted(ShadowRoot&, nsIContent&) {}
 
   enum class DelegatesFocus : bool { No, Yes };
   enum class ShadowRootClonable : bool { No, Yes };
   enum class ShadowRootSerializable : bool { No, Yes };
+  enum class CustomSlotDispatch : bool { No, Yes };
 
   // https://dom.spec.whatwg.org/#concept-attach-a-shadow-root
   already_AddRefed<ShadowRoot> AttachShadowWithoutNameChecks(
-      const ShadowRootInit&, bool aNotify = true);
+      const ShadowRootInit&, bool aNotify = true,
+      CustomSlotDispatch = CustomSlotDispatch::No);
 
   // Attach UA Shadow Root if it is not attached.
   enum class NotifyUAWidget : bool { No, Yes };
   void AttachAndSetUAShadowRoot(NotifyUAWidget = NotifyUAWidget::Yes,
                                 DelegatesFocus = DelegatesFocus::No,
+                                CustomSlotDispatch = CustomSlotDispatch::No,
                                 bool aNotify = true);
 
   // Dispatch an event to UAWidgetsChild, triggering construction
@@ -1649,10 +1671,11 @@ class Element : public FragmentOrElement {
 
   void UnattachShadow();
 
-  ShadowRoot* GetShadowRootByMode() const;
   void SetSlot(const nsAString& aName, ErrorResult& aError);
   void GetSlot(nsAString& aName);
 
+  ShadowRoot* GetShadowRootForBindings() const;
+  ShadowRoot* GetOpenOrClosedShadowRoot(nsIPrincipal& aSubject) const;
   ShadowRoot* GetShadowRoot() const {
     const nsExtendedDOMSlots* slots = GetExistingExtendedDOMSlots();
     return slots ? slots->mShadowRoot.get() : nullptr;
@@ -1846,10 +1869,12 @@ class Element : public FragmentOrElement {
 
   MOZ_CAN_RUN_SCRIPT
   void GetAnimations(const GetAnimationsOptions& aOptions,
-                     nsTArray<RefPtr<Animation>>& aAnimations);
+                     nsTArray<RefPtr<Animation>>& aAnimations,
+                     ErrorResult& aError);
 
   void GetAnimationsWithoutFlush(const GetAnimationsOptions& aOptions,
-                                 nsTArray<RefPtr<Animation>>& aAnimations);
+                                 nsTArray<RefPtr<Animation>>& aAnimations,
+                                 ErrorResult& aError);
 
   void CloneAnimationsFrom(const Element& aOther);
 
@@ -2029,6 +2054,11 @@ class Element : public FragmentOrElement {
    * Locate a TextEditor rooted at this content node, if there is one.
    */
   MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::TextEditor* GetTextEditorInternal();
+
+  /**
+   * Detach EditContext from this element.
+   */
+  void ClearEditContext();
 
   /**
    * Gets value of boolean attribute. Only works for attributes in null
@@ -2526,6 +2556,10 @@ class Element : public FragmentOrElement {
    */
   virtual void RegUnRegAccessKey(bool aDoReg);
 
+  // Prevent people from doing pointless checks/casts on Element instances.
+  void IsElement() = delete;
+  void AsElement() = delete;
+
  private:
 #ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
   void AssertInvariantsOnNodeInfoChange();
@@ -2557,10 +2591,6 @@ class Element : public FragmentOrElement {
    */
   template <class T>
   void GetCustomInterface(nsGetterAddRefs<T> aResult);
-
-  // Prevent people from doing pointless checks/casts on Element instances.
-  void IsElement() = delete;
-  void AsElement() = delete;
 
   // Data members
   ElementState mState;

@@ -14,6 +14,7 @@
 #include "mozilla/AutoRestore.h"
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLSummaryElement.h"
 #include "mozilla/gfx/2D.h"
@@ -32,7 +33,6 @@
 #include "nsError.h"
 #include "nsFlexContainerFrame.h"
 #include "nsFrameSelection.h"
-#include "nsGkAtoms.h"
 #include "nsIBaseWindow.h"
 #include "nsIFrameInlines.h"
 #include "nsIWidget.h"
@@ -545,37 +545,52 @@ void nsContainerFrame::SetSizeConstraints(nsPresContext* aPresContext,
                                           nsIWidget* aWidget,
                                           const nsSize& aMinSize,
                                           const nsSize& aMaxSize) {
-  LayoutDeviceIntSize devMinSize(
-      aPresContext->AppUnitsToDevPixels(aMinSize.width),
-      aPresContext->AppUnitsToDevPixels(aMinSize.height));
-  LayoutDeviceIntSize devMaxSize(
-      aMaxSize.width == NS_UNCONSTRAINEDSIZE
-          ? NS_MAXSIZE
-          : aPresContext->AppUnitsToDevPixels(aMaxSize.width),
-      aMaxSize.height == NS_UNCONSTRAINEDSIZE
-          ? NS_MAXSIZE
-          : aPresContext->AppUnitsToDevPixels(aMaxSize.height));
+  // Compute constraints in desktop pixels so they are independent of the
+  // widget's current backing scale factor. Each widget converts to its
+  // native coordinate system using its own scale.
+  //
+  // Use the pres context's nearest widget for the desktop-to-device scale
+  // to match the scale used by AppUnitsToDevPixels. That widget may differ
+  // from aWidget (e.g. for popups on macOS whose NSWindow is initially
+  // backed by a different screen than the frame's nearest widget).
+  nsIWidget* rootWidget = aPresContext->GetNearestWidget();
+  const DesktopToLayoutDeviceScale desktopToDev =
+      rootWidget ? rootWidget->GetDesktopToDeviceScale()
+                 : aWidget->GetDesktopToDeviceScale();
+
+  auto AppUnitsToDesktop = [&](nscoord aAppUnits) {
+    return NSToIntRound(aPresContext->AppUnitsToDevPixels(aAppUnits) /
+                        desktopToDev.scale);
+  };
+
+  DesktopIntSize minSize(AppUnitsToDesktop(aMinSize.width),
+                         AppUnitsToDesktop(aMinSize.height));
+  DesktopIntSize maxSize(aMaxSize.width == NS_UNCONSTRAINEDSIZE
+                             ? NS_MAXSIZE
+                             : AppUnitsToDesktop(aMaxSize.width),
+                         aMaxSize.height == NS_UNCONSTRAINEDSIZE
+                             ? NS_MAXSIZE
+                             : AppUnitsToDesktop(aMaxSize.height));
 
   // MinSize has a priority over MaxSize
-  if (devMinSize.width > devMaxSize.width) {
-    devMaxSize.width = devMinSize.width;
+  if (minSize.width > maxSize.width) {
+    maxSize.width = minSize.width;
   }
-  if (devMinSize.height > devMaxSize.height) {
-    devMaxSize.height = devMinSize.height;
-  }
-
-  DesktopToLayoutDeviceScale constraintsScale(MOZ_WIDGET_INVALID_SCALE);
-  if (nsIWidget* rootWidget = aPresContext->GetNearestWidget()) {
-    constraintsScale = rootWidget->GetDesktopToDeviceScale();
+  if (minSize.height > maxSize.height) {
+    maxSize.height = minSize.height;
   }
 
-  widget::SizeConstraints constraints(devMinSize, devMaxSize, constraintsScale);
+  widget::SizeConstraints constraints(minSize, maxSize);
 
   // The sizes are in inner window sizes, so convert them into outer window
   // sizes. Use a size of (200, 200) as only the difference between the inner
-  // and outer size is needed.
-  const LayoutDeviceIntSize sizeDiff =
+  // and outer size is needed. NormalSizeModeClientToWindowSizeDifference
+  // reports values in aWidget's device pixels, so convert through aWidget's
+  // scale rather than rootWidget's.
+  const LayoutDeviceIntSize devSizeDiff =
       aWidget->NormalSizeModeClientToWindowSizeDifference();
+  const DesktopIntSize sizeDiff =
+      DesktopIntSize::Round(devSizeDiff / aWidget->GetDesktopToDeviceScale());
   if (constraints.mMinSize.width) {
     constraints.mMinSize.width += sizeDiff.width;
   }
@@ -997,10 +1012,17 @@ void nsContainerFrame::DisplayOverflowContainers(
   }
 }
 
-void nsContainerFrame::DisplayPushedAbsoluteFrames(
+void nsContainerFrame::DisplayAbsoluteFramesNotBuiltByPlaceholder(
     nsDisplayListBuilder* aBuilder, const nsDisplayListSet& aLists) {
   for (nsIFrame* frame : GetChildList(FrameChildListID::Absolute)) {
     if (frame->HasAnyStateBits(NS_FRAME_IS_PUSHED_OUT_OF_FLOW)) {
+      BuildDisplayListForChild(aBuilder, frame, aLists);
+    } else if (IsTransformed() && !nsLayoutUtils::IsProperAncestorFrame(
+                                      this, frame->GetPlaceholderFrame())) {
+      // If this is a transformed absolute containing block and the abspos's
+      // placeholder is in a different continuation's subtree, build the abspos
+      // directly here so that it ends up in the correct fragment's
+      // nsDisplayTransform.
       BuildDisplayListForChild(aBuilder, frame, aLists);
     }
   }
@@ -1991,7 +2013,7 @@ LogicalSize nsContainerFrame::ComputeSizeWithIntrinsicDimensions(
                                              aBorderPadding.ISize(aWM) -
                                              boxSizingAdjust.ISize(aWM);
 
-  // We don't expect these intial values of iSize/bSize to be used, but this
+  // We don't expect these initial values of iSize/bSize to be used, but this
   // silences a GCC warning about them being uninitialized.
   nscoord minISize, maxISize, minBSize, maxBSize, iSize = 0, bSize = 0;
   enum class FillCB {
@@ -2186,11 +2208,13 @@ LogicalSize nsContainerFrame::ComputeSizeWithIntrinsicDimensions(
             (blockFillCB == FillCB::Stretch ? FillCB::Stretch : FillCB::Clamp);
       }
 
-      if (hasIntrinsicBSize) {
-        tentBSize = intrinsicBSize;
-      } else if (aspectRatio) {
+      // Honor aspect ratio if there's an intrinsic isize, even if there's an
+      // intrinsic bsize.
+      if (aspectRatio && (!hasIntrinsicBSize || hasIntrinsicISize)) {
         tentBSize = aspectRatio.ComputeRatioDependentSize(
             LogicalAxis::Block, aWM, tentISize, boxSizingAdjust);
+      } else if (hasIntrinsicBSize) {
+        tentBSize = intrinsicBSize;
       } else {
         tentBSize = fallbackIntrinsicSize.BSize(aWM);
       }
@@ -2374,9 +2398,9 @@ bool nsContainerFrame::ShouldAvoidBreakInside(
       case StyleBreakWithin::Avoid:
         return true;
       case StyleBreakWithin::AvoidPage:
-        return aReflowInput.mBreakType == ReflowInput::BreakType::Page;
+        return aReflowInput.mBreakType == BreakType::Page;
       case StyleBreakWithin::AvoidColumn:
-        return aReflowInput.mBreakType == ReflowInput::BreakType::Column;
+        return aReflowInput.mBreakType == BreakType::Column;
     }
     MOZ_ASSERT_UNREACHABLE("Unknown break-inside value");
     return false;

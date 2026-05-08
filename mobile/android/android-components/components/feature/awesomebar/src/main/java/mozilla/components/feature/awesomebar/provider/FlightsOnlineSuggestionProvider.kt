@@ -5,11 +5,13 @@
 package mozilla.components.feature.awesomebar.provider
 
 import androidx.annotation.VisibleForTesting
-import kotlinx.coroutines.delay
 import mozilla.components.concept.awesomebar.AwesomeBar
 import mozilla.components.concept.awesomebar.optimizedsuggestions.FlightData
 import mozilla.components.concept.awesomebar.optimizedsuggestions.FlightSuggestionStatus
-import mozilla.components.feature.search.SearchUseCases
+import mozilla.components.feature.awesomebar.facts.SuggestionCardType
+import mozilla.components.feature.awesomebar.facts.emitOptimizedSuggestionCardClickedFact
+import mozilla.components.feature.awesomebar.facts.emitOptimizedSuggestionCardDisplayedFact
+import mozilla.components.feature.session.SessionUseCases
 import java.time.DateTimeException
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -21,13 +23,13 @@ const val DEFAULT_FLIGHT_SUGGESTION_LIMIT = 1
 /**
  * [AwesomeBar.SuggestionProvider] implementation that provides suggestions based on online flights.
  *
- * @property dataSource the [AwesomeBar.FlightsSuggestionDataSource] to be used.
+ * @property dataSource the [AwesomeBar.CombinedSuggestionsDataSource] to be used.
  * @property suggestionsHeader optional parameter to specify if the suggestion should have a header.
  * @property maxNumberOfSuggestions the maximum number of suggestions to be provided.
  */
 class FlightsOnlineSuggestionProvider(
-    private val searchUseCase: SearchUseCases.SearchUseCase,
-    private val dataSource: AwesomeBar.FlightsSuggestionDataSource,
+    private val loadUrlUseCase: SessionUseCases.LoadUrlUseCase,
+    private val dataSource: AwesomeBar.CombinedSuggestionsDataSource,
     private val suggestionsHeader: String? = null,
     @get:VisibleForTesting internal val maxNumberOfSuggestions: Int = DEFAULT_FLIGHT_SUGGESTION_LIMIT,
 ) : AwesomeBar.SuggestionProvider {
@@ -44,20 +46,23 @@ class FlightsOnlineSuggestionProvider(
     override suspend fun onInputChanged(text: String): List<AwesomeBar.FlightSuggestion> {
         if (text.isBlank()) return emptyList()
 
-        delay(ARTIFICIAL_DELAY)
+        val items = dataSource.fetchFlights(text)
 
-        val results = dataSource.fetch(text)
-
-        return results
+        return items
             .asSequence()
             .mapNotNull { it.toSuggestionOrNull() }
             .take(maxNumberOfSuggestions)
             .toList()
+            .also {
+                if (it.isNotEmpty()) {
+                    emitOptimizedSuggestionCardDisplayedFact(SuggestionCardType.FLIGHTS)
+                }
+            }
     }
 
     private fun AwesomeBar.FlightItem.toSuggestionOrNull(): AwesomeBar.FlightSuggestion? {
         val hasRequiredFields =
-            query.isNotBlank() && flightNumber.isNotBlank()
+            url.isNotBlank() && flightNumber.isNotBlank()
 
         val flightStatus = parseFlightStatus(delayed, status)
         val departureFlightData = parseFlightData(origin, departure)
@@ -68,10 +73,12 @@ class FlightsOnlineSuggestionProvider(
 
         return if (hasAllFields) {
             AwesomeBar.FlightSuggestion(
-                onSuggestionClicked = { searchUseCase.invoke(query) },
+                onSuggestionClicked = {
+                    emitOptimizedSuggestionCardClickedFact(SuggestionCardType.FLIGHTS)
+                    loadUrlUseCase.invoke(url)
+                },
                 provider = this@FlightsOnlineSuggestionProvider,
                 score = Int.MAX_VALUE,
-                query = query,
                 flightNumber = flightNumber,
                 airlineName = airline.name,
                 flightStatus = flightStatus,

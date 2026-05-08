@@ -35,6 +35,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class BrowserStateWriterReaderTest {
@@ -183,12 +184,11 @@ class BrowserStateWriterReaderTest {
         val restoredTab = reader.readTab(engine, file)
         assertNotNull(restoredTab!!)
 
-        assertNotNull(restoredTab.state.source)
-        assertTrue(restoredTab.state.source is SessionState.Source.External.CustomTab)
-        with(restoredTab.state.source as SessionState.Source.External.CustomTab) {
-            assertEquals("com.mozilla.test", this.caller!!.packageId)
-            assertEquals(PackageCategory.PRODUCTIVITY, this.caller!!.category)
-        }
+        val restoredTabSource = restoredTab.state.source
+        assertNotNull(restoredTabSource)
+        assertIs<SessionState.Source.External.CustomTab>(restoredTabSource)
+        assertEquals("com.mozilla.test", restoredTabSource.caller!!.packageId)
+        assertEquals(PackageCategory.PRODUCTIVITY, restoredTabSource.caller!!.category)
     }
 
     @Test
@@ -217,12 +217,11 @@ class BrowserStateWriterReaderTest {
         val restoredTab = reader.readTab(engine, file)
         assertNotNull(restoredTab!!)
 
-        assertNotNull(restoredTab.state.source)
-        assertTrue(restoredTab.state.source is SessionState.Source.External.ActionView)
-        with(restoredTab.state.source as SessionState.Source.External.ActionView) {
-            assertEquals("com.mozilla.test", this.caller!!.packageId)
-            assertEquals(PackageCategory.UNKNOWN, this.caller!!.category)
-        }
+        val restoredTabSource = restoredTab.state.source
+        assertNotNull(restoredTabSource)
+        assertIs<SessionState.Source.External.ActionView>(restoredTabSource)
+        assertEquals("com.mozilla.test", restoredTabSource.caller!!.packageId)
+        assertEquals(PackageCategory.UNKNOWN, restoredTabSource.caller!!.category)
     }
 
     @Test
@@ -249,11 +248,10 @@ class BrowserStateWriterReaderTest {
         val restoredTab = reader.readTab(engine, file)
         assertNotNull(restoredTab!!)
 
-        assertNotNull(restoredTab.state.source)
-        assertTrue(restoredTab.state.source is SessionState.Source.External.ActionSend)
-        with(restoredTab.state.source as SessionState.Source.External.ActionSend) {
-            assertNull(this.caller)
-        }
+        val restoredTabSource = restoredTab.state.source
+        assertNotNull(restoredTabSource)
+        assertIs<SessionState.Source.External.ActionSend>(restoredTabSource)
+        assertNull(restoredTabSource.caller)
     }
 
     @Test
@@ -311,6 +309,33 @@ class BrowserStateWriterReaderTest {
         assertNotNull(restoredTab!!)
 
         assertEquals(currentTime, restoredTab.state.createdAt)
+    }
+
+    @Test
+    fun `Read and write tab with lastVisibleAt`() {
+        val engineState = createFakeEngineState()
+        val engine = createFakeEngine(engineState)
+        val currentTime = System.currentTimeMillis()
+
+        val tab = createTab(
+            url = "https://www.mozilla.org",
+            title = "Mozilla",
+            lastVisibleAt = currentTime,
+        )
+
+        val writer = BrowserStateWriter()
+        val reader = BrowserStateReader()
+
+        val file = AtomicFile(
+            File.createTempFile(UUID.randomUUID().toString(), UUID.randomUUID().toString()),
+        )
+
+        assertTrue(writer.writeTab(tab, file))
+
+        val restoredTab = reader.readTab(engine, file)
+        assertNotNull(restoredTab!!)
+
+        assertEquals(currentTime, restoredTab.state.lastVisibleAt)
     }
 
     @Test

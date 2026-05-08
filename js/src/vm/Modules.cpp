@@ -1161,14 +1161,10 @@ static ModuleNamespaceObject* ModuleNamespaceCreate(
   }
 
   // Pre-compute all binding mappings now instead of on each access.
-  // See:
-  // https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-get-p-receiver
-  // ES2023 10.4.6.8 Module Namespace Exotic Object [[Get]]
   Rooted<JSAtom*> name(cx);
   Rooted<Value> resolution(cx);
   Rooted<ResolvedBindingObject*> binding(cx);
   Rooted<ModuleObject*> importedModule(cx);
-  Rooted<ModuleNamespaceObject*> importedNamespace(cx);
   Rooted<JSAtom*> bindingName(cx);
   for (JSAtom* atom : ns->exports()) {
     name = atom;
@@ -1181,21 +1177,6 @@ static ModuleNamespaceObject* ModuleNamespaceCreate(
     binding = &resolution.toObject().as<ResolvedBindingObject>();
     importedModule = binding->module();
     bindingName = binding->bindingName();
-
-    if (bindingName == cx->names().star_namespace_star_) {
-      importedNamespace = GetOrCreateModuleNamespace(cx, importedModule);
-      if (!importedNamespace) {
-        return nullptr;
-      }
-
-      // The spec uses an immutable binding here but we have already generated
-      // bytecode for an indirect binding. Instead, use an indirect binding to
-      // "*namespace*" slot of the target environment.
-      InitNamespaceOrSourceBinding(cx, &importedModule->initialEnvironment(),
-                                   bindingName,
-                                   ObjectValue(*importedNamespace));
-    }
-
     if (!ns->addBinding(cx, name, importedModule, bindingName)) {
       return nullptr;
     }
@@ -1309,6 +1290,10 @@ static bool ModuleInitializeEnvironment(JSContext* cx,
   //         do:
   Rooted<JSAtom*> exportName(cx);
   Rooted<Value> resolution(cx);
+  Rooted<ResolvedBindingObject*> binding(cx);
+  Rooted<JSAtom*> bindingName(cx);
+  Rooted<ModuleObject*> bindingModule(cx);
+  Rooted<ModuleNamespaceObject*> bindingNs(cx);
   for (const ExportEntry& e : module->indirectExportEntries()) {
     // Step 1.a. Assert: e.[[ExportName]] is not null.
     MOZ_ASSERT(e.exportName());
@@ -1326,6 +1311,27 @@ static bool ModuleInitializeEnvironment(JSContext* cx,
       ThrowResolutionError(cx, module, resolution, exportName, &errorInfo);
       return false;
     }
+
+    binding = &resolution.toObject().as<ResolvedBindingObject>();
+    bindingName = binding->bindingName();
+
+    // https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-get-p-receiver
+    // ES2023 10.4.6.8 Module Namespace Exotic Object [[Get]]
+    if (bindingName == cx->names().star_namespace_star_) {
+      bindingModule = binding->module();
+      bindingNs = GetOrCreateModuleNamespace(cx, bindingModule);
+      if (!bindingNs) {
+        return false;
+      }
+
+      // The spec uses an immutable binding here but we have already generated
+      // bytecode for an indirect binding. Instead, use an indirect binding to
+      // "*namespace*" slot of the environment.
+      Rooted<ModuleEnvironmentObject*> env(
+          cx, &bindingModule->initialEnvironment());
+      InitNamespaceOrSourceBinding(cx, env, bindingName,
+                                   ObjectValue(*bindingNs));
+    }
   }
 
   // Step 5. Let env be NewModuleEnvironment(realm.[[GlobalEnv]]).
@@ -1339,7 +1345,6 @@ static bool ModuleInitializeEnvironment(JSContext* cx,
   Rooted<JSAtom*> importName(cx);
   Rooted<JSAtom*> localName(cx);
   Rooted<ModuleObject*> sourceModule(cx);
-  Rooted<JSAtom*> bindingName(cx);
   for (const ImportEntry& in : module->importEntries()) {
     // Step 7.a. Let importedModule be ! GetImportedModule(module,
     //           in.[[ModuleRequest]]).
@@ -1597,7 +1602,7 @@ static bool InnerModuleLoading(JSContext* cx,
 
     // Step 5.b. For each Cyclic Module Record loaded of state.[[Visited]], do
     for (auto iter = state->visited().iter(); !iter.done(); iter.next()) {
-      auto& loaded = iter.get();
+      ModuleObject* loaded = &iter.get()->as<ModuleObject>();
       // Step 5.b.i. If loaded.[[Status]] is new, set loaded.[[Status]] to
       // unlinked.
       if (loaded->status() == ModuleStatus::New) {
@@ -2355,9 +2360,8 @@ static bool GatherAvailableModuleAncestors(
 
 struct EvalOrderComparator {
   bool operator()(ModuleObject* a, ModuleObject* b, bool* lessOrEqualp) {
-    int32_t result = int32_t(a->asyncEvaluationOrder().get()) -
-                     int32_t(b->asyncEvaluationOrder().get());
-    *lessOrEqualp = (result <= 0);
+    *lessOrEqualp =
+        a->asyncEvaluationOrder().get() <= b->asyncEvaluationOrder().get();
     return true;
   }
 };
@@ -2372,7 +2376,9 @@ static void RejectExecutionWithPendingException(JSContext* cx,
     (void)cx->getPendingException(&exception);
   }
   cx->clearPendingException();
-  AsyncModuleExecutionRejected(cx, module, exception);
+  if (!AsyncModuleExecutionRejected(cx, module, exception)) {
+    MOZ_ASSERT(cx->isThrowingOverRecursed());
+  }
 }
 
 // https://tc39.es/ecma262/#sec-async-module-execution-fulfilled
@@ -2515,16 +2521,21 @@ void js::AsyncModuleExecutionFulfilled(JSContext* cx,
 
 // https://tc39.es/ecma262/#sec-async-module-execution-rejected
 // ES2023 16.2.1.5.2.5 AsyncModuleExecutionRejected
-void js::AsyncModuleExecutionRejected(JSContext* cx,
+bool js::AsyncModuleExecutionRejected(JSContext* cx,
                                       Handle<ModuleObject*> module,
                                       HandleValue error) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
+    return false;
+  }
+
   // Step 1. If module.[[Status]] is evaluated, then:
   if (module->status() == ModuleStatus::Evaluated) {
     // Step 1.a. Assert: module.[[EvaluationError]] is not empty
     MOZ_ASSERT(module->hadEvaluationError());
 
     // Step 1.b. Return unused.
-    return;
+    return true;
   }
 
   // Step 2. Assert: module.[[Status]] is evaluating-async.
@@ -2568,10 +2579,13 @@ void js::AsyncModuleExecutionRejected(JSContext* cx,
     parent = &parents->get(i).toObject().as<ModuleObject>();
 
     // Step 10.a. Perform AsyncModuleExecutionRejected(m, error).
-    AsyncModuleExecutionRejected(cx, parent, error);
+    if (!AsyncModuleExecutionRejected(cx, parent, error)) {
+      return false;
+    }
   }
 
   // Step 11. Return unused.
+  return true;
 }
 
 // https://tc39.es/proposal-import-attributes/#sec-evaluate-import-call

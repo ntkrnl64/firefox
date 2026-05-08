@@ -19,12 +19,10 @@ import kotlinx.coroutines.withContext
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.action.ContentAction
 import mozilla.components.browser.state.action.EngineAction
-import mozilla.components.browser.state.action.ShareResourceAction
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.selector.getNormalOrPrivateTabs
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.SecurityInfo
-import mozilla.components.browser.state.state.content.ShareResourceState
 import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.thumbnails.BrowserThumbnails
@@ -82,6 +80,7 @@ import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.GleanMetrics.ReaderMode
 import org.mozilla.fenix.GleanMetrics.Translations
+import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
@@ -103,6 +102,7 @@ import org.mozilla.fenix.components.appstate.AppAction.URLCopiedToClipboard
 import org.mozilla.fenix.components.appstate.snackbar.SnackbarState
 import org.mozilla.fenix.components.menu.MenuAccessPoint
 import org.mozilla.fenix.components.metrics.MetricsUtils
+import org.mozilla.fenix.components.share.createPdfShareAction
 import org.mozilla.fenix.components.toolbar.DisplayActions.AddBookmarkClicked
 import org.mozilla.fenix.components.toolbar.DisplayActions.EditBookmarkClicked
 import org.mozilla.fenix.components.toolbar.DisplayActions.HomepageClicked
@@ -122,6 +122,7 @@ import org.mozilla.fenix.components.toolbar.TabCounterInteractions.AddNewTab
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.CloseCurrentTab
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.TabCounterClicked
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.TabCounterLongClicked
+import org.mozilla.fenix.ext.canGoBackInHistoryOrToStories
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.navigateSafe
 import org.mozilla.fenix.nimbus.FxNimbus
@@ -130,6 +131,8 @@ import org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.getCoo
 import org.mozilla.fenix.tabstray.ext.isActiveDownload
 import org.mozilla.fenix.tabstray.redux.state.Page
 import org.mozilla.fenix.utils.Settings
+import org.mozilla.fenix.utils.Stories.hasUrlOfAHomeScreenStory
+import org.mozilla.fenix.utils.Stories.hasUrlOfAStoriesScreenStory
 import org.mozilla.fenix.utils.lastSavedFolderCache
 import mozilla.components.browser.toolbar.R as toolbarR
 import mozilla.components.lib.state.Action as MVIAction
@@ -421,7 +424,34 @@ class BrowserToolbarMiddleware(
             }
             is NavigateBackClicked -> {
                 browserStore.state.selectedTab?.let {
-                    browserStore.dispatch(EngineAction.GoBackAction(it.id))
+                    when {
+                        settings.enableHomepageAsNewTab -> browserStore.dispatch(EngineAction.GoBackAction(it.id))
+                        it.hasUrlOfAHomeScreenStory() -> {
+                            // First attempting to go back to the existing home fragment
+                            // to preserve its scroll position.
+                            val popToExistingHomeFragment =
+                                navController.popBackStack(R.id.homeFragment, false)
+                            if (!popToExistingHomeFragment) {
+                                navController.nav(
+                                    id = R.id.browserFragment,
+                                    directions = NavGraphDirections.actionGlobalHome(),
+                                )
+                            }
+                        }
+                        it.hasUrlOfAStoriesScreenStory() -> {
+                            // First attempting to go back to the existing stories fragment
+                            // to preserve its scroll position.
+                            val popToExistingStoriesFragment =
+                                navController.popBackStack(R.id.storiesFragment, false)
+                            if (!popToExistingStoriesFragment) {
+                                navController.nav(
+                                    id = R.id.browserFragment,
+                                    directions = BrowserFragmentDirections.actionBrowserFragmentToStoriesFragment(),
+                                )
+                            }
+                        }
+                        else -> browserStore.dispatch(EngineAction.GoBackAction(it.id))
+                    }
                 }
                 next(action)
             }
@@ -491,8 +521,17 @@ class BrowserToolbarMiddleware(
 
                 selectedTab?.let {
                     scope.launch(ioDispatcher) {
-                        val parentGuid = settings.lastSavedFolderCache.getGuid() ?: BookmarkRoot.Mobile.id
-                        val parentNode = bookmarksStorage.getBookmark(parentGuid).getOrNull()
+                        val targetParentFolderId =
+                            settings.lastSavedFolderCache.getGuid() ?: BookmarkRoot.Mobile.id
+
+                        val parentNode = bookmarksStorage.getBookmark(targetParentFolderId).getOrNull()
+                            ?: bookmarksStorage.getBookmark(BookmarkRoot.Mobile.id).getOrNull()
+                        val parentGuid = parentNode?.guid ?: BookmarkRoot.Mobile.id
+
+                        if (targetParentFolderId != parentGuid) {
+                            settings.lastSavedFolderCache.setGuid(null)
+                        }
+
                         val guidToEdit = useCases.bookmarksUseCases.addBookmark(
                             url = selectedTab.content.url,
                             title = selectedTab.content.title,
@@ -540,13 +579,9 @@ class BrowserToolbarMiddleware(
 
             is ShareClicked -> {
                 val selectedTab = browserStore.state.selectedTab ?: return
-                if (selectedTab.content.url.isContentUrl()) {
-                    browserStore.dispatch(
-                        ShareResourceAction.AddShareAction(
-                            selectedTab.id,
-                            ShareResourceState.LocalResource(selectedTab.content.url),
-                        ),
-                    )
+                val shareAction = browserStore.createPdfShareAction(selectedTab.id, selectedTab.content.url)
+                if (shareAction != null) {
+                    browserStore.dispatch(shareAction)
                 } else {
                     navController.nav(
                         R.id.browserFragment,
@@ -736,12 +771,13 @@ class BrowserToolbarMiddleware(
         val isWideWindow = isWideScreen()
         val isTallWindow = isTallScreen()
         val shouldUseExpandedToolbar = settings.shouldUseExpandedToolbar
-        val primarySlotAction = ShortcutType.fromValue(settings.toolbarSimpleShortcut)
-            ?.toToolbarAction() ?: ToolbarAction.NewTab
+        val primarySlotAction = ShortcutType.fromValue(settings.toolbarSimpleShortcut)?.toToolbarAction()
 
-        val configs = listOf(
-            ToolbarActionConfig(primarySlotAction) {
-                !shouldUseExpandedToolbar || !isTallWindow || isWideWindow
+        val configs = listOfNotNull(
+            primarySlotAction?.let {
+                ToolbarActionConfig(it) {
+                    !shouldUseExpandedToolbar || !isTallWindow || isWideWindow
+                }
             },
             ToolbarActionConfig(ToolbarAction.TabCounter) {
                 !shouldUseExpandedToolbar || !isTallWindow || isWideWindow
@@ -1101,7 +1137,7 @@ class BrowserToolbarMiddleware(
         ToolbarAction.Back -> ActionButtonRes(
             drawableResId = iconsR.drawable.mozac_ic_back_24,
             contentDescription = R.string.browser_menu_back,
-            state = if (browserStore.state.selectedTab?.content?.canGoBack == true) {
+            state = if (browserStore.state.canGoBackInHistoryOrToStories()) {
                 ActionButton.State.DEFAULT
             } else {
                 ActionButton.State.DISABLED
@@ -1294,5 +1330,6 @@ class BrowserToolbarMiddleware(
         ShortcutType.TRANSLATE -> ToolbarAction.Translate
         ShortcutType.HOMEPAGE -> ToolbarAction.Homepage
         ShortcutType.BACK -> ToolbarAction.Back
+        ShortcutType.NONE -> null
     }
 }

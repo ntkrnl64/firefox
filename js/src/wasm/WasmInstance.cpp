@@ -59,6 +59,7 @@
 #include "wasm/WasmModule.h"
 #include "wasm/WasmModuleTypes.h"
 #include "wasm/WasmPI.h"
+#include "wasm/WasmStacks.h"
 #include "wasm/WasmStubs.h"
 #include "wasm/WasmTypeDef.h"
 #include "wasm/WasmValType.h"
@@ -247,8 +248,8 @@ bool Instance::callImport(JSContext* cx, uint32_t funcImportIndex,
   AssertRealmUnchanged aru(cx);
 
 #ifdef ENABLE_WASM_JSPI
-  // We should not be on a suspendable stack.
-  MOZ_ASSERT(!cx->wasm().onSuspendableStack());
+  // We should not be on a cont stack.
+  MOZ_ASSERT(!cx->wasm().onContStack());
 #endif
 
   FuncImportInstanceData& instanceFuncImport =
@@ -922,13 +923,15 @@ static int32_t MemoryInit(JSContext* cx, Instance* instance,
     return -1;
   }
 
-  if (&srcTable == &dstTable && dstOffset > srcOffset) {
+  if (srcTable.get() == dstTable.get() && dstOffset == srcOffset) {
+    // No-op
+  } else if (dstOffset > srcOffset) {
+    // Copy backwards
     for (uint32_t i = len; i > 0; i--) {
       dstTable->copy(*srcTable, dstOffset + (i - 1), srcOffset + (i - 1));
     }
-  } else if (&srcTable == &dstTable && dstOffset == srcOffset) {
-    // No-op
   } else {
+    // Copy forwards
     for (uint32_t i = 0; i < len; i++) {
       dstTable->copy(*srcTable, dstOffset + i, srcOffset + i);
     }
@@ -1073,6 +1076,10 @@ bool Instance::iterElemsFunctions(const ModuleElemSegment& seg,
       if (import.callable->is<JSFunction>()) {
         JSFunction* fun = &import.callable->as<JSFunction>();
         if (!codeMeta().funcImportsAreJS && fun->isWasm()) {
+          // Unwrapped Function.prototype.call.bind imports should not be used
+          // when the unwrapped function is a wasm function.
+          MOZ_ASSERT(!import.isFunctionCallBind);
+
           // This element is a wasm function imported from another
           // instance. To preserve the === function identity required by
           // the JS embedding spec, we must get the imported function's
@@ -1892,6 +1899,39 @@ static bool ArrayCopyFromElem(JSContext* cx, Handle<WasmArrayObject*> arrayObj,
   return 0;
 }
 
+#ifdef ENABLE_WASM_JSPI
+
+/* static */ void* Instance::contNew(Instance* instance, void* funcRef) {
+  MOZ_ASSERT(SASigContNew.failureMode == FailureMode::FailOnNullPtr);
+  JSContext* cx = instance->cx();
+  Rooted<JSFunction*> target(cx, static_cast<JSFunction*>(funcRef));
+  if (!target) {
+    ReportTrapError(cx, JSMSG_WASM_DEREF_NULL);
+    return nullptr;
+  }
+  MOZ_ASSERT(target->isWasm());
+
+  void* stub = instance->code().sharedStubs().codeBase +
+               instance->code().contBaseFrameOffset();
+  ContObject* cont = ContObject::create(cx, target, stub);
+  return AnyRef::fromJSObjectOrNull(cont).forCompiledCode();
+}
+
+/* static */ void* Instance::contNewEmpty(Instance* instance) {
+  MOZ_ASSERT(SASigContNewEmpty.failureMode == FailureMode::FailOnNullPtr);
+  JSContext* cx = instance->cx();
+  ContObject* cont = ContObject::createEmpty(cx);
+  return AnyRef::fromJSObjectOrNull(cont).forCompiledCode();
+}
+
+/* static */ void Instance::contUnwind(Instance* instance,
+                                       wasm::Handlers* handlers) {
+  MOZ_ASSERT(SASigContUnwind.failureMode == FailureMode::Infallible);
+  ContStack::unwind(instance->cx(), handlers);
+}
+
+#endif  // ENABLE_WASM_JSPI
+
 /* static */ void* Instance::exceptionNew(Instance* instance, void* tagArg) {
   MOZ_ASSERT(SASigExceptionNew.failureMode == FailureMode::FailOnNullPtr);
   JSContext* cx = instance->cx();
@@ -2437,6 +2477,9 @@ JSObject* MaybeOptimizeFunctionCallBind(const wasm::FuncType& funcType,
     return nullptr;
   }
 
+  // The bound `this` must not be a wasm function, or else we'll need to update
+  // all the users of FuncImportInstanceData::callable so they don't mistake
+  // the unwrapped import for originally being a wasm function.
   if (boundThis.toObject().is<JSFunction>() &&
       boundThis.toObject().as<JSFunction>().isWasm()) {
     return nullptr;
@@ -2610,7 +2653,13 @@ bool Instance::init(JSContext* cx, const JSObjectVector& funcImports,
       }
     } else if (typeDef.kind() == TypeDefKind::Func) {
       // Nothing to do; the default values are OK.
-    } else {
+    }
+#ifdef ENABLE_WASM_JSPI
+    else if (typeDef.kind() == TypeDefKind::Cont) {
+      // Nothing to do; the default values are OK.
+    }
+#endif
+    else {
       MOZ_ASSERT(typeDef.kind() == TypeDefKind::None);
       MOZ_CRASH();
     }
@@ -2640,8 +2689,8 @@ bool Instance::init(JSContext* cx, const JSObjectVector& funcImports,
       // Compile suspending function Wasm wrapper.
       const FuncType& funcType = codeMeta().getFuncType(i);
       RootedObject wrapped(cx, suspendingObject);
-      RootedFunction wrapper(
-          cx, WasmSuspendingFunctionCreate(cx, wrapped, funcType));
+      RootedFunction wrapper(cx, WasmSuspendingFunctionCreate(
+                                     cx, wrapped, funcType, codeMeta().types));
       if (!wrapper) {
         return false;
       }
@@ -2775,6 +2824,7 @@ bool Instance::init(JSContext* cx, const JSObjectVector& funcImports,
     data.boundsCheckLimit128 = limit > 15 ? limit - 15 : 0;
 #endif
     data.isShared = md.isShared();
+    data.mappedSize = memory->buffer().wasmMappedSize();
 
     // Add observer if our memory base may grow
     if (memory && memory->movingGrowable() &&
@@ -3172,6 +3222,24 @@ bool Instance::memoryAccessInGuardRegion(const uint8_t* addr,
     }
   }
   return false;
+}
+
+bool Instance::memoryAccessInMappedRegion(const uint8_t* addr,
+                                          uint32_t* memoryIndex,
+                                          uint64_t* offset) const {
+  for (uint32_t i = 0; i < codeMeta().memories.length(); i++) {
+    const MemoryInstanceData& md = memoryInstanceData(i);
+    if (addr >= md.base && addr < md.base + md.mappedSize) {
+      *memoryIndex = i;
+      *offset = addr - md.base;
+      return true;
+    }
+  }
+  return false;
+}
+
+size_t Instance::memoryMappedSize(uint32_t memoryIndex) const {
+  return memoryInstanceData(memoryIndex).mappedSize;
 }
 
 void Instance::tracePrivate(JSTracer* trc) {
@@ -3875,6 +3943,9 @@ bool Instance::getExportedFunction(JSContext* cx, uint32_t funcIndex,
     if (import.callable->is<JSFunction>()) {
       JSFunction* fun = &import.callable->as<JSFunction>();
       if (!codeMeta().funcImportsAreJS && fun->isWasm()) {
+        // Unwrapped Function.prototype.call.bind imports should not be used
+        // when the unwrapped function is a wasm function.
+        MOZ_ASSERT(!import.isFunctionCallBind);
         instanceData.func = fun;
         result.set(fun);
         return true;
@@ -4181,6 +4252,7 @@ void Instance::onMovingGrowMemory(const WasmMemoryObject* memory) {
     ArrayBufferObject& buffer = md.memory->buffer().as<ArrayBufferObject>();
 
     md.base = buffer.dataPointer();
+    md.mappedSize = buffer.wasmMappedSize();
     size_t limit = md.memory->boundsCheckLimit();
 #if !defined(JS_64BIT)
     // We assume that the limit is a 32-bit quantity

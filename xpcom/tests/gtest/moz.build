@@ -160,6 +160,7 @@ if CONFIG["MOZ_MEMORY"]:
     ]
 
 SOURCES += [
+    "TestAsyncPlatformPipes.cpp",
     "TestCOMArray.cpp",
     "TestCOMPtr.cpp",  # Redefines IFoo and IBar
     "TestHashtables.cpp",  # Redefines IFoo
@@ -171,6 +172,11 @@ LOCAL_INCLUDES += [
     "/toolkit/components/telemetry/tests/gtest",
     "/xpcom/components",
 ]
+
+# GCC 11 issues a false-positive -Wstringop-overread warning from
+# std::vector::reserve()/push_back() patterns in gmock-matchers.h.
+if CONFIG["CC_TYPE"] == "gcc" and 11 <= int(CONFIG["CC_VERSION"].split(".")[0]) < 12:
+    CXXFLAGS += ["-Wno-stringop-overread"]
 
 GeneratedFile(
     "dafsa_test_1.inc",

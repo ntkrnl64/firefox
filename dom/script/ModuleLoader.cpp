@@ -4,6 +4,8 @@
 
 #include "ModuleLoader.h"
 
+#include <type_traits>
+
 #include "GeckoProfiler.h"
 #include "ScriptLoader.h"
 #include "js/CompileOptions.h"  // JS::CompileOptions, JS::InstantiateOptions
@@ -95,7 +97,7 @@ bool ModuleLoader::CanStartLoad(ModuleLoadRequest* aRequest, nsresult* aRvOut) {
 }
 
 nsresult ModuleLoader::StartFetch(ModuleLoadRequest* aRequest) {
-  if (aRequest->IsCachedStencil()) {
+  if (aRequest->OnceCachedStencil()) {
     GetScriptLoader()->EmulateNetworkEvents(aRequest, Nothing());
     SetModuleFetchStarted(aRequest);
     return aRequest->OnFetchComplete(NS_OK);
@@ -226,8 +228,9 @@ nsresult ModuleLoader::CompileFetchedModule(
       return CompileJsonModule(aCx, aOptions, aRequest, aModuleOut);
     case JS::ModuleType::CSS:
       return CompileCssModule(aCx, aOptions, aRequest, aModuleOut);
-    case JS::ModuleType::Bytes:
     case JS::ModuleType::Text:
+      return CreateTextModule(aCx, aOptions, aRequest, aModuleOut);
+    case JS::ModuleType::Bytes:
       MOZ_CRASH("Unexpected module type");
   }
 
@@ -254,7 +257,7 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
 #endif
   MOZ_ASSERT(!aRequest->IsWasmBytes());
 
-  if (aRequest->IsCachedStencil()) {
+  if (aRequest->OnceCachedStencil()) {
     JS::InstantiateOptions instantiateOptions(aOptions);
     RefPtr<JS::Stencil> stencil = aRequest->GetStencil();
     aModuleOut.set(
@@ -263,12 +266,10 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
       return NS_ERROR_FAILURE;
     }
 
-    bool alreadyStarted;
-    if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
-                                            alreadyStarted)) {
+    if (!GetScriptLoader()->StartCollectingDelazifications(aCx, aModuleOut,
+                                                           stencil)) {
       return NS_ERROR_FAILURE;
     }
-    (void)alreadyStarted;
 
     return NS_OK;
   }
@@ -291,12 +292,10 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
     }
 
     if (aRequest->PassedConditionForEitherCache()) {
-      bool alreadyStarted;
-      if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
-                                              alreadyStarted)) {
+      if (!GetScriptLoader()->StartCollectingDelazifications(aCx, aModuleOut,
+                                                             stencil)) {
         return NS_ERROR_FAILURE;
       }
-      MOZ_ASSERT(!alreadyStarted);
     }
 
     GetScriptLoader()->TryCacheRequest(aRequest);
@@ -342,12 +341,10 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
   }
 
   if (aRequest->PassedConditionForEitherCache()) {
-    bool alreadyStarted;
-    if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
-                                            alreadyStarted)) {
+    if (!GetScriptLoader()->StartCollectingDelazifications(aCx, aModuleOut,
+                                                           stencil)) {
       return NS_ERROR_FAILURE;
     }
-    MOZ_ASSERT(!alreadyStarted);
   }
 
   GetScriptLoader()->TryCacheRequest(aRequest);
@@ -483,6 +480,43 @@ nsresult ModuleLoader::CompileCssModule(
   }
 
   aModuleOut.set(cssModule);
+  return NS_OK;
+}
+
+nsresult ModuleLoader::CreateTextModule(
+    JSContext* aCx, JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
+    JS::MutableHandle<JSObject*> aModuleOut) {
+  MOZ_ASSERT(!aRequest->GetScriptLoadContext()->mWasCompiledOMT);
+
+  MOZ_ASSERT(aRequest->IsTextSource());
+  ModuleLoader::MaybeSourceText maybeSource;
+  nsresult rv = aRequest->GetScriptSource(aCx, &maybeSource,
+                                          aRequest->mLoadContext.get());
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  auto compile = [&](auto& source) {
+    using T = decltype(source);
+    static_assert(std::is_same_v<T, JS::SourceText<char16_t>&> ||
+                  std::is_same_v<T, JS::SourceText<Utf8Unit>&>);
+
+    JSString* str;
+    if constexpr (std::is_same_v<T, JS::SourceText<Utf8Unit>&>) {
+      str = JS_NewStringCopyUTF8N(aCx,
+                                  JS::UTF8Chars(source.get(), source.length()));
+    } else {
+      str = JS_NewUCStringCopyN(aCx, source.get(), source.length());
+    }
+
+    JS::Rooted<JS::Value> defaultExport(aCx, JS::StringValue(str));
+    return JS::CreateDefaultExportSyntheticModule(aCx, defaultExport);
+  };
+
+  auto* textModule = maybeSource.mapNonEmpty(compile);
+  if (!textModule) {
+    return NS_ERROR_FAILURE;
+  }
+
+  aModuleOut.set(textModule);
   return NS_OK;
 }
 

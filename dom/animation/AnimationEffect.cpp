@@ -260,7 +260,10 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
     progress = fn->At(progress, result.mBeforeFlag);
   }
 
-  MOZ_ASSERT(std::isfinite(progress), "Progress value should be finite");
+  if (!std::isfinite(progress)) {
+    return result;
+  }
+
   result.mProgress.SetValue(progress);
   return result;
 }

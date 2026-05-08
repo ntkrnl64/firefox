@@ -1173,9 +1173,6 @@ class MOZ_RAII EnvironmentIter {
   void incrementScopeIter();
   void settle();
 
-  // No value semantics.
-  EnvironmentIter(const EnvironmentIter& ei) = delete;
-
  public:
   // Constructing from a copy of an existing EnvironmentIter.
   EnvironmentIter(JSContext* cx, const EnvironmentIter& ei);
@@ -1192,6 +1189,9 @@ class MOZ_RAII EnvironmentIter {
   // to initialize to proper enclosing environment/scope.
   EnvironmentIter(JSContext* cx, JSObject* env, Scope* scope,
                   AbstractFramePtr frame);
+
+  // No value semantics.
+  EnvironmentIter(const EnvironmentIter& ei) = delete;
 
   bool done() const { return si_.done(); }
 

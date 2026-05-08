@@ -4,14 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-
 import { ToolRoleOpts } from "moz-src:///browser/components/aiwindow/ui/modules/ChatMessage.sys.mjs";
-import {
-  openAIEngine,
-  DEFAULT_MODEL,
-  MODEL_FEATURES,
-} from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
+import { openAIEngine } from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
 import {
   toolsConfig,
   toolFns,
@@ -22,7 +16,12 @@ import {
   GET_PAGE_CONTENT,
   RUN_SEARCH,
   GET_USER_MEMORIES,
+  GET_NAVIGATION_INFO,
 } from "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs";
+import {
+  expandUrlTokensInToolParams,
+  replaceUrlsWithTokens,
+} from "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs";
 import { compactMessages } from "moz-src:///browser/components/aiwindow/models/PromptOptimizer.sys.mjs";
 
 // Hard limit on how many times run_search can execute per conversation turn.
@@ -49,16 +48,19 @@ ChromeUtils.defineLazyGetter(lazy, "console", () =>
  */
 
 /**
+ * Represents a tool call request from the language model.
+ *
+ * @typedef {object} ToolCall
+ * @property {string} id - e.g. "call_91e28da3a0f4469586aaa01c"
+ * @property {"function"} type - Here just "function"
+ * @property {{name: string, arguments: unknown }} function - The name and stringified
+ *   arguments for the function, e.g. { name: "get_user_memories", arguments: "{}" }
+ */
+
+/**
  * Chat
  */
 export const Chat = {};
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  Chat,
-  "modelId",
-  "browser.smartwindow.model",
-  DEFAULT_MODEL[MODEL_FEATURES.CHAT]
-);
 
 /**
  * Log chat stream traffic.
@@ -106,12 +108,14 @@ Object.assign(Chat, {
    * @param {openAIEngine} options.engineInstance
    * @param {BrowsingContext} options.browsingContext - Omitted for tests only.
    * @param {"fullpage" | "sidebar" | "urlbar"} options.mode - See the MODE in ai-window.mjs
+   * @param {AbortSignal} [options.signal]
    */
   async fetchWithHistory({
     conversation,
     engineInstance,
     browsingContext,
     mode,
+    signal,
   }) {
     if (!browsingContext && !Cu.isInAutomation) {
       throw new Error(
@@ -126,7 +130,7 @@ Object.assign(Chat, {
       throw fxaError;
     }
 
-    const toolRoleOpts = new ToolRoleOpts(this.modelId);
+    const toolRoleOpts = new ToolRoleOpts(engineInstance.model);
     const currentTurn = conversation.currentTurnIndex();
     const config = engineInstance.getConfig(engineInstance.feature);
     const inferenceParams = config?.parameters || {};
@@ -153,10 +157,13 @@ Object.assign(Chat, {
         `Request (${conversation.securityProperties.getLogText()})`,
         rawMessages.at(-1)
       );
-      const compactedMessages = compactMessages(rawMessages);
+      const messages = compactMessages(rawMessages);
+
+      // This is done in-place on the messages.
+      replaceUrlsWithTokens(conversation, messages);
 
       // Debug logging: Record only the latest message being sent to the model
-      logConversationStream(currentTurn, "CHAT SEND", compactedMessages.at(-1));
+      logConversationStream(currentTurn, "CHAT SEND", messages.at(-1));
 
       return engineInstance.runWithGenerator({
         streamOptions: { enabled: true },
@@ -164,12 +171,14 @@ Object.assign(Chat, {
         chatId: conversation.id,
         tool_choice: "auto",
         tools: chatToolsConfig,
-        args: compactedMessages,
+        args: messages,
+        signal,
         ...inferenceParams,
       });
     };
 
     while (true) {
+      /** @type {ToolCall[] | null} */
       let pendingToolCalls = null;
 
       try {
@@ -198,6 +207,11 @@ Object.assign(Chat, {
       if (!pendingToolCalls || pendingToolCalls.length === 0) {
         // Debug logging: Mark the end of the streaming loop for this turn
         logConversationStream(currentTurn, "STREAM END");
+        return;
+      }
+
+      if (signal?.aborted) {
+        logConversationStream(currentTurn, "STREAM END", null, "aborted");
         return;
       }
 
@@ -258,15 +272,22 @@ Object.assign(Chat, {
       }
 
       // @todo Bug 2006159 - Implement parallel tool calling
-      const tool_calls = pendingToolCalls.slice(0, 1).map(toolCall => ({
-        id: toolCall.id,
-        type: "function",
-        function: {
-          name: toolCall.function.name,
-          arguments: toolCall.function.arguments || "{}",
-        },
-      }));
-      conversation.addAssistantMessage("function", { tool_calls });
+
+      // Take the last tool call and ensure the serialized tool calls expand any
+      // URL tokens.
+      const lastToolCall = structuredClone(pendingToolCalls[0]);
+      if (!lastToolCall.function.arguments) {
+        // Ensure that the arguments are always present.
+        lastToolCall.function.arguments = "{}";
+      }
+      expandUrlTokensInToolParams(
+        lastToolCall.function,
+        conversation.tokenToUrl
+      );
+
+      conversation.addAssistantMessage("function", {
+        tool_calls: [lastToolCall],
+      });
 
       lazy.AIWindow.chatStore?.updateConversation(conversation).catch(() => {});
 
@@ -279,6 +300,8 @@ Object.assign(Chat, {
           toolParams = functionSpec?.arguments
             ? JSON.parse(functionSpec.arguments)
             : {};
+
+          expandUrlTokensInToolParams(toolParams, conversation.tokenToUrl);
         } catch {
           const content = {
             tool_call_id: id,
@@ -353,6 +376,9 @@ Object.assign(Chat, {
             case GET_USER_MEMORIES:
               result = await toolFns.getUserMemories(conversation);
               break;
+            case GET_NAVIGATION_INFO:
+              result = await toolFns.getNavigationInfo(toolParams);
+              break;
             default:
               throw new Error(`No such tool: ${toolName}`);
           }
@@ -387,7 +413,7 @@ Object.assign(Chat, {
             `Security commit ${conversation.securityProperties.getLogText()}`
           );
 
-          const win = originalEmbedderElement?.ownerGlobal;
+          const win = originalEmbedderElement?.documentGlobal;
           if (!win || win.closed) {
             console.error(
               "run_search: Associated window not available or closed, aborting search handoff"

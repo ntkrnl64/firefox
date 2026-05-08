@@ -1482,7 +1482,9 @@ static bool MaybeLoadBFCache(const nsSHistory::LoadEntryResult& aLoadEntry) {
       }
     }
 
-    FinishRestore(canonicalBC, loadState, she, frameLoader, canSave);
+    if (!canonicalBC->IsReplaced()) {
+      FinishRestore(canonicalBC, loadState, she, frameLoader, canSave);
+    }
     return true;
   }
   if (frameLoader) {
@@ -1602,8 +1604,8 @@ static bool MaybeCheckUnloadingIsCanceled(
   windowGlobalParent->PermitUnloadTraversable(
       targetEntry->Info(), action,
       [action, loadResults = CopyableTArray(std::move(aLoadResults)),
-       windowGlobalParent,
-       aResolver](nsIDocumentViewer::PermitUnloadResult aResult) mutable {
+       windowGlobalParent, aResolver = std::move(aResolver)](
+          nsIDocumentViewer::PermitUnloadResult aResult) mutable {
         if (aResult != nsIDocumentViewer::PermitUnloadResult::eContinue) {
           aResolver(loadResults, aResult);
           return;

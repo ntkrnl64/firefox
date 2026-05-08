@@ -497,7 +497,7 @@ class ModuleLoaderBase : public nsISupports {
   friend class JS::loader::ImportMap;
 
   static ModuleLoaderBase* GetCurrentModuleLoader(JSContext* aCx);
-  static LoadedScript* GetLoadedScriptOrNull(Handle<JSScript*> aReferrer);
+  static ScriptFetchInfo* GetScriptFetchInfoOrNull(Handle<JSScript*> aReferrer);
 
   static void EnsureModuleHooksInitialized();
 
@@ -512,17 +512,17 @@ class ModuleLoaderBase : public nsISupports {
                                           ModuleLoadRequest* aRequest);
 
   static bool HostPopulateImportMeta(JSContext* aCx,
-                                     Handle<Value> aReferencingPrivate,
+                                     Handle<JSObject*> aModuleRecord,
                                      Handle<JSObject*> aMetaObject);
   static bool ImportMetaResolve(JSContext* cx, unsigned argc, Value* vp);
   static JSString* ImportMetaResolveImpl(JSContext* aCx,
                                          Handle<Value> aReferencingPrivate,
                                          Handle<JSString*> aSpecifier);
 
-  ResolveResult ResolveModuleSpecifier(LoadedScript* aScript,
+  ResolveResult ResolveModuleSpecifier(ScriptFetchInfo* aFetchInfo,
                                        const nsAString& aSpecifier);
 
-  nsresult HandleResolveFailure(JSContext* aCx, LoadedScript* aScript,
+  nsresult HandleResolveFailure(JSContext* aCx, ScriptFetchInfo* aFetchInfo,
                                 const nsAString& aSpecifier,
                                 ResolveError aError, uint32_t aLineNumber,
                                 ColumnNumberOneOrigin aColumnNumber,
@@ -548,7 +548,7 @@ class ModuleLoaderBase : public nsISupports {
   // resolved during preloading.
   void AddToResolvedModuleSet(
       mozilla::UniquePtr<SpecifierResolutionRecord> aRecord,
-      LoadedScript* aScript = nullptr,
+      ScriptFetchInfo* aFetchInfo = nullptr,
       Handle<Value> aHostDefined = UndefinedHandleValue);
 
   void ResetPreloadFlag(nsIURI* aURI);

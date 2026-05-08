@@ -402,7 +402,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
         Ok(())
     }
 
-    fn reset_storage(&self) -> Result<()> {
+    pub fn reset_storage(&self) -> Result<()> {
         trace!("{0}: reset local storage.", self.collection_name);
         let mut inner = self.lock_inner()?;
         let collection_url = inner.api_client.collection_url();
@@ -442,43 +442,56 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
         let metadata = inner.storage.get_collection_metadata(&collection_url)?;
         match (timestamp, &records, metadata) {
             (Some(timestamp), Some(records), Some(metadata)) => {
-                let cert_chain_bytes = inner.api_client.fetch_cert(&metadata.signature.x5u)?;
                 // rc_crypto verifies that the provided certificates chain leads to our root certificate.
                 let expected_root_hash = if inner.api_client.is_prod_server()? {
                     ROOT_CERT_SHA256_HASH_PROD
                 } else {
                     ROOT_CERT_SHA256_HASH_NONPROD
                 };
+                // Iterate through the list of signatures, and verify that at least one of them is valid.
+                // This allows for key rotation without breaking clients that have an old certificate chain cached.
+                let mut result = Err(Error::IncompleteSignatureDataError(
+                    "No valid signatures found".into(),
+                ));
+                for signature in &metadata.signatures {
+                    let cert_chain_bytes = inner.api_client.fetch_cert(&signature.x5u)?;
 
-                // The signer name is hard-coded. This would have to be modified in the very (very)
-                // unlikely situation where we would add a new collection signer.
-                // And clients code would have to be modified to handle this new collection anyway.
-                // https://searchfox.org/mozilla-central/rev/df850fa290fe962c2c5ae8b63d0943ce768e3cc4/services/settings/remote-settings.sys.mjs#40-48
-                let expected_leaf_cname = format!(
-                    "{}.content-signature.mozilla.org",
-                    if metadata.bucket.contains("security-state") {
-                        "onecrl"
-                    } else {
-                        "remote-settings"
-                    }
-                );
-                signatures::verify_signature(
-                    timestamp,
-                    records,
-                    metadata.signature.signature.as_bytes(),
-                    &cert_chain_bytes,
-                    epoch_seconds(),
-                    expected_root_hash,
-                    &expected_leaf_cname,
-                )
-                .inspect_err(|err| {
-                    debug!(
-                        "{0}: bad signature ({1:?}) using certificate {2} and signer '{3}'",
-                        self.collection_name, err, &metadata.signature.x5u, expected_leaf_cname
+                    // The signer name is hard-coded. This would have to be modified in the very (very)
+                    // unlikely situation where we would add a new collection signer.
+                    // And clients code would have to be modified to handle this new collection anyway.
+                    // https://searchfox.org/mozilla-central/rev/df850fa290fe962c2c5ae8b63d0943ce768e3cc4/services/settings/remote-settings.sys.mjs#40-48
+                    let expected_leaf_cname = format!(
+                        "{}.content-signature.mozilla.org",
+                        if metadata.bucket.contains("security-state") {
+                            "onecrl"
+                        } else {
+                            "remote-settings"
+                        }
                     );
-                })?;
-                trace!("{0}: signature verification success.", self.collection_name);
-                Ok(())
+
+                    result = signatures::verify_signature(
+                        timestamp,
+                        records,
+                        signature.signature.as_bytes(),
+                        &cert_chain_bytes,
+                        epoch_seconds(),
+                        expected_root_hash,
+                        &expected_leaf_cname,
+                    )
+                    .inspect_err(|err| {
+                        debug!(
+                            "{0}: bad signature ({1:?}) using certificate {2} and signer '{3}'",
+                            self.collection_name, err, &signature.x5u, expected_leaf_cname
+                        );
+                    });
+                    // If verification succeeds, then we exit!
+                    if result.is_ok() {
+                        trace!("{0}: signature verification success.", self.collection_name);
+                        return Ok(());
+                    }
+                }
+                // If we tried all signatures and none worked, then we return an error.
+                result
             }
             _ => {
                 let missing_field = if timestamp.is_none() {
@@ -635,10 +648,10 @@ impl ViaductApiClient {
         if resp.is_success() {
             Ok(resp)
         } else {
-            Err(Error::ResponseError(format!(
-                "status code: {}",
-                resp.status
-            )))
+            Err(Error::response_error(
+                &resp.url,
+                format!("status code: {}", resp.status),
+            ))
         }
     }
 }
@@ -670,10 +683,10 @@ impl ApiClient for ViaductApiClient {
         if resp.is_success() {
             Ok(resp.json::<ChangesetResponse>()?)
         } else {
-            Err(Error::ResponseError(format!(
-                "status code: {}",
-                resp.status
-            )))
+            Err(Error::response_error(
+                &resp.url,
+                format!("status code: {}", resp.status),
+            ))
         }
     }
 
@@ -777,15 +790,15 @@ impl Client {
         let etag = resp
             .headers
             .get(HEADER_ETAG)
-            .ok_or_else(|| Error::ResponseError("no etag header".into()))?;
+            .ok_or_else(|| Error::response_error(&resp.url, "no etag header"))?;
         // Per https://docs.kinto-storage.org/en/stable/api/1.x/timestamps.html,
         // the `ETag` header value is a quoted integer. Trim the quotes before
         // parsing.
         let last_modified = etag.trim_matches('"').parse().map_err(|_| {
-            Error::ResponseError(format!(
-                "expected quoted integer in etag header; got `{}`",
-                etag
-            ))
+            Error::response_error(
+                &resp.url,
+                format!("expected quoted integer in etag header; got `{}`", etag),
+            )
         })?;
         Ok(RemoteSettingsResponse {
             records,
@@ -850,10 +863,10 @@ impl Client {
         if resp.is_success() {
             Ok(resp)
         } else {
-            Err(Error::ResponseError(format!(
-                "status code: {}",
-                resp.status
-            )))
+            Err(Error::response_error(
+                &resp.url,
+                format!("status code: {}", resp.status),
+            ))
         }
     }
 }
@@ -947,7 +960,7 @@ pub struct ChangesetResponse {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CollectionMetadata {
     pub bucket: String,
-    pub signature: CollectionSignature,
+    pub signatures: Vec<CollectionSignature>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -1749,7 +1762,7 @@ mod test {
 
         let err = client.get_records().unwrap_err();
         assert!(
-            matches!(err, Error::ResponseError(_)),
+            matches!(err, Error::ResponseError { .. }),
             "Want response error for missing `ETag`; got {}",
             err
         );
@@ -1781,7 +1794,7 @@ mod test {
 
         let err = client.get_records().unwrap_err();
         assert!(
-            matches!(err, Error::ResponseError(_)),
+            matches!(err, Error::ResponseError { .. }),
             "Want response error for invalid `ETag`; got {}",
             err
         );
@@ -2276,7 +2289,7 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
         diff_records: &[RemoteSettingsRecord],
         full_records: &[RemoteSettingsRecord],
         certificate: &str,
-        signature: &str,
+        signatures: &[CollectionSignature],
         epoch_secs: u64,
         bucket: &str,
     ) -> Result<()> {
@@ -2286,10 +2299,7 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
 
         let some_metadata = CollectionMetadata {
             bucket: bucket.into(),
-            signature: CollectionSignature {
-                signature: signature.to_string(),
-                x5u: "http://mocked".into(),
-            },
+            signatures: signatures.to_vec(),
         };
         // Changeset for when client fetches diff.
         let diff_changeset = ChangesetResponse {
@@ -2341,7 +2351,34 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             &[],
             &[],
             VALID_CERTIFICATE,
-            VALID_SIGNATURE,
+            &[CollectionSignature {
+                signature: VALID_SIGNATURE.to_string(),
+                x5u: "http://mocked".into(),
+            }],
+            VALID_CERT_EPOCH_SECONDS,
+            "main",
+        )
+        .expect("Valid signature");
+        Ok(())
+    }
+
+    #[test]
+    fn test_second_signature_is_valid() -> Result<()> {
+        ensure_initialized();
+        run_client_sync(
+            &[],
+            &[],
+            VALID_CERTIFICATE,
+            &[
+                CollectionSignature {
+                    signature: "invalid signature".to_string(),
+                    x5u: "http://mocked".into(),
+                },
+                CollectionSignature {
+                    signature: VALID_SIGNATURE.to_string(),
+                    x5u: "http://mocked".into(),
+                },
+            ],
             VALID_CERT_EPOCH_SECONDS,
             "main",
         )
@@ -2362,7 +2399,10 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             }],
             &[],
             VALID_CERTIFICATE,
-            VALID_SIGNATURE,
+            &[CollectionSignature {
+                signature: VALID_SIGNATURE.to_string(),
+                x5u: "http://mocked".into(),
+            }],
             VALID_CERT_EPOCH_SECONDS,
             "main",
         )
@@ -2377,7 +2417,10 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             &[],
             &[],
             VALID_CERTIFICATE,
-            "invalid signature",
+            &[CollectionSignature {
+                signature: "invalid signature".to_string(),
+                x5u: "http://mocked".into(),
+            }],
             VALID_CERT_EPOCH_SECONDS,
             "main",
         )
@@ -2395,7 +2438,10 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             &[],
             &[],
             "some bad PEM content",
-            VALID_SIGNATURE,
+            &[CollectionSignature {
+                signature: VALID_SIGNATURE.to_string(),
+                x5u: "http://mocked".into(),
+            }],
             VALID_CERT_EPOCH_SECONDS,
             "main",
         )
@@ -2419,7 +2465,10 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             &[],
             &[],
             VALID_CERTIFICATE,
-            VALID_SIGNATURE,
+            &[CollectionSignature {
+                signature: VALID_SIGNATURE.to_string(),
+                x5u: "http://mocked".into(),
+            }],
             december_20_2024,
             "main",
         )
@@ -2449,7 +2498,10 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             &records,
             &records,
             VALID_CERTIFICATE,
-            VALID_SIGNATURE,
+            &[CollectionSignature {
+                signature: VALID_SIGNATURE.to_string(),
+                x5u: "http://mocked".into(),
+            }],
             VALID_CERT_EPOCH_SECONDS,
             "main",
         )
@@ -2468,7 +2520,10 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
             &[],
             &[],
             VALID_CERTIFICATE,
-            VALID_SIGNATURE,
+            &[CollectionSignature {
+                signature: VALID_SIGNATURE.to_string(),
+                x5u: "http://mocked".into(),
+            }],
             VALID_CERT_EPOCH_SECONDS,
             "security-state",
         )
@@ -2480,5 +2535,138 @@ IKdcFKAt3fFrpyMhlfIKkLfmm0iDjmfmIXbDGBJw9SE=
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test_reset_storage {
+    use super::*;
+
+    #[test]
+    fn test_reset_storage_deletes_records_and_attachments() {
+        let collection_url = "http://rs.example.com/v1/buckets/main/collections/test-collection";
+
+        let mut api_client = MockApiClient::new();
+        api_client
+            .expect_collection_url()
+            .returning(|| collection_url.into());
+        api_client.expect_is_prod_server().returning(|| Ok(false));
+
+        let records = vec![RemoteSettingsRecord {
+            id: "record-0001".into(),
+            last_modified: 100,
+            deleted: false,
+            attachment: Some(Attachment {
+                filename: "test-file.bin".into(),
+                mimetype: "application/octet-stream".into(),
+                location: "attachments/test-file.bin".into(),
+                hash: "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7".into(),
+                size: 4,
+            }),
+            fields: serde_json::Map::new(),
+        }];
+
+        let mut storage = Storage::new(":memory:".into());
+        storage
+            .insert_collection_content(collection_url, &records, 100, CollectionMetadata::default())
+            .expect("Failed to insert records");
+
+        storage
+            .set_attachment(collection_url, "attachments/test-file.bin", b"data")
+            .expect("Failed to insert attachment");
+
+        // Verify data is present before reset
+        assert!(storage.get_records(collection_url).unwrap().is_some());
+        assert!(storage
+            .get_attachment(collection_url, records[0].attachment.clone().unwrap())
+            .unwrap()
+            .is_some());
+
+        let rs_client = RemoteSettingsClient::new_from_parts(
+            "test-collection".into(),
+            storage,
+            JexlFilter::new(None),
+            api_client,
+        );
+
+        rs_client.reset_storage().expect("Failed to reset storage");
+
+        // After reset, both records and attachments should be gone
+        let mut inner = rs_client.inner.lock();
+        assert_eq!(
+            inner.storage.get_records(collection_url).unwrap(),
+            None,
+            "Records should be deleted after reset_storage"
+        );
+        assert_eq!(
+            inner
+                .storage
+                .get_attachment(collection_url, records[0].attachment.clone().unwrap(),)
+                .unwrap(),
+            None,
+            "Attachments should be deleted after reset_storage"
+        );
+    }
+
+    #[test]
+    fn test_reset_storage_reverts_to_packaged_data() {
+        let collection_url = "http://rs.example.com/v1/buckets/main/collections/regions";
+
+        let mut api_client = MockApiClient::new();
+        api_client
+            .expect_collection_url()
+            .returning(|| collection_url.into());
+        // Must be prod for reset_storage to restore packaged data
+        api_client.expect_is_prod_server().returning(|| Ok(true));
+
+        let synced_records = vec![RemoteSettingsRecord {
+            id: "custom-synced-record".into(),
+            last_modified: 99999,
+            deleted: false,
+            attachment: None,
+            fields: serde_json::json!({"key": "synced-value"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }];
+
+        let mut storage = Storage::new(":memory:".into());
+        storage
+            .insert_collection_content(
+                collection_url,
+                &synced_records,
+                99999,
+                CollectionMetadata::default(),
+            )
+            .expect("Failed to insert synced records");
+
+        // Verify synced data is present
+        let records_before = storage.get_records(collection_url).unwrap().unwrap();
+        assert_eq!(records_before[0].id, "custom-synced-record");
+
+        let rs_client = RemoteSettingsClient::new_from_parts(
+            "regions".into(),
+            storage,
+            JexlFilter::new(None),
+            api_client,
+        );
+
+        rs_client.reset_storage().expect("Failed to reset storage");
+
+        let mut inner = rs_client.inner.lock();
+        let records = inner.storage.get_records(collection_url).unwrap();
+        assert!(
+            records.is_some(),
+            "Packaged data should be restored after reset_storage on prod"
+        );
+        let records = records.unwrap();
+        assert!(
+            !records.is_empty(),
+            "Packaged regions data should not be empty"
+        );
+        assert!(
+            !records.iter().any(|r| r.id == "custom-synced-record"),
+            "Synced data should be replaced by packaged data after reset"
+        );
     }
 }

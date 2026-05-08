@@ -17,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.Executors
+import kotlin.test.assertIs
 
 class StoreTest {
     @Test
@@ -292,7 +293,7 @@ class StoreTest {
         store.dispatch(TestAction.IncrementAction)
 
         assertNotNull(caughtException)
-        assertTrue(caughtException is IOException)
+        assertIs<IOException>(caughtException)
     }
 
     @Test

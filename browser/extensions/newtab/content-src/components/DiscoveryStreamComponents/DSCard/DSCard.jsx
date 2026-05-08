@@ -6,7 +6,7 @@ import { actionCreators as ac } from "common/Actions.mjs";
 import { DSImage } from "../DSImage/DSImage.jsx";
 import { DSLinkMenu } from "../DSLinkMenu/DSLinkMenu";
 import { ImpressionStats } from "../../DiscoveryStreamImpressionStats/ImpressionStats";
-import { getActiveCardSize } from "../../../lib/utils";
+import { getActiveCardSize, getNovaColumnLayout } from "../../../lib/utils";
 import React from "react";
 import { SafeAnchor } from "../SafeAnchor/SafeAnchor";
 import {
@@ -308,8 +308,6 @@ export class _DSCard extends React.PureComponent {
             ...(this.props.shim && this.props.shim.click
               ? { shim: this.props.shim.click }
               : {}),
-            fetchTimestamp: this.props.fetchTimestamp,
-            firstVisibleTimestamp: this.props.firstVisibleTimestamp,
             corpus_item_id: this.props.corpus_item_id,
             scheduled_corpus_item_id: this.props.scheduled_corpus_item_id,
             recommended_at: this.props.recommended_at,
@@ -326,7 +324,8 @@ export class _DSCard extends React.PureComponent {
                     window.innerWidth,
                     this.props.sectionsClassNames,
                     this.props.section,
-                    this.props.flightId
+                    this.props.flightId,
+                    getNovaColumnLayout(this.contextMenuButtonHostElement)
                   ),
                 }),
             ...(this.props.section
@@ -365,7 +364,8 @@ export class _DSCard extends React.PureComponent {
                       window.innerWidth,
                       this.props.sectionsClassNames,
                       this.props.section,
-                      this.props.flightId
+                      this.props.flightId,
+                      getNovaColumnLayout(this.contextMenuButtonHostElement)
                     ),
                   }),
               ...(this.props.section
@@ -639,7 +639,6 @@ export class _DSCard extends React.PureComponent {
       : ``;
     const sectionsCardsClassName = [
       mayHaveSectionsCards ? `sections-card-ui` : ``,
-      novaEnabled ? `nova-card-ui` : ``,
       this.props.sectionsClassNames,
     ]
       .filter(Boolean)
@@ -700,7 +699,6 @@ export class _DSCard extends React.PureComponent {
                   ? { shim: this.props.shim.impression }
                   : {}),
                 recommendation_id: this.props.recommendation_id,
-                fetchTimestamp: this.props.fetchTimestamp,
                 corpus_item_id: this.props.corpus_item_id,
                 scheduled_corpus_item_id: this.props.scheduled_corpus_item_id,
                 recommended_at: this.props.recommended_at,
@@ -726,7 +724,6 @@ export class _DSCard extends React.PureComponent {
             ]}
             dispatch={this.props.dispatch}
             source={this.props.type}
-            firstVisibleTimestamp={this.props.firstVisibleTimestamp}
           />
 
           {ctaButtonVariant === "variant-b" && (
@@ -781,8 +778,6 @@ export class _DSCard extends React.PureComponent {
               section={this.props.section}
               section_position={this.props.sectionPosition}
               is_section_followed={this.props.sectionFollowed}
-              fetchTimestamp={this.props.fetchTimestamp}
-              firstVisibleTimestamp={this.props.firstVisibleTimestamp}
               format={
                 format
                   ? format
@@ -790,7 +785,8 @@ export class _DSCard extends React.PureComponent {
                       window.innerWidth,
                       this.props.sectionsClassNames,
                       this.props.section,
-                      this.props.flightId
+                      this.props.flightId,
+                      getNovaColumnLayout(this.contextMenuButtonHostElement)
                     )
               }
               isSectionsCard={this.props.mayHaveSectionsCards}

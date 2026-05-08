@@ -472,23 +472,26 @@ var PlacesCommandHook = {
    *        the address of the link target
    * @param title
    *        The link text
+   * @returns {string}
+   *        The bookmark's guid if the dialog was confirmed, otherwise undefined.
    */
   async bookmarkLink(url, title) {
     let bm = await PlacesUtils.bookmarks.fetch({ url });
+    let guid;
     if (bm) {
       let node = await PlacesUIUtils.promiseNodeLikeFromFetchInfo(bm);
-      await PlacesUIUtils.showBookmarkDialog(
+      guid = await PlacesUIUtils.showBookmarkDialog(
         { action: "edit", node },
         window.top
       );
-      return;
+      return guid;
     }
 
     let parentGuid = await PlacesUIUtils.defaultParentGuid;
     let defaultInsertionPoint = new PlacesInsertionPoint({
       parentGuid,
     });
-    await PlacesUIUtils.showBookmarkDialog(
+    guid = await PlacesUIUtils.showBookmarkDialog(
       {
         action: "add",
         type: "bookmark",
@@ -499,6 +502,7 @@ var PlacesCommandHook = {
       },
       window.top
     );
+    return guid;
   },
 
   /**
@@ -1196,7 +1200,7 @@ var PlacesToolbarHelper = {
   onWidgetUnderflow(aNode) {
     // The view gets broken by being removed and reinserted by the overflowable
     // toolbar, so we have to force an uninit and reinit.
-    let win = aNode.ownerGlobal;
+    let win = aNode.documentGlobal;
     if (aNode.id == "personal-bookmarks" && win == window) {
       this._resetView();
     }
@@ -2160,7 +2164,7 @@ var BookmarkingUI = {
   },
 
   onWidgetUnderflow(aNode) {
-    let win = aNode.ownerGlobal;
+    let win = aNode.documentGlobal;
     if (aNode.id != this.BOOKMARK_BUTTON_ID || win != window) {
       return;
     }
@@ -2264,7 +2268,7 @@ var BookmarkingUI = {
       is: "places-popup",
     });
     otherBookmarksPopup.setAttribute("placespopup", "true");
-    otherBookmarksPopup.setAttribute("native", "false");
+    otherBookmarksPopup.toggleAttribute("nonnative", true);
     otherBookmarksPopup.setAttribute("context", "placesContext");
     otherBookmarksPopup.classList.add("toolbar-menupopup");
     otherBookmarksPopup.id = "OtherBookmarksPopup";

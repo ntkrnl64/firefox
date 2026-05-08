@@ -48,6 +48,7 @@ class Shmem;
 namespace wr {
 class DisplayListBuilder;
 class TransactionBuilder;
+class RenderTextureHost;
 }  // namespace wr
 
 namespace layers {
@@ -542,17 +543,12 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
    * are for use with the managing IPDL protocols only (so that they can
    * implement AllocPTextureParent and DeallocPTextureParent).
    */
-  static PTextureParent* CreateIPDLActor(
+  static already_AddRefed<PTextureParent> CreateIPDLActor(
       HostIPCAllocator* aAllocator, const SurfaceDescriptor& aSharedData,
       ReadLockDescriptor&& aDescriptor, LayersBackend aLayersBackend,
       TextureFlags aFlags, const dom::ContentParentId& aContentId,
       uint64_t aSerial, const wr::MaybeExternalImageId& aExternalImageId);
   static bool DestroyIPDLActor(PTextureParent* actor);
-
-  /**
-   * Destroy the TextureChild/Parent pair.
-   */
-  static bool SendDeleteIPDLActor(PTextureParent* actor);
 
   static void ReceivedDestroy(PTextureParent* actor);
 
@@ -766,7 +762,7 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
   void CallNotifyNotUsed();
 
   TextureHostType mTextureHostType;
-  PTextureParent* mActor;
+  RefPtr<TextureParent> mActor;
   RefPtr<TextureReadLock> mReadLock;
   TextureFlags mFlags;
   int mCompositableCount;
@@ -915,9 +911,25 @@ class ShmemTextureHost : public BufferTextureHost {
 
   ShmemTextureHost* AsShmemTextureHost() override { return this; }
 
+  void OnRenderTextureCreated(wr::RenderTextureHost* aRenderTexture);
+
  protected:
-  UniquePtr<mozilla::ipc::Shmem> mShmem;
+  class ShmemDeallocRunnable final : public Runnable {
+   public:
+    ShmemDeallocRunnable(ISurfaceAllocator* aDeallocator,
+                         UniquePtr<mozilla::ipc::Shmem>&& aShmem);
+    NS_IMETHOD Run() override;
+    mozilla::ipc::Shmem* GetShmem() { return mShmem.get(); }
+
+   protected:
+    virtual ~ShmemDeallocRunnable();
+
+    RefPtr<ISurfaceAllocator> mDeallocator;
+    UniquePtr<mozilla::ipc::Shmem> mShmem;
+  };
+
   RefPtr<ISurfaceAllocator> mDeallocator;
+  RefPtr<ShmemDeallocRunnable> mShmemDeallocRunnable;
 };
 
 /**

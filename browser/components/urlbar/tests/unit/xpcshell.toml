@@ -38,6 +38,8 @@ support-files = ["data/engine.xml"]
 
 ["test_UrlbarUtils_copySnakeKeysToCamel.js"]
 
+["test_UrlbarUtils_formatDate.js"]
+
 ["test_UrlbarUtils_getShortcutOrURIAndPostData.js"]
 
 ["test_UrlbarUtils_getTokenMatches.js"]
@@ -52,6 +54,8 @@ support-files = ["data/engine.xml"]
 
 ["test_autofill_adaptiveHistory.js"]
 requesttimeoutfactor = 3  # Slow on Mac debug
+
+["test_autofill_adaptiveHistory_bookmarks.js"]
 
 ["test_autofill_adaptive_origin_fallback.js"]
 
@@ -186,9 +190,9 @@ requesttimeoutfactor = 2  # Slow on Linux and Windows
 
 ["test_query_url.js"]
 
-["test_quickactions.js"]
-
 ["test_quickaction_telemetry.js"]
+
+["test_quickactions.js"]
 
 ["test_remote_tabs.js"]
 skip-if = [

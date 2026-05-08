@@ -54,6 +54,7 @@ import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
 import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
 import mozilla.components.feature.autofill.AutofillUseCases
 import mozilla.components.feature.fxsuggest.GlobalFxSuggestDependencyProvider
+import mozilla.components.feature.ipprotection.DefaultIPProtectionFeature
 import mozilla.components.feature.search.ext.buildSearchUrl
 import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
 import mozilla.components.feature.summarize.settings.SummarizationSettings
@@ -84,13 +85,14 @@ import mozilla.components.support.utils.RunWhenReadyQueue
 import mozilla.components.support.utils.logElapsedTime
 import mozilla.components.support.webextensions.WebExtensionSupport
 import mozilla.telemetry.glean.Glean
-import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.GleanMetrics.Addons
 import org.mozilla.fenix.GleanMetrics.Addresses
 import org.mozilla.fenix.GleanMetrics.AndroidAutofill
+import org.mozilla.fenix.GleanMetrics.Browser
 import org.mozilla.fenix.GleanMetrics.CreditCards
 import org.mozilla.fenix.GleanMetrics.CustomizeHome
 import org.mozilla.fenix.GleanMetrics.Events.marketingNotificationAllowed
+import org.mozilla.fenix.GleanMetrics.GenaiAiControls
 import org.mozilla.fenix.GleanMetrics.Integrity
 import org.mozilla.fenix.GleanMetrics.Logins
 import org.mozilla.fenix.GleanMetrics.Metrics
@@ -105,6 +107,9 @@ import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.Core
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.initializeGlean
+import org.mozilla.fenix.components.ipprotection.ErrorMessages
+import org.mozilla.fenix.components.ipprotection.FenixIPProtectionEligibilityStorage
+import org.mozilla.fenix.components.ipprotection.IPProtectionFeatureIntegration
 import org.mozilla.fenix.components.metrics.MozillaProductDetector
 import org.mozilla.fenix.components.startMetricsIfEnabled
 import org.mozilla.fenix.experiments.maybeFetchExperiments
@@ -375,6 +380,8 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
 
         setupPush()
 
+        maybeSetupIPProtection()
+
         GlobalFxSuggestDependencyProvider.initialize(components.fxSuggest.storage)
 
         visibilityLifecycleCallback = VisibilityLifecycleCallback(getSystemService())
@@ -434,7 +441,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
         queueStorageMaintenance(queue)
         queueIntegrityClientWarmUp(queue)
         queueNimbusFetchInForeground(queue)
-        queueSetAutofillMetrics(queue)
         queueDownloadWallpapers(queue)
 
         if (settings().enableFxSuggest) {
@@ -564,13 +570,21 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
 
     @OptIn(DelicateCoroutinesApi::class) // GlobalScope usage
     private fun queueIntegrityClientWarmUp(queue: RunWhenReadyQueue) {
-        if (Config.channel != ReleaseChannel.Nightly) {
+        // We want to avoid shipping this warmup into UI test builds to reduce quota impact, especially given
+        // that the Integrity verdicts will always fail anyway.
+        if (!BuildConfig.TELEMETRY) {
             return
         }
         runOnVisualCompleteness(queue) {
             GlobalScope.launch(IO) {
-                components.integrityClient.warmUp()
-                Integrity.warmedUp.record(NoExtras())
+                val start = System.currentTimeMillis()
+                val result = components.integrityClient.warmUp()
+                Integrity.warmedUp.record(
+                    Integrity.WarmedUpExtra(
+                        durationMs = (System.currentTimeMillis() - start).toInt(),
+                        success = result,
+                        ),
+                    )
             }
         }
     }
@@ -609,31 +623,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
         }
 
     /**
-     * Sets autofill telemetry about Addresses, CreditCards, and Logins.
-     *
-     * @param queue The queue the function should use.
-     */
-    @OptIn(DelicateCoroutinesApi::class)
-    private fun queueSetAutofillMetrics(queue: RunWhenReadyQueue) = runOnVisualCompleteness(queue) {
-        GlobalScope.launch(IO) {
-            try {
-                val autoFillStorage = applicationContext.components.core.autofillStorage
-                Addresses.savedAll.set(autoFillStorage.countAllAddresses())
-                CreditCards.savedAll.set(autoFillStorage.countAllCreditCards())
-            } catch (e: AutofillApiException) {
-                logger.error("Failed to fetch autofill data", e)
-            }
-
-            try {
-                val passwordsStorage = applicationContext.components.core.passwordsStorage
-                Logins.savedAll.set(passwordsStorage.count())
-            } catch (e: LoginsApiException) {
-                logger.error("Failed to fetch list of logins", e)
-            }
-        }
-    }
-
-    /**
      * Sets up LeakCanary based on different build variant implementations.
      *
      * Only [ReleaseChannel.Debug] activates LeakCanary. Other variants are no-op.
@@ -670,6 +659,36 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
 
             // Initialize the service. This could potentially be done in a coroutine in the future.
             it.initialize()
+        }
+    }
+
+    private fun maybeSetupIPProtection() {
+        IPProtectionFeatureIntegration(
+            DefaultIPProtectionFeature(
+                engine = components.core.engine,
+                lazyAccountManager = lazy { components.backgroundServices.accountManager },
+                storage = FenixIPProtectionEligibilityStorage(
+                    browserStore = components.core.store,
+                    sharedPref = components.settings.preferences,
+                    prefKey = this.getString(R.string.pref_key_enable_ip_protection),
+                    lifecycleOwner = ProcessLifecycleOwner.get(),
+                ),
+                store = components.ipProtectionStore,
+                browserStore = components.core.store,
+                tabsUseCases = components.useCases.tabsUseCases,
+            ),
+            store = components.ipProtectionStore,
+            appStore = components.appStore,
+            errorMessages = ErrorMessages(
+                connectionError = this.getString(R.string.ip_protection_connection_error_snackbar),
+                dataLimitReached = this.getString(
+                    R.string.ip_protection_data_limit_reached_snackbar,
+                    FxNimbus.features.ipProtection.value().dataLimitGigabyte,
+                ),
+            ),
+        ).also {
+            it.initialize()
+            it.start()
         }
     }
 
@@ -1014,6 +1033,11 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
         UserAiSummarize.gestureEnabled.set(summarizeSettings.getGestureEnabledUserStatus().first())
         UserAiSummarize.summarizationConsented.set(summarizeSettings.getHasConsentedToShake().first())
 
+        Browser.globalAiControlIsBlocking.set(components.aiControlsFeatureBlock.isBlocked.first())
+        components.aiFeatureRegistry.getFeatures().forEach { feature ->
+            GenaiAiControls.featuresBlocked[feature.id.value].set(!feature.isEnabled.first())
+        }
+
         browserStore.waitForSelectedOrDefaultSearchEngine { searchEngine ->
             searchEngine?.let {
                 val sendSearchUrl =
@@ -1064,6 +1088,8 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                 }
             }
         }
+
+        setAutofillMetrics()
     }
 
     private fun setTermsOfUseStartUpMetrics(settings: Settings) {
@@ -1116,7 +1142,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
             browsingHistorySuggestion.set(settings.shouldShowHistorySuggestions)
             bookmarksSuggestion.set(settings.shouldShowBookmarkSuggestions)
             clipboardSuggestionsEnabled.set(settings.shouldShowClipboardSuggestions)
-            searchShortcutsEnabled.set(settings.shouldShowSearchShortcuts)
             voiceSearchEnabled.set(settings.shouldShowVoiceSearch)
             openLinksInAppEnabled.set(settings.openLinksInExternalApp)
             signedInSync.set(settings.signedInFxaAccount)
@@ -1188,6 +1213,26 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
             globalPrivacyControlEnabled.set(settings.shouldEnableGlobalPrivacyControl)
         }
         reportHomeScreenMetrics(settings)
+    }
+
+    private fun setAutofillMetrics() {
+        @OptIn(DelicateCoroutinesApi::class)
+        GlobalScope.launch(IO) {
+            try {
+                val autoFillStorage = applicationContext.components.core.autofillStorage
+                Addresses.savedAll.set(autoFillStorage.countAllAddresses())
+                CreditCards.savedAll.set(autoFillStorage.countAllCreditCards())
+            } catch (e: AutofillApiException) {
+                logger.error("Failed to fetch autofill data", e)
+            }
+
+            try {
+                val passwordsStorage = applicationContext.components.core.passwordsStorage
+                Logins.savedAll.set(passwordsStorage.count())
+            } catch (e: LoginsApiException) {
+                logger.error("Failed to fetch list of logins", e)
+            }
+        }
     }
 
     @VisibleForTesting

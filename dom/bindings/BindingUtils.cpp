@@ -2404,145 +2404,6 @@ bool DictionaryBase::StringifyToJSON(JSContext* aCx, JS::Handle<JSObject*> aObj,
   return CopyUTF16toUTF8(json, aJSON, fallible);
 }
 
-void UpdateReflectorGlobal(JSContext* aCx, JS::Handle<JSObject*> aObjArg,
-                           ErrorResult& aError) {
-  js::AssertSameCompartment(aCx, aObjArg);
-
-  aError.MightThrowJSException();
-
-  // Check if we're anywhere near the stack limit before we reach the
-  // transplanting code, since it has no good way to handle errors. This uses
-  // the untrusted script limit, which is not strictly necessary since no
-  // actual script should run.
-  js::AutoCheckRecursionLimit recursion(aCx);
-  if (!recursion.checkConservative(aCx)) {
-    aError.StealExceptionFromJSContext(aCx);
-    return;
-  }
-
-  JS::Rooted<JSObject*> aObj(aCx, aObjArg);
-  MOZ_ASSERT(IsDOMObject(aObj));
-
-  const DOMJSClass* domClass = GetDOMClass(aObj);
-
-  JS::Rooted<JSObject*> oldGlobal(aCx, JS::GetNonCCWObjectGlobal(aObj));
-  MOZ_ASSERT(JS_IsGlobalObject(oldGlobal));
-
-  JS::Rooted<JSObject*> newGlobal(aCx,
-                                  domClass->mGetAssociatedGlobal(aCx, aObj));
-  MOZ_ASSERT(JS_IsGlobalObject(newGlobal));
-
-  JSAutoRealm oldAr(aCx, oldGlobal);
-
-  if (oldGlobal == newGlobal) {
-    return;
-  }
-
-  nsISupports* native = UnwrapDOMObjectToISupports(aObj);
-  if (!native) {
-    return;
-  }
-
-  bool isProxy = js::IsProxy(aObj);
-  JS::Rooted<JSObject*> expandoObject(aCx);
-  if (isProxy) {
-    expandoObject = DOMProxyHandler::GetAndClearExpandoObject(aObj);
-  }
-
-  JSAutoRealm newAr(aCx, newGlobal);
-
-  // First we clone the reflector. We get a copy of its properties and clone its
-  // expando chain.
-
-  JS::Handle<JSObject*> proto = (domClass->mGetProto)(aCx);
-  if (!proto) {
-    aError.StealExceptionFromJSContext(aCx);
-    return;
-  }
-
-  JS::Rooted<JSObject*> newobj(aCx, JS_CloneObject(aCx, aObj, proto));
-  if (!newobj) {
-    aError.StealExceptionFromJSContext(aCx);
-    return;
-  }
-
-  // Assert it's possible to create wrappers when |aObj| and |newobj| are in
-  // different compartments.
-  MOZ_ASSERT_IF(JS::GetCompartment(aObj) != JS::GetCompartment(newobj),
-                js::AllowNewWrapper(JS::GetCompartment(aObj), newobj));
-
-  JS::Rooted<JSObject*> propertyHolder(aCx);
-  JS::Rooted<JSObject*> copyFrom(aCx, isProxy ? expandoObject : aObj);
-  if (copyFrom) {
-    propertyHolder = JS_NewObjectWithGivenProto(aCx, nullptr, nullptr);
-    if (!propertyHolder) {
-      aError.StealExceptionFromJSContext(aCx);
-      return;
-    }
-
-    if (!JS_CopyOwnPropertiesAndPrivateFields(aCx, propertyHolder, copyFrom)) {
-      aError.StealExceptionFromJSContext(aCx);
-      return;
-    }
-  } else {
-    propertyHolder = nullptr;
-  }
-
-  // We've set up |newobj|, so we make it own the native by setting its reserved
-  // slot and nulling out the reserved slot of |obj|. Update the wrapper cache
-  // to keep everything consistent in case GC moves newobj.
-  //
-  // NB: It's important to do this _after_ copying the properties to
-  // propertyHolder. Otherwise, an object with |foo.x === foo| will
-  // crash when JS_CopyOwnPropertiesAndPrivateFields tries to call wrap() on
-  // foo.x.
-  static_assert(DOM_OBJECT_SLOT == JS_OBJECT_WRAPPER_SLOT);
-  JS::SetReservedSlot(newobj, DOM_OBJECT_SLOT,
-                      JS::GetReservedSlot(aObj, DOM_OBJECT_SLOT));
-  JS::SetReservedSlot(aObj, DOM_OBJECT_SLOT, JS::PrivateValue(nullptr));
-  size_t nslots = JSCLASS_RESERVED_SLOTS(JS::GetClass(aObj));
-  for (size_t slot = DOM_INSTANCE_RESERVED_SLOTS; slot < nslots; ++slot) {
-    const JS::Value& slotValue = JS::GetReservedSlot(aObj, slot);
-    if (slotValue.isObject()) {
-      JSObject* slotObj = &slotValue.toObject();
-      if (IsObservableArrayProxy(slotObj)) {
-        JS::SetReservedSlot(newobj, slot, slotValue);
-        JS::SetReservedSlot(aObj, slot, JS::UndefinedValue());
-      }
-    }
-  }
-
-  nsWrapperCache* cache = nullptr;
-  CallQueryInterface(native, &cache);
-  cache->UpdateWrapperForNewGlobal(native, newobj);
-
-  aObj = xpc::TransplantObjectRetainingXrayExpandos(aCx, aObj, newobj);
-  if (!aObj) {
-    MOZ_CRASH();
-  }
-
-  // Update the wrapper cache again if transplanting didn't use newobj but
-  // returned some other object.
-  if (aObj != newobj) {
-    MOZ_ASSERT(UnwrapDOMObjectToISupports(aObj) == native);
-    cache->UpdateWrapperForNewGlobal(native, aObj);
-  }
-
-  if (propertyHolder) {
-    JS::Rooted<JSObject*> copyTo(aCx);
-    if (isProxy) {
-      copyTo = DOMProxyHandler::EnsureExpandoObject(aCx, aObj);
-    } else {
-      copyTo = aObj;
-    }
-
-    if (!copyTo ||
-        !JS_CopyOwnPropertiesAndPrivateFields(aCx, copyTo, propertyHolder)) {
-      MOZ_CRASH();
-    }
-  }
-}
-
 GlobalObject::GlobalObject(JSContext* aCx, JSObject* aObject)
     : mGlobalJSObject(aCx), mCx(aCx), mGlobalObject(nullptr) {
   MOZ_ASSERT(mCx);
@@ -2751,28 +2612,6 @@ void ConstructJSImplementation(const char* aContractId,
 
 bool NormalizeUSVString(nsAString& aString) {
   return EnsureUTF16Validity(aString);
-}
-
-bool NormalizeUSVString(binding_detail::FakeString<char16_t>& aString) {
-  uint32_t upTo = Utf16ValidUpTo(aString);
-  uint32_t len = aString.Length();
-  if (upTo == len) {
-    return true;
-  }
-  // This is the part that's different from EnsureUTF16Validity with an
-  // nsAString& argument, because we don't want to ensure mutability in our
-  // BeginWriting() in the common case and nsAString's EnsureMutable is not
-  // public.  This is a little annoying; I wish we could just share the more or
-  // less identical code!
-  if (!aString.EnsureMutable()) {
-    return false;
-  }
-
-  char16_t* ptr = aString.BeginWriting();
-  auto span = Span(ptr, len);
-  span[upTo] = 0xFFFD;
-  EnsureUtf16ValiditySpan(span.From(upTo + 1));
-  return true;
 }
 
 bool ConvertJSValueToByteString(BindingCallContext& cx, JS::Handle<JS::Value> v,
@@ -3647,8 +3486,10 @@ static inline JSObject* NewObservableArrayProxyObject(
   }
 
   JS::Rooted<JS::Value> targetValue(aCx, JS::ObjectValue(*target));
+  js::ProxyOptions options;
+  options.setLazyProto(true);
   JS::Rooted<JSObject*> proxy(
-      aCx, js::NewProxyObject(aCx, aHandler, targetValue, nullptr));
+      aCx, js::NewProxyObject(aCx, aHandler, targetValue, nullptr, options));
   if (!proxy) {
     return nullptr;
   }
@@ -3786,47 +3627,6 @@ bool GetDesiredProto(JSContext* aCx, const JS::CallArgs& aCallArgs,
 
   return MaybeWrapObject(aCx, aDesiredProto);
 }
-
-namespace {
-
-class MOZ_RAII AutoConstructionDepth final {
- public:
-  MOZ_IMPLICIT AutoConstructionDepth(CustomElementDefinition* aDefinition)
-      : mDefinition(aDefinition) {
-    MOZ_ASSERT(mDefinition->mConstructionStack.IsEmpty());
-
-    mDefinition->mConstructionDepth++;
-    // If the mConstructionDepth isn't matched with the length of mPrefixStack,
-    // this means the constructor is called directly from JS, i.e.
-    // 'new CustomElementConstructor()', we have to push a dummy prefix into
-    // stack.
-    if (mDefinition->mConstructionDepth > mDefinition->mPrefixStack.Length()) {
-      mDidPush = true;
-      mDefinition->mPrefixStack.AppendElement(nullptr);
-    }
-
-    MOZ_ASSERT(mDefinition->mConstructionDepth ==
-               mDefinition->mPrefixStack.Length());
-  }
-
-  ~AutoConstructionDepth() {
-    MOZ_ASSERT(mDefinition->mConstructionDepth > 0);
-    MOZ_ASSERT(mDefinition->mConstructionDepth ==
-               mDefinition->mPrefixStack.Length());
-
-    if (mDidPush) {
-      MOZ_ASSERT(mDefinition->mPrefixStack.LastElement() == nullptr);
-      mDefinition->mPrefixStack.RemoveLastElement();
-    }
-    mDefinition->mConstructionDepth--;
-  }
-
- private:
-  CustomElementDefinition* mDefinition;
-  bool mDidPush = false;
-};
-
-}  // anonymous namespace
 
 /* https://html.spec.whatwg.org/#html-element-constructors */
 namespace binding_detail {
@@ -4038,19 +3838,8 @@ bool HTMLConstructor(JSContext* aCx, unsigned aArgc, JS::Value* aVp,
   //     object..."
   JS::Rooted<JSObject*> desiredProto(aCx);
 
-  // Check which construction path we're taking before running any JS.
-  // This determines whether we need AutoConstructionDepth protection.
   nsTArray<RefPtr<Element>>& constructionStack = definition->mConstructionStack;
   const bool isDirectConstruction = constructionStack.IsEmpty();
-
-  // For direct construction (not upgrade), create AutoConstructionDepth before
-  // GetDesiredProto. This ensures mConstructionDepth is incremented before any
-  // re-entrant JS can run via Proxy traps, preventing desynchronization with
-  // mPrefixStack which may be pushed by nsContentUtils::NewXULOrHTMLElement.
-  mozilla::Maybe<AutoConstructionDepth> autoDepth;
-  if (isDirectConstruction) {
-    autoDepth.emplace(definition);
-  }
 
   if (!GetDesiredProto(aCx, args, aProtoId, aCreator, &desiredProto)) {
     return false;
@@ -4065,9 +3854,11 @@ bool HTMLConstructor(JSContext* aCx, unsigned aArgc, JS::Value* aVp,
     //       implementing the interface..."
     JSAutoRealm ar(aCx, global.Get());
 
+    // The namespace prefix will be set after construction by
+    // nsContentUtils::NewXULOrHTMLElement per spec step 6.1.10 of
+    // https://dom.spec.whatwg.org/#concept-create-element.
     RefPtr<NodeInfo> nodeInfo = doc->NodeInfoManager()->GetNodeInfo(
-        definition->mLocalName, definition->mPrefixStack.LastElement(), ns,
-        nsINode::ELEMENT_NODE);
+        definition->mLocalName, nullptr, ns, nsINode::ELEMENT_NODE);
     MOZ_ASSERT(nodeInfo);
 
     if (ns == kNameSpaceID_XUL) {

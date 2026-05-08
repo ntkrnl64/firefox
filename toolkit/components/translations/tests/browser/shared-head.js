@@ -2356,8 +2356,8 @@ async function createTranslationsDoc(
  */
 function doubleRaf(doc) {
   return new Promise(resolve => {
-    doc.ownerGlobal.requestAnimationFrame(() => {
-      doc.ownerGlobal.requestAnimationFrame(() => {
+    doc.documentGlobal.requestAnimationFrame(() => {
+      doc.documentGlobal.requestAnimationFrame(() => {
         resolve(
           // Wait for a tick to be after anything that resolves with a double rAF.
           TestUtils.waitForTick()
@@ -3816,9 +3816,25 @@ async function setupAboutPreferences(
 
   await loadNewPage(tab.linkedBrowser, "about:preferences");
 
+  // Load the Languages pane if SRD is enabled (moved from General)
+  const document = gBrowser.selectedBrowser.contentDocument;
+  let redesigned = Services.prefs.getBoolPref(
+    "browser.settings-redesign.enabled",
+    false
+  );
+  if (redesigned) {
+    let loaded = BrowserTestUtils.waitForEvent(document, "paneshown");
+    EventUtils.synthesizeMouseAtCenter(
+      document.getElementById("category-languages"),
+      {},
+      document.documentGlobal
+    );
+    let event = await loaded;
+    is(event.detail.category, "paneLanguages", "Loaded the correct pane");
+  }
+
   const elements = await selectAboutPreferencesElements();
 
-  const document = gBrowser.selectedBrowser.contentDocument;
   const translationsSettingsTestUtils = new TranslationsSettingsTestUtils(
     document
   );

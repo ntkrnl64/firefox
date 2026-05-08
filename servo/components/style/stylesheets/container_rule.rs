@@ -266,7 +266,7 @@ impl ContainerCondition {
     }
 
     /// Tries to match a container query condition for a given element.
-    pub(crate) fn matches<E>(
+    pub fn matches<E>(
         &self,
         stylist: &Stylist,
         element: E,
@@ -285,6 +285,14 @@ impl ContainerCondition {
                 return KleeneValue::from(result.is_some());
             },
         };
+        // We have to tag the invalidation flags here because style container
+        // query matching may return early if we cannot find a suitable
+        // container element right now. However, we must also consider the case
+        // when an ancestor becomes a container and we have to invalidate this
+        // element from not matching to matching.
+        if self.flags.contains(FeatureFlags::STYLE) {
+            invalidation_flags.insert(ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY);
+        }
         let (container, info) = match result {
             Some(r) => (r.element, (r.info, r.style)),
             None => {
@@ -317,8 +325,9 @@ impl ContainerCondition {
                     invalidation_flags
                         .insert(ComputedValueFlags::USES_VIEWPORT_UNITS_ON_CONTAINER_QUERIES);
                 }
-                if flags.contains(ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY) {
-                    invalidation_flags.insert(ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY);
+                if flags.contains(ComputedValueFlags::DEPENDS_ON_FONT_METRICS_IN_CONTAINER_QUERY) {
+                    invalidation_flags
+                        .insert(ComputedValueFlags::DEPENDS_ON_FONT_METRICS_IN_CONTAINER_QUERY)
                 }
                 matches
             },

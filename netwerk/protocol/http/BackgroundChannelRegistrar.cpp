@@ -11,7 +11,8 @@
 #include "nsXULAppAPI.h"
 
 namespace {
-mozilla::StaticRefPtr<mozilla::net::BackgroundChannelRegistrar> gSingleton;
+mozilla::StaticRefPtr<mozilla::net::BackgroundChannelRegistrar>
+    gBackgroundChannelRegistrarSingleton;
 }
 
 namespace mozilla {
@@ -32,13 +33,13 @@ BackgroundChannelRegistrar::~BackgroundChannelRegistrar() {
 }
 
 // static
-already_AddRefed<nsIBackgroundChannelRegistrar>
+already_AddRefed<BackgroundChannelRegistrar>
 BackgroundChannelRegistrar::GetOrCreate() {
-  if (!gSingleton) {
-    gSingleton = new BackgroundChannelRegistrar();
-    ClearOnShutdown(&gSingleton);
+  if (!gBackgroundChannelRegistrarSingleton) {
+    gBackgroundChannelRegistrarSingleton = new BackgroundChannelRegistrar();
+    ClearOnShutdown(&gBackgroundChannelRegistrarSingleton);
   }
-  return do_AddRef(gSingleton);
+  return do_AddRef(gBackgroundChannelRegistrarSingleton);
 }
 
 void BackgroundChannelRegistrar::NotifyChannelLinked(

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,9 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
@@ -41,13 +40,11 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.mozilla.fenix.R
-import org.mozilla.fenix.shopping.ui.ext.headingResource
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.theme.PreviewThemeProvider
 import org.mozilla.fenix.theme.Theme
 import mozilla.components.ui.icons.R as iconsR
 
-private val cardShape = RoundedCornerShape(8.dp)
 private val defaultCardElevation = 5.dp
 private val defaultCardContentPadding = 16.dp
 
@@ -72,8 +69,6 @@ fun ExpandableInfoCardContainer(
         modifier = modifier,
         contentPadding = PaddingValues(0.dp),
     ) {
-        val titleContentDescription = headingResource(title)
-
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
@@ -93,9 +88,6 @@ fun ExpandableInfoCardContainer(
             Text(
                 text = title,
                 style = FirefoxTheme.typography.headline8,
-                modifier = Modifier.semantics {
-                    contentDescription = titleContentDescription
-                },
             )
 
             val chevronDrawable = if (isExpanded) {
@@ -133,6 +125,7 @@ fun ExpandableInfoCardContainer(
  *
  * @param modifier Modifier to be applied to the card.
  * @param backgroundColor The background color of the card.
+ * @param shape The shape of the card.
  * @param elevation The elevation of the card.
  * @param contentPadding Padding used within the card container.
  * @param content The content of the card.
@@ -141,12 +134,13 @@ fun ExpandableInfoCardContainer(
 fun InfoCardContainer(
     modifier: Modifier,
     backgroundColor: Color = MaterialTheme.colorScheme.surfaceContainerLowest,
+    shape: Shape = MaterialTheme.shapes.large,
     elevation: Dp = defaultCardElevation,
     contentPadding: PaddingValues = PaddingValues(defaultCardContentPadding),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        shape = cardShape,
+        shape = shape,
         colors = CardDefaults.cardColors(containerColor = backgroundColor),
         elevation = CardDefaults.cardElevation(defaultElevation = elevation),
         modifier = modifier,

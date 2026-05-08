@@ -15,31 +15,39 @@ import org.mozilla.fenix.tabstray.syncedtabs.SyncedTabsListItem
  * @property selectedPage The current page in the tray can be on.
  * @property mode Whether the browser tab list is in multi-select mode or not with the set of
  * currently selected tabs.
- * @property normalTabs The list of normal [TabsTrayItem]s that do not fall under [inactiveTabs].
  * @property selectedTabId The ID of the currently selected (active) tab.
+ * @property normalTabsState The state of the normal tabs page.
  * @property inactiveTabs The state of inactive tabs, including the list of tabs and UI flags.
  * @property privateBrowsing The state of private browsing, including tabs and locking status.
- * @property tabGroups The list of [TabsTrayItem.TabGroup]s to display.
+ * @property tabGroupState The state of the tab group feature.
  * @property sync The state of Synced Tabs, including the list of tabs and sync status.
  * @property config The configuration flags for the Tabs Tray (e.g., grid display, feature flags).
  * @property tabSearchState The state of the tab search feature.
- * @property tabGroupFormState The state of the tab group edit form.
  * @property backStack The navigation history of the Tab Manager feature.
  */
 data class TabsTrayState(
     val selectedPage: Page = Page.NormalTabs,
     val mode: Mode = Mode.Normal,
-    val normalTabs: List<TabsTrayItem> = emptyList(),
     val selectedTabId: String? = null,
+    val normalTabsState: NormalTabsState = NormalTabsState(),
     val inactiveTabs: InactiveTabsState = InactiveTabsState(),
     val privateBrowsing: PrivateBrowsingState = PrivateBrowsingState(),
-    val tabGroups: List<TabsTrayItem.TabGroup> = emptyList(),
+    val tabGroupState: TabGroupState = TabGroupState(),
     val sync: SyncState = SyncState(),
     val config: TabsTrayConfig = TabsTrayConfig(),
     val tabSearchState: TabSearchState = TabSearchState(),
-    val tabGroupFormState: TabGroupFormState? = null,
     val backStack: List<TabManagerNavDestination> = listOf(TabManagerNavDestination.Root),
 ) : State {
+
+    /**
+     *  Drops the last entry of [TabsTrayState.backStack]. If [backStack] only has one entry, no changes occur.
+     */
+    internal fun popBackStack(): List<TabManagerNavDestination> = if (backStack.size > 1) {
+        backStack.dropLast(1)
+    } else {
+        backStack
+    }
+
     /**
      * The current mode that the tabs list is in.
      */
@@ -88,7 +96,33 @@ data class TabsTrayState(
             override val selectedTabs: Set<TabsTrayItem.Tab> = emptySet(),
             override val selectedTabGroups: Set<TabsTrayItem.TabGroup> = emptySet(),
         ) : Mode()
+
+        /**
+         * The mode when an item on the tabs list is being dragged
+         *
+         * @property sourceId: The ID of the tab item being dragged
+         * @property destinationId: The ID of a tab item the source item is being dragged onto, if any.
+         * Currently this is non-null but will be expanded to allow for updating focus state when mode is drag and drop
+         * during a drag action.
+         */
+        data class DragAndDrop(
+            val sourceId: String,
+            val destinationId: String?,
+        ) : Mode()
     }
+
+    /**
+     * State specific to normal browsing mode.
+     *
+     * @property items The list of open [TabsTrayItem]s on the Normal page.
+     * @property selectedItemIndex The index of the selected normal item.
+     * @property tabCount The total number of open Normal tabs, including inactive tabs and the tabs within tab groups.
+     */
+    data class NormalTabsState(
+        val items: List<TabsTrayItem> = emptyList(),
+        val selectedItemIndex: Int = 0,
+        val tabCount: Int = 0,
+    )
 
     /**
      * State specific to inactive tabs.
@@ -109,11 +143,13 @@ data class TabsTrayState(
      * State specific to private browsing mode.
      *
      * @property tabs The list of open private tabs.
+     * @property selectedItemIndex The index of the selected private tab.
      * @property isLocked Whether Private Browsing Mode is currently locked.
      * @property showLockBanner Whether the banner to enable PBM locking should be displayed.
      */
     data class PrivateBrowsingState(
         val tabs: List<TabsTrayItem> = emptyList(),
+        val selectedItemIndex: Int = 0,
         val isLocked: Boolean = false,
         val showLockBanner: Boolean = false,
     )
@@ -138,6 +174,7 @@ data class TabsTrayState(
      *
      * @property displayTabsInGrid Whether normal and private tabs are displayed in a grid (vs list).
      * @property tabGroupsEnabled Whether the Tab Groups feature is enabled.
+     * @property tabGroupsDragAndDropEnabled:  Whether drag and drop is enabled for Tab Groups.
      * @property isInDebugMode Whether the app is in a debug state or has secret menu enabled.
      * @property showTabAutoCloseBanner Whether the banner for the tab auto-closer feature is visible.
      * @property tabSearchEnabled Whether the tab search feature is globally enabled.
@@ -145,9 +182,21 @@ data class TabsTrayState(
     data class TabsTrayConfig(
         val displayTabsInGrid: Boolean = false,
         val tabGroupsEnabled: Boolean = false,
+        val tabGroupsDragAndDropEnabled: Boolean = false,
         val isInDebugMode: Boolean = false,
         val showTabAutoCloseBanner: Boolean = false,
         val tabSearchEnabled: Boolean = false,
+    )
+
+    /**
+     * State specific to Tab Groups.
+     *
+     * @property groups The list of tab groups.
+     * @property formState The state of the tab group edit form.
+     */
+    data class TabGroupState(
+        val groups: List<TabsTrayItem.TabGroup> = emptyList(),
+        val formState: TabGroupFormState? = null,
     )
 
     /**
@@ -161,7 +210,7 @@ data class TabsTrayState(
      */
     val searchIconEnabled: Boolean
         get() = when {
-            selectedPage == Page.NormalTabs && normalTabs.isNotEmpty() -> true
+            selectedPage == Page.NormalTabs && normalTabsState.items.isNotEmpty() -> true
             selectedPage == Page.PrivateTabs && privateBrowsing.tabs.isNotEmpty() -> true
             else -> false
         }

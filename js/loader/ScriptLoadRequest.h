@@ -112,7 +112,7 @@ class ScriptLoadRequest : public nsISupports,
     // necko.  For in-memory cached, case, the
     // SharedSubResourceCache::CompleteSubResource::mExpirationTime field is
     // used instead.
-    MOZ_ASSERT(!IsCachedStencil());
+    MOZ_ASSERT(!OnceCachedStencil());
     return mExpirationTime;
   }
 
@@ -150,6 +150,21 @@ class ScriptLoadRequest : public nsISupports,
   // otherwise.
   bool IsFinished() const {
     return mState == State::Ready || mState == State::Canceled;
+  }
+
+  mozilla::dom::ReferrerPolicy ReferrerPolicy() const {
+    return FetchInfo()->ReferrerPolicy();
+  }
+
+  nsIURI* BaseURL() const { return FetchInfo()->BaseURL(); }
+  void SetBaseURL(nsIURI* aBaseURL) { FetchInfo()->SetBaseURL(aBaseURL); }
+  void SetBaseURLFromChannelAndOriginalURI(nsIChannel* aChannel,
+                                           nsIURI* aOriginalURI) {
+    FetchInfo()->SetBaseURLFromChannelAndOriginalURI(aChannel, aOriginalURI);
+  }
+
+  ScriptFetchOptions* FetchOptions() const {
+    return FetchInfo()->FetchOptions();
   }
 
   mozilla::dom::RequestPriority FetchPriority() const {
@@ -257,6 +272,11 @@ class ScriptLoadRequest : public nsISupports,
   const LoadedScript* getLoadedScript() const { return mLoadedScript.get(); }
   LoadedScript* getLoadedScript() { return mLoadedScript.get(); }
 
+  bool HasStencil() const { return !!mStencil; }
+  JS::Stencil* GetStencil() const { return mStencil; }
+  void SetStencil(JS::Stencil* aStencil) { mStencil = aStencil; }
+  void ClearStencil() { mStencil = nullptr; }
+
   bool HasSourceMapURL() const { return mHasSourceMapURL_; }
   const nsString& GetSourceMapURL() const {
     MOZ_ASSERT(mHasSourceMapURL_);
@@ -273,6 +293,9 @@ class ScriptLoadRequest : public nsISupports,
 
   bool HadPostponed() const { return mHadPostponed_; }
   void SetHadPostponed() { mHadPostponed_ = true; }
+
+  const ScriptFetchInfo* FetchInfo() const { return mFetchInfo; }
+  ScriptFetchInfo* FetchInfo() { return mFetchInfo; }
 
  public:
   // Fields.
@@ -340,6 +363,14 @@ class ScriptLoadRequest : public nsISupports,
 
   // The loaded script holds the data which can be shared among similar requests
   RefPtr<LoadedScript> mLoadedScript;
+
+  // Either the result of compilation/decode, or the stencil retrieved from
+  // cache.
+  // Once this field is populated, it's is guaranteed to be valid until the
+  // stencil is instantiated.
+  RefPtr<JS::Stencil> mStencil;
+
+  RefPtr<ScriptFetchInfo> mFetchInfo;
 
   // LoadContext for augmenting the load depending on the loading
   // context (DOM, Worker, etc.)

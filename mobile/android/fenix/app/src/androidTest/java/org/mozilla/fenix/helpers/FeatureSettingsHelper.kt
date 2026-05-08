@@ -67,11 +67,6 @@ interface FeatureSettingsHelper {
     var isLocationPermissionEnabled: SitePermissionsRules.Action
 
     /**
-     * Enable or disable the composable toolbar.
-     */
-    var isComposableToolbarEnabled: Boolean
-
-    /**
      * Enable or disable the new main menu CFR.
      */
     var isMenuRedesignCFREnabled: Boolean
@@ -125,9 +120,14 @@ interface FeatureSettingsHelper {
     var tabManagerOpeningAnimationEnabled: Boolean
 
     /**
-     * Indicates if the toolbar CFR was displayed to the user.
+     * Indicates if the shake to summarize toolbar CFR was displayed to the user.
      */
-    var hasSeenBrowserToolbarCFR: Boolean
+    var hasSeenShakeToSummarizeToolbarCfr: Boolean
+
+    /**
+     * Enable or disable expanded toolbar layout.
+     */
+    var shouldUseExpandedToolbar: Boolean
 
     /**
      * Enable or disable the translations prompt after a page that can be translated is loaded.

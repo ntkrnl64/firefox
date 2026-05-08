@@ -43,12 +43,13 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.LinkText
+import mozilla.components.compose.base.LinkTextState
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import mozilla.components.compose.base.button.FilledButton
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.LinkText
-import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.compose.ScrollIndicator
+import org.mozilla.fenix.nimbus.MarketingCardVariant
 import org.mozilla.fenix.onboarding.view.Action
 import org.mozilla.fenix.onboarding.view.OnboardingMarketingData
 import org.mozilla.fenix.onboarding.view.OnboardingPageState
@@ -83,7 +84,11 @@ fun MarketingDataOnboardingPageRedesign(
             ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.weight(TITLE_TOP_SPACER_WEIGHT)).takeIf { !state.isSmallDevice }
+            if (state.isSmallDevice) {
+                Spacer(modifier = Modifier.height(16.dp))
+            } else {
+                Spacer(modifier = Modifier.weight(TITLE_TOP_SPACER_WEIGHT))
+            }
 
             var checkboxChecked by remember { mutableStateOf(true) }
 
@@ -220,6 +225,7 @@ private fun MarketingDataOnboardingPagePreview() {
                     onClick = {},
                 ),
                 marketingData = OnboardingMarketingData(
+                    marketingCardVariant = MarketingCardVariant.DEFAULT,
                     bodyOneText = stringResource(id = R.string.nova_onboarding_marketing_body),
                     bodyOneLinkText = stringResource(id = R.string.nova_onboarding_marketing_body_link_text),
                     bodyTwoText = "", // NB: not used in the redesign

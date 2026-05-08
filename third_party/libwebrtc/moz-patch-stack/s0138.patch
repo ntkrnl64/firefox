@@ -1,33 +1,33 @@
-From: Jan Grulich <jgrulich@redhat.com>
-Date: Tue, 27 Jan 2026 14:48:00 +0000
-Subject: Bug 2012006 - WebRTC backport: PipeWire capture: clear existing
- capabilities before re-enumeration r=pehrsons
+From: Michael Froman <mfroman@mozilla.com>
+Date: Wed, 8 Apr 2026 10:58:00 -0500
+Subject: Bug 2030139 - (fix-bb3693c382) fix linux builds for constexpr
+ containing std::string
 
-Prevent duplicate capability entries by clearing the capabilities vector
-before re-enumerating node formats.
-
-This is a simple backport of an WebRTC upstream change.
-
-Upstream commit: 15229a1c98fcd07afe19ca131ccdc5c8ac9180f5
-
-Differential Revision: https://phabricator.services.mozilla.com/D280359
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/3905f189b8ac5e48713f1e7f7e4ccd9b14d7f20e
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/cab51cf0d4e9e67e9f5b053128d05e859d47b7c2
 ---
- modules/video_capture/linux/pipewire_session.cc | 4 ++++
- 1 file changed, 4 insertions(+)
+ modules/portal/pipewire_utils.cc | 9 +++++++++
+ 1 file changed, 9 insertions(+)
 
-diff --git a/modules/video_capture/linux/pipewire_session.cc b/modules/video_capture/linux/pipewire_session.cc
-index 036739b74a..7b8d915ae9 100644
---- a/modules/video_capture/linux/pipewire_session.cc
-+++ b/modules/video_capture/linux/pipewire_session.cc
-@@ -138,6 +138,10 @@ void PipeWireNode::OnNodeInfo(void* data, const pw_node_info* info) {
-       uint32_t id = info->params[i].id;
-       if (id == SPA_PARAM_EnumFormat &&
-           info->params[i].flags & SPA_PARAM_INFO_READ) {
-+        RTC_LOG(LS_INFO)
-+            << "Clearing existing capabilities before re-enumeration for "
-+            << that->display_name_;
-+        that->capabilities_.clear();
-         pw_node_enum_params(reinterpret_cast<pw_node*>(that->proxy_), 0, id, 0,
-                             UINT32_MAX, nullptr);
-         break;
+diff --git a/modules/portal/pipewire_utils.cc b/modules/portal/pipewire_utils.cc
+index 850726cc58..7008696b7d 100644
+--- a/modules/portal/pipewire_utils.cc
++++ b/modules/portal/pipewire_utils.cc
+@@ -28,9 +28,18 @@
+ 
+ namespace webrtc {
+ 
++#if defined(__GNUC__) && defined(WEBRTC_MOZILLA_BUILD)
++// Mozilla linux builds are using -std=gnu++20, which doesn't approve
++// of using std::string in a constexpr.  PipewireVersion now contains
++// std::string as of libwebrtc commit d167fe9296.
++static const PipeWireVersion kReentrantDeinitMinVersion = {.major = 0,
++                                                           .minor = 3,
++                                                           .micro = 49};
++#else
+ constexpr PipeWireVersion kReentrantDeinitMinVersion = {.major = 0,
+                                                         .minor = 3,
+                                                         .micro = 49};
++#endif
+ 
+ PipeWireVersion PipeWireVersion::Parse(const std::string_view& version) {
+   std::vector<std::string_view> parsed_version = split(version, '.');

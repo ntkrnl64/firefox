@@ -27,6 +27,7 @@
 #include "mozilla/DisplaySVGItem.h"
 #include "mozilla/Likely.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/SVGObserverUtils.h"
 #include "mozilla/SVGOuterSVGFrame.h"
 #include "mozilla/SVGUtils.h"
@@ -35,6 +36,7 @@
 #include "mozilla/dom/SVGRect.h"
 #include "mozilla/dom/SVGTextContentElementBinding.h"
 #include "mozilla/dom/SVGTextPathElement.h"
+#include "mozilla/dom/SVGTextPathElementBinding.h"
 #include "mozilla/dom/Selection.h"
 #include "mozilla/dom/Text.h"
 #include "mozilla/gfx/2D.h"
@@ -3902,7 +3904,7 @@ already_AddRefed<DOMSVGPoint> SVGTextFrame::GetStartPositionOfChar(
   // We need to return the start position of the whole glyph.
   uint32_t startIndex = it.GlyphStartTextElementCharIndex();
 
-  return do_AddRef(new DOMSVGPoint(ToPoint(mPositions[startIndex].mPosition)));
+  return MakeAndAddRef<DOMSVGPoint>(ToPoint(mPositions[startIndex].mPosition));
 }
 
 /**
@@ -4002,7 +4004,7 @@ already_AddRefed<DOMSVGPoint> SVGTextFrame::GetEndPositionOfChar(
   Matrix m = Matrix::Rotation(mPositions[startIndex].mAngle) *
              Matrix::Translation(ToPoint(mPositions[startIndex].mPosition));
 
-  return do_AddRef(new DOMSVGPoint(m.TransformPoint(p)));
+  return MakeAndAddRef<DOMSVGPoint>(m.TransformPoint(p));
 }
 
 /**
@@ -4072,7 +4074,7 @@ already_AddRefed<SVGRect> SVGTextFrame::GetExtentOfChar(nsIContent* aContent,
   // Transform the glyph's rect into user space.
   gfxRect r = m.TransformBounds(glyphRect);
 
-  return do_AddRef(new SVGRect(aContent, ToRect(r)));
+  return MakeAndAddRef<SVGRect>(aContent, ToRect(r));
 }
 
 /**
@@ -4806,7 +4808,7 @@ void SVGTextFrame::DoTextPathLayout() {
       // Position the character on the path at the right angle.
       Point tangent;  // Unit vector tangent to the point we find.
       Point pt;
-      if (side == TEXTPATH_SIDETYPE_RIGHT) {
+      if (side == dom::SVGTextPathElement_Binding::TEXTPATH_SIDETYPE_RIGHT) {
         pt = path->ComputePointAtLength(Float(pathLength - midx), &tangent);
         tangent = -tangent;
       } else {

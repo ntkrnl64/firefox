@@ -167,8 +167,6 @@ class ChannelReceiveInterface : public RtpPacketSinkInterface {
 
   virtual void SetFrameDecryptor(
       scoped_refptr<webrtc::FrameDecryptorInterface> frame_decryptor) = 0;
-
-  virtual void OnLocalSsrcChange(uint32_t local_ssrc) = 0;
 };
 
 std::unique_ptr<ChannelReceiveInterface> CreateChannelReceive(
@@ -176,7 +174,6 @@ std::unique_ptr<ChannelReceiveInterface> CreateChannelReceive(
     NetEqFactory* neteq_factory,
     AudioDeviceModule* audio_device_module,
     Transport* rtcp_send_transport,
-    uint32_t local_ssrc,
     uint32_t remote_ssrc,
     size_t jitter_buffer_max_packets,
     bool jitter_buffer_fast_playout,
@@ -186,7 +183,8 @@ std::unique_ptr<ChannelReceiveInterface> CreateChannelReceive(
     scoped_refptr<FrameDecryptorInterface> frame_decryptor,
     const webrtc::CryptoOptions& crypto_options,
     scoped_refptr<FrameTransformerInterface> frame_transformer,
-    RtcpEventObserver* rtcp_event_observer);
+    RtcpEventObserver* rtcp_event_observer,
+    uint32_t local_ssrc);
 
 }  // namespace voe
 }  // namespace webrtc

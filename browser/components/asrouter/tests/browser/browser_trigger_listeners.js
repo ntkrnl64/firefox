@@ -18,6 +18,10 @@ ChromeUtils.defineLazyGetter(this, "SearchTestUtils", () => {
 ChromeUtils.defineESModuleGetters(this, {
   IPProtection:
     "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
+  IPPProxyManager:
+    "moz-src:///toolkit/components/ipprotection/IPPProxyManager.sys.mjs",
+  ProxyUsage:
+    "moz-src:///toolkit/components/ipprotection/GuardianTypes.sys.mjs",
 });
 
 const mockIdleService = {
@@ -103,17 +107,23 @@ async function test_formAutofillTrigger(settingsRedesignEnabled) {
           () => browser.contentWindow?.gSubDialog?.dialogs.length
         );
       } else {
-        const savedPaymentsBtn = content.document.querySelector(
-          "#savedPaymentsButton"
-        );
-        savedPaymentsBtn.click();
-        const paymentsPage = content.document.querySelector(
-          '[data-category="paneManagePayments"]'
-        );
-        await BrowserTestUtils.waitForCondition(
-          () => !paymentsPage.hidden,
-          "Payments page failed to show."
-        );
+        await SpecialPowers.spawn(browser, [], async () => {
+          const savedPaymentsBtn = await ContentTaskUtils.waitForCondition(
+            () => content.document.querySelector("#savedPaymentsButton"),
+            "Waiting for credit card manager button"
+          );
+
+          savedPaymentsBtn.click();
+
+          const paymentsPage = content.document.querySelector(
+            '[data-category="paneManagePayments"]'
+          );
+
+          await ContentTaskUtils.waitForCondition(
+            () => paymentsPage && !paymentsPage.hidden,
+            "Payments page failed to show."
+          );
+        });
       }
 
       notifyCreditCardSaved();
@@ -299,10 +309,10 @@ add_task(async function test_nthTabOpened() {
 
   const win = await BrowserTestUtils.openNewBrowserWindow();
 
-  await BrowserTestUtils.openNewForegroundTab(win);
+  await BrowserTestUtils.openNewForegroundTab(win.gBrowser);
   Assert.ok(handlerStub.calledOnce, "Called once after first tab opened");
 
-  await BrowserTestUtils.openNewForegroundTab(win);
+  await BrowserTestUtils.openNewForegroundTab(win.gBrowser);
   Assert.ok(handlerStub.calledTwice, "Called twice after second tab opened");
 
   BrowserTestUtils.closeWindow(win);
@@ -858,5 +868,48 @@ add_task(async function test_ipprotection_panel_closed() {
 
   IPProtection.uninit();
   await SpecialPowers.popPrefEnv();
+  sandbox.restore();
+});
+
+add_task(async function test_ipprotection_bandwidth_reset() {
+  const sandbox = sinon.createSandbox();
+  const receivedTrigger = new Promise(resolve => {
+    sandbox.stub(ASRouter, "sendTriggerMessage").callsFake(({ id }) => {
+      if (id === "ipProtectionBandwidthReset") {
+        resolve(true);
+      }
+    });
+  });
+
+  IPProtection.init();
+  IPProtection.getPanel(window);
+
+  const oldResetDate = new Date(Date.now() - 86400000).toISOString();
+  const newResetDate = new Date(Date.now() + 86400000).toISOString();
+  const max = "5368709120";
+
+  Services.prefs.setStringPref(
+    "browser.ipProtection.bandwidthResetDate",
+    oldResetDate
+  );
+
+  const usage = new ProxyUsage(max, max, newResetDate);
+  IPPProxyManager.dispatchEvent(
+    new CustomEvent("IPPProxyManager:UsageChanged", {
+      bubbles: true,
+      composed: true,
+      detail: { usage },
+    })
+  );
+
+  Assert.ok(
+    await receivedTrigger,
+    "ipProtectionBandwidthReset trigger sent when bandwidth resets"
+  );
+
+  Services.prefs.clearUserPref("browser.ipProtection.bandwidthResetDate");
+  Services.prefs.clearUserPref("browser.ipProtection.bandwidthThreshold");
+
+  IPProtection.uninit();
   sandbox.restore();
 });

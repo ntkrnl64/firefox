@@ -57,8 +57,10 @@ class DebugDrawerNavigationMiddleware(
                     navController.navigate(route = DebugDrawerRoute.CrashDebugTools.route)
                 is DebugDrawerAction.NavigateTo.IntegrityDebugTools ->
                     navController.navigate(route = DebugDrawerRoute.IntegrityTools.route)
-                is DebugDrawerAction.NavigateTo.LlmDebugTools ->
-                    navController.navigate(route = DebugDrawerRoute.LlmTools.route)
+                is DebugDrawerAction.NavigateTo.TabGroupDebugTools ->
+                    navController.navigate(route = DebugDrawerRoute.TabGroupTools.route)
+                is DebugDrawerAction.NavigateTo.TabProcessTools ->
+                    navController.navigate(route = DebugDrawerRoute.TabProcessTools.route)
                 is DebugDrawerAction.OnBackPressed -> navController.popBackStack()
                 is DebugDrawerAction.DrawerOpened,
                 DebugDrawerAction.DrawerClosed,

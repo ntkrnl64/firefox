@@ -52,11 +52,6 @@ MAY_RESOLVE_HOOK_NAME = "_mayResolve"
 NEW_ENUMERATE_HOOK_NAME = "_newEnumerate"
 INSTANCE_RESERVED_SLOTS = 1
 
-# This size is arbitrary. It is a power of 2 to make using it as a modulo
-# operand cheap, and is usually around 1/3-1/5th of the set size (sometimes
-# smaller for very large sets).
-GLOBAL_NAMES_PHF_SIZE = 256
-
 # If you have to change this list (which you shouldn't!), make sure it
 # continues to match the list in test_Object.prototype_props.html
 JS_OBJECT_PROTOTYPE_PROPERTIES = [
@@ -635,7 +630,6 @@ def DOMClass(descriptor):
           { ${protoChain} },
           std::is_base_of_v<nsISupports, ${nativeType}>,
           ${hooks},
-          FindAssociatedGlobalForNative<${nativeType}>::Get,
           ${getProto},
           GetCCParticipant<${nativeType}>::Get(),
           ${serializer},
@@ -7099,18 +7093,18 @@ def getJSToNativeConversionInfo(
         if isOptional:
             if type.isUTF8String():
                 declType = "Optional<nsACString>"
-                holderType = CGGeneric("binding_detail::FakeString<char>")
+                holderType = CGGeneric("nsAutoCString")
             else:
                 declType = "Optional<nsAString>"
-                holderType = CGGeneric("binding_detail::FakeString<char16_t>")
+                holderType = CGGeneric("nsAutoString")
             conversionCode = "%s" "${declName} = &${holderName};\n" % getConversionCode(
                 "${holderName}"
             )
         else:
             if type.isUTF8String():
-                declType = "binding_detail::FakeString<char>"
+                declType = "nsAutoCString"
             else:
-                declType = "binding_detail::FakeString<char16_t>"
+                declType = "nsAutoString"
             holderType = None
             conversionCode = getConversionCode("${declName}")
 
@@ -14933,7 +14927,7 @@ class CGProxyNamedOperation(CGProxySpecialOperation):
             decls = ""
             idName = "id"
 
-        decls += "FakeString<char16_t> %s;\n" % argName
+        decls += "nsAutoString %s;\n" % argName
 
         main = fill(
             """
@@ -17284,7 +17278,6 @@ class CGDescriptor(CGThing):
                 elif m.getExtendedAttribute("Replaceable"):
                     cgThings.append(CGSpecializedReplaceableSetter(descriptor, m))
                 elif m.getExtendedAttribute("LegacyLenientSetter"):
-                    # XXX In this case, we need to add an include for mozilla/dom/Document.h to the generated cpp file.
                     cgThings.append(CGSpecializedLenientSetter(descriptor, m))
                 if (
                     not m.isStatic()
@@ -18895,7 +18888,7 @@ class CGGlobalNames(CGGeneric):
             return
 
         # Build the perfect hash function.
-        phf = PerfectHash(entries, GLOBAL_NAMES_PHF_SIZE)
+        phf = PerfectHash(entries)
 
         # Generate code for the PHF
         phfCodegen = phf.codegen(
@@ -19252,7 +19245,6 @@ class CGBindingRoot(CGThing):
         bindingDeclareHeaders.update(dict.fromkeys(unionHeaders, True))
         bindingHeaders.update(dict.fromkeys(unionImplheaders, True))
         bindingDeclareHeaders["mozilla/dom/UnionMember.h"] = len(unionStructs) > 0
-        bindingDeclareHeaders["mozilla/dom/FakeString.h"] = len(unionStructs) > 0
         # BindingUtils.h is only needed for SetToObject.
         # If it stops being inlined or stops calling CallerSubsumes
         # both this bit and the bit in UnionTypes can be removed.
@@ -19390,14 +19382,15 @@ class CGBindingRoot(CGThing):
         # JS_GetOwnPropertyDescriptorById
         bindingHeaders["js/PropertyDescriptor.h"] = True
 
-        def descriptorDeprecated(desc):
+        def descriptorDeprecatedOrLenientSetter(desc):
             iface = desc.interface
-            return any(
-                m.getExtendedAttribute("Deprecated") for m in iface.members + [iface]
-            )
+            return any((
+                m.getExtendedAttribute("Deprecated")
+                or m.getExtendedAttribute("LegacyLenientSetter")
+            ) for m in iface.members + [iface])
 
         bindingHeaders["mozilla/dom/Document.h"] = any(
-            descriptorDeprecated(d) for d in descriptors
+            descriptorDeprecatedOrLenientSetter(d) for d in descriptors
         )
 
         bindingHeaders["mozilla/dom/DOMJSProxyHandler.h"] = any(

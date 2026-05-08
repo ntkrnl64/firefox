@@ -111,6 +111,8 @@ static bool AsyncFunctionResume(JSContext* cx,
     return true;
   }
 
+  AutoAsyncResumeDepth autoDepth(cx);
+
   Rooted<PromiseObject*> resultPromise(cx, generator->promise());
 
   RootedObject stack(cx);
@@ -314,9 +316,8 @@ static bool AsyncModuleExecutionRejectedHandler(JSContext* cx, unsigned argc,
       cx, &func.getExtendedSlot(FunctionExtended::MODULE_SLOT)
                .toObject()
                .as<ModuleObject>());
-  AsyncModuleExecutionRejected(cx, module, args.get(0));
   args.rval().setUndefined();
-  return true;
+  return AsyncModuleExecutionRejected(cx, module, args.get(0));
 }
 
 AsyncFunctionGeneratorObject* AsyncFunctionGeneratorObject::create(

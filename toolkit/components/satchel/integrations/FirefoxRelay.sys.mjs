@@ -165,7 +165,7 @@ async function getReusableMasksAsync(browser, _origin) {
  * @param {object} messageArgs
  */
 async function showErrorAsync(browser, messageId, messageArgs) {
-  const { PopupNotifications } = browser.ownerGlobal.wrappedJSObject;
+  const { PopupNotifications } = browser.documentGlobal.wrappedJSObject;
   const [message] = await lazy.strings.formatValues([
     { id: messageId, args: messageArgs },
   ]);
@@ -289,7 +289,7 @@ async function showReusableMasksAsync(browser, origin, error) {
       Glean.relayIntegration.getUnlimitedMasksReusePanel.record({
         value: gFlowId,
       });
-      browser.ownerGlobal.openWebLinkIn(gConfig.manageURL, "tab");
+      browser.documentGlobal.openWebLinkIn(gConfig.manageURL, "tab");
     },
   };
   const dismiss = {
@@ -350,7 +350,7 @@ async function showReusableMasksAsync(browser, origin, error) {
         link.textContent = part;
         link.addEventListener("click", event => {
           event.preventDefault();
-          browser.ownerGlobal.openWebLinkIn(gConfig.manageURL, "tab");
+          browser.documentGlobal.openWebLinkIn(gConfig.manageURL, "tab");
         });
         bodyP.appendChild(link);
       }
@@ -458,7 +458,7 @@ async function showReusableMasksAsync(browser, origin, error) {
     }
   }
 
-  const { PopupNotifications } = browser.ownerGlobal.wrappedJSObject;
+  const { PopupNotifications } = browser.documentGlobal.wrappedJSObject;
   notification = PopupNotifications.show(
     browser,
     "relay-integration-reuse-masks",
@@ -766,7 +766,7 @@ class RelayOffered {
   }
 
   async offerRelayIntegrationToSignedOutUser(feature, browser, origin) {
-    const { PopupNotifications } = browser.ownerGlobal.wrappedJSObject;
+    const { PopupNotifications } = browser.documentGlobal.wrappedJSObject;
     let fillUsername;
     const fillUsernamePromise = new Promise(
       resolve => (fillUsername = resolve)
@@ -792,7 +792,8 @@ class RelayOffered {
 
         // Capture the selected tab panel ID so we can come back to it after the
         // user finishes FXA sign-in
-        const tabPanelId = browser.ownerGlobal.gBrowser.selectedTab.linkedPanel;
+        const tabPanelId =
+          browser.documentGlobal.gBrowser.selectedTab.linkedPanel;
 
         // TODO: add some visual treatment to the tab and/or the form field to
         // indicate to the user that they need to complete sign-in to receive a
@@ -824,9 +825,9 @@ class RelayOffered {
           }
 
           // Go back to the tab with the form that started the FXA sign-in flow
-          const tabToFocus = Array.from(browser.ownerGlobal.gBrowser.tabs).find(
-            tab => tab.linkedPanel === tabPanelId
-          );
+          const tabToFocus = Array.from(
+            browser.documentGlobal.gBrowser.tabs
+          ).find(tab => tab.linkedPanel === tabPanelId);
           if (!tabToFocus) {
             // If the tab has been closed, return
             // TODO: figure out the real UX here?
@@ -836,7 +837,7 @@ class RelayOffered {
           // TODO: Update the visual treatment to the form field to indicate to
           // the user that we are hiding their email address.
 
-          browser.ownerGlobal.gBrowser.selectedTab = tabToFocus;
+          browser.documentGlobal.gBrowser.selectedTab = tabToFocus;
 
           // Create the relay user, mark feature enabled, fill in the username
           // field with a mask
@@ -865,7 +866,7 @@ class RelayOffered {
               utm_medium: "firefox-desktop",
             }
           );
-        browser.ownerGlobal.openWebLinkIn(fxaUrl, "tab");
+        browser.documentGlobal.openWebLinkIn(fxaUrl, "tab");
       },
     };
     const postpone = getPostpone(postponeStrings, feature);
@@ -920,7 +921,7 @@ class RelayOffered {
   }
 
   async offerRelayIntegrationToFxAUser(feature, browser, origin, fxaUser) {
-    const { PopupNotifications } = browser.ownerGlobal.wrappedJSObject;
+    const { PopupNotifications } = browser.documentGlobal.wrappedJSObject;
     let fillUsername;
     const fillUsernamePromise = new Promise(
       resolve => (fillUsername = resolve)
@@ -1112,6 +1113,64 @@ class RelayFeature extends OptInFeature {
 
   async offerRelayIntegration(browser, origin) {
     return this.implementation.offerRelayIntegration?.(this, browser, origin);
+  }
+
+  async getRelayProfileInfo() {
+    if (!lazy.fxAccounts.constructor.config.isProductionConfig()) {
+      return null;
+    }
+
+    const hasSession = await lazy.fxAccounts.hasLocalSession();
+    if (!hasSession) {
+      return null;
+    }
+
+    try {
+      const token = await getRelayTokenAsync();
+      if (!token) {
+        return null;
+      }
+
+      const profileResponse = await fetch(gConfig.profilesUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
+
+      if (!profileResponse.ok) {
+        return null;
+      }
+
+      const profiles = await profileResponse.json();
+      const profile =
+        Array.isArray(profiles) && profiles.length ? profiles[0] : profiles;
+
+      const masksResponse = await fetch(gConfig.addressesUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
+
+      let masksCount = 0;
+      if (masksResponse.ok) {
+        const masks = await masksResponse.json();
+        masksCount = Array.isArray(masks) ? masks.length : 0;
+      }
+
+      return {
+        has_premium: profile?.has_premium || false,
+        has_phone: profile?.has_phone || false,
+        has_vpn: profile?.has_vpn || false,
+        masksCount,
+      };
+    } catch (e) {
+      console.error("Error fetching Relay profile:", e);
+      return null;
+    }
   }
 }
 

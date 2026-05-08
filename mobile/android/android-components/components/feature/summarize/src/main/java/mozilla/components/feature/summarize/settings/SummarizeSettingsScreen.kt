@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -26,9 +26,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import mozilla.components.compose.base.button.IconButton
 import mozilla.components.compose.base.theme.AcornTheme
 import mozilla.components.feature.summarize.R
 import mozilla.components.ui.icons.R as iconsR
@@ -101,7 +104,7 @@ fun SummarizeSettingsContent(
         Text(
             text = stringResource(id = R.string.mozac_summarize_settings_gestures),
             style = MaterialTheme.typography.titleSmall.copy(
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.tertiary,
             ),
             modifier = Modifier.padding(vertical = AcornTheme.layout.space.static100),
         )
@@ -131,7 +134,12 @@ private fun SwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onToggle)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = { onToggle() },
+            )
             .padding(vertical = AcornTheme.layout.space.static150),
         verticalAlignment = Alignment.Top,
     ) {
@@ -167,7 +175,9 @@ private fun SwitchRow(
                 checked = checked,
                 onCheckedChange = { onToggle() },
                 enabled = enabled,
-                modifier = Modifier.padding(start = AcornTheme.layout.space.static200),
+                modifier = Modifier
+                    .padding(start = AcornTheme.layout.space.static200)
+                    .clearAndSetSemantics {},
             )
         }
     }
@@ -184,7 +194,12 @@ internal fun SettingsAppBar(
             .background(MaterialTheme.colorScheme.surface),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBackClicked) {
+        IconButton(
+            onClick = onBackClicked,
+            contentDescription = stringResource(
+                id = R.string.mozac_summarize_settings_back_content_description,
+            ),
+        ) {
             Icon(
                 painter = painterResource(id = iconsR.drawable.mozac_ic_back_24),
                 contentDescription = null,

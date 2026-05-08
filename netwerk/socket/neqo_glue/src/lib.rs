@@ -64,6 +64,12 @@ std::thread_local! {
     static RECV_BUF: RefCell<neqo_udp::RecvBuf> = RefCell::new(neqo_udp::RecvBuf::default());
 }
 
+#[cfg(target_vendor = "apple")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_vendor = "apple")]
+static APPLE_FAST_PATH: AtomicBool = AtomicBool::new(false);
+
 #[allow(clippy::cast_possible_truncation, reason = "see check below")]
 const AF_INET_U16: u16 = AF_INET as u16;
 static_assertions::const_assert_eq!(AF_INET_U16 as c_int, AF_INET);
@@ -386,10 +392,21 @@ impl NeqoHttp3Conn {
                     })?;
                     unsafe { BorrowedSocket::borrow_raw(raw) }
                 };
-                neqo_udp::Socket::new(borrowed).map_err(|e| {
+                let s = neqo_udp::Socket::new(borrowed).map_err(|e| {
                     qerror!("failed to initialize socket {}: {}", socket, e);
                     into_nsresult(&e)
-                })
+                })?;
+                // Called after Socket::new (which sets up IP_RECVTOS etc.) since
+                // enable_apple_fast_path only sets the fast-path flag on the
+                // already-constructed UdpSocketState.
+                #[cfg(target_vendor = "apple")]
+                if APPLE_FAST_PATH.load(Ordering::Relaxed)
+                    && static_prefs::pref!("network.http.http3.apple_fast_datapath")
+                {
+                    // SAFETY: The probe has verified the APIs work on this OS version.
+                    unsafe { s.enable_apple_fast_path() }
+                }
+                Ok(s)
             })
             .transpose()?;
 
@@ -579,7 +596,7 @@ impl NeqoHttp3Conn {
     fn record_stats_in_glean(&self) {
         use firefox_on_glean::metrics::networking as glean;
         use neqo_common::Ecn;
-        use neqo_transport::{ecn, CongestionEvent, SlowStartExitReason};
+        use neqo_transport::{ecn, SlowStartExitReason};
         use std::cmp::Ordering;
 
         /// The biggest initial congestion window that can be set in neqo. Needs to be kept in sync with neqo.
@@ -812,10 +829,8 @@ impl NeqoHttp3Conn {
             }
 
             glean::http_3_congestion_event_count.accumulate_single_sample_signed(
-                (stats.cc.congestion_events[CongestionEvent::Ecn]
-                    + stats.cc.congestion_events[CongestionEvent::Loss])
-                    .saturating_sub(stats.cc.congestion_events[CongestionEvent::Spurious])
-                    as i64,
+                (stats.cc.congestion_events.ecn + stats.cc.congestion_events.loss)
+                    .saturating_sub(stats.cc.congestion_events.spurious) as i64,
             );
 
             if let Some(peer_max) = stats.pmtud_peer_max_udp_payload {
@@ -826,10 +841,10 @@ impl NeqoHttp3Conn {
         }
 
         // Ignore connections that never had loss induced congestion events (and prevent dividing by zero).
-        if stats.cc.congestion_events[CongestionEvent::Loss] != 0 {
+        if stats.cc.congestion_events.loss != 0 {
             if let Ok(spurious) = i64::try_from(
-                (stats.cc.congestion_events[CongestionEvent::Spurious] * PRECISION_FACTOR_USIZE)
-                    / stats.cc.congestion_events[CongestionEvent::Loss],
+                (stats.cc.congestion_events.spurious * PRECISION_FACTOR_USIZE)
+                    / stats.cc.congestion_events.loss,
             ) {
                 glean::http_3_spurious_congestion_event_ratio
                     .accumulate_single_sample_signed(spurious);
@@ -841,7 +856,7 @@ impl NeqoHttp3Conn {
         }
 
         // Collect congestion event reason metric
-        if let Ok(ce_loss) = i32::try_from(stats.cc.congestion_events[CongestionEvent::Loss]) {
+        if let Ok(ce_loss) = i32::try_from(stats.cc.congestion_events.loss) {
             glean::http_3_congestion_event_reason
                 .get("loss")
                 .add(ce_loss);
@@ -850,7 +865,7 @@ impl NeqoHttp3Conn {
             qwarn!("{msg}");
             debug_assert!(false, "{msg}");
         }
-        if let Ok(ce_ecn) = i32::try_from(stats.cc.congestion_events[CongestionEvent::Ecn]) {
+        if let Ok(ce_ecn) = i32::try_from(stats.cc.congestion_events.ecn) {
             glean::http_3_congestion_event_reason
                 .get("ecn-ce")
                 .add(ce_ecn);
@@ -2746,7 +2761,7 @@ pub unsafe extern "C" fn neqo_encode_vvec(encoder: &mut NeqoEncoder, buf: *const
 }
 
 #[no_mangle]
-pub extern "C" fn neqo_encode_get_data(
+pub unsafe extern "C" fn neqo_encode_get_data(
     encoder: &mut NeqoEncoder,
     buf: *mut *const u8,
     read: &mut u32,
@@ -2874,6 +2889,91 @@ pub unsafe extern "C" fn neqo_decoder_remaining(decoder: &mut NeqoDecoder) -> u6
 pub unsafe extern "C" fn neqo_decoder_offset(decoder: &mut NeqoDecoder) -> u64 {
     let decoder = decoder.decoder.as_mut().unwrap();
     decoder.offset() as u64
+}
+
+/// Enables the Apple fast datapath (`sendmsg_x`/`recvmsg_x`) for all
+/// subsequently created QUIC sockets. Must only be called after the caller
+/// has verified that these private APIs are available and functional.
+#[cfg(target_vendor = "apple")]
+#[no_mangle]
+pub extern "C" fn neqo_glue_enable_apple_fast_path() {
+    APPLE_FAST_PATH.store(true, Ordering::Relaxed);
+}
+
+/// Inner implementation for [`neqo_glue_probe_apple_fast_path`].
+#[cfg(target_vendor = "apple")]
+fn probe_apple_fast_path_inner(send_fd: c_int, recv_fd: c_int) -> io::Result<()> {
+    use std::os::fd::BorrowedFd;
+
+    use neqo_common::Ecn;
+    use rustix::{
+        fs::{fcntl_getfl, fcntl_setfl, OFlags},
+        net::{getsockname, sockopt::{set_socket_timeout, Timeout}, SocketAddrAny},
+    };
+
+    // Wrap a raw fd in neqo_udp::Socket, enable the fast path, restore blocking
+    // mode (UdpSocketState::new sets non-blocking), and return the socket's
+    // local address.
+    let make_socket = |fd: c_int| -> io::Result<(neqo_udp::Socket<BorrowedFd<'static>>, SocketAddr)> {
+        let bfd = unsafe { BorrowedFd::borrow_raw(fd) };
+        let socket = neqo_udp::Socket::new(bfd)?;
+        // SAFETY: The C++ caller has verified via dlsym that the APIs are present.
+        unsafe { socket.enable_apple_fast_path() };
+        fcntl_setfl(bfd, fcntl_getfl(bfd)? & !OFlags::NONBLOCK)?;
+        set_socket_timeout(bfd, Timeout::Recv, Some(Duration::from_secs(1)))?;
+        let addr: SocketAddr = match getsockname(bfd)? {
+            SocketAddrAny::V4(a) => a.into(),
+            SocketAddrAny::V6(a) => a.into(),
+            _ => return Err(io::Error::other("unexpected address family")),
+        };
+        Ok((socket, addr))
+    };
+    let (sender, send_addr) = make_socket(send_fd)?;
+    let (receiver, recv_addr) = make_socket(recv_fd)?;
+
+    if sender.max_gso_segments() <= 1 {
+        return Err(io::Error::other("max_gso_segments not increased"));
+    }
+
+    // Send two datagrams with distinct single-byte payloads and ECN codepoints,
+    // then receive them across one or more recvmsg_x calls, in any order.
+    let mut remaining: Vec<(u8, Ecn)> = vec![(0, Ecn::Ect0), (1, Ecn::Ect1)];
+    for &(byte, ecn) in &remaining {
+        sender.send(&Datagram::new(send_addr, recv_addr, Tos::from(ecn), vec![byte]).into())?;
+    }
+    let mut recv_buf = neqo_udp::RecvBuf::default();
+    while !remaining.is_empty() {
+        for d in receiver.recv(recv_addr, &mut recv_buf)? {
+            let &byte = d
+                .as_ref()
+                .first()
+                .ok_or_else(|| io::Error::other("empty datagram"))?;
+            let idx = remaining
+                .iter()
+                .position(|&(b, _)| b == byte)
+                .ok_or_else(|| io::Error::other("unexpected datagram payload"))?;
+            let (_, expected_ecn) = remaining.swap_remove(idx);
+            if Ecn::from(d.tos()) != expected_ecn {
+                return Err(io::Error::other("ECN mismatch"));
+            }
+            if d.source() != send_addr {
+                return Err(io::Error::other("source address mismatch"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Tests the Apple fast UDP datapath end-to-end using the same neqo-udp code
+/// path used in production. Called during socket process initialisation
+/// with two pre-created, loopback-bound UDP sockets. Returns `true` only if a
+/// datagram with ECN bits set survives the send/receive round-trip through the
+/// `sendmsg_x`/`recvmsg_x` APIs.
+#[cfg(target_vendor = "apple")]
+#[no_mangle]
+pub extern "C" fn neqo_glue_probe_apple_fast_path(send_fd: c_int, recv_fd: c_int) -> bool {
+    probe_apple_fast_path_inner(send_fd, recv_fd).is_ok()
 }
 
 // Test function called from C++ gtest

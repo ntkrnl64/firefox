@@ -472,8 +472,7 @@ nsresult nsCocoaUtils::CreateCGImageFromSurface(SourceSurface* aSurface,
   CGDataProviderRef dataProvider = ::CGDataProviderCreateWithData(
       dataSurface.forget().take(), map.mData, map.mStride * height,
       data_ss_release_callback);
-  CGColorSpaceRef colorSpace =
-      ::CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB);
+  CGColorSpaceRef colorSpace = ::CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
   *aResult = ::CGImageCreate(
       width, height, 8, 32, map.mStride, colorSpace,
       kCGBitmapByteOrder32Host | kCGImageAlphaPremultipliedFirst, dataProvider,
@@ -1823,6 +1822,22 @@ already_AddRefed<nsISupports> nsCocoaUtils::GetDataFromPasteboardItem(
         title = pString;
       }
       pString = [NSString stringWithFormat:@"%@\n%@", pString, title];
+    } else {
+      // Try to convert file to file:// URL
+      nsCOMPtr<nsISupports> fileData =
+          GetDataFromPasteboardItem(nsDependentCString(kFileMime), aItem);
+      nsCOMPtr<nsIFile> file = do_QueryInterface(fileData);
+      if (file) {
+        nsAutoCString urlSpec;
+        if (NS_SUCCEEDED(NS_GetURLSpecFromFile(file, urlSpec))) {
+          nsAutoString leafName;
+          file->GetLeafName(leafName);
+
+          NSString* url = nsCocoaUtils::ToNSString(urlSpec);
+          NSString* title = nsCocoaUtils::ToNSString(leafName);
+          pString = [NSString stringWithFormat:@"%@\n%@", url, title];
+        }
+      }
     }
   } else if (aFlavor.EqualsLiteral(kURLDataMime)) {
     pString = nsCocoaUtils::GetStringForTypeFromPasteboardItem(

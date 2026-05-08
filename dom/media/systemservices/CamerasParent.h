@@ -66,7 +66,7 @@ class AggregateCapturer final
   };
   RemoveStreamResult RemoveStream(int aStreamId);
   RemoveStreamResult RemoveStreamsFor(CamerasParent* aParent);
-  Maybe<int> CaptureIdFor(int aStreamId);
+  Maybe<int> CaptureIdFor(int aStreamId, CamerasParent* aParent);
   int32_t StartStream(int aStreamId,
                       const webrtc::VideoCaptureCapability& aCapability,
                       const NormalizedConstraints& aConstraints,
@@ -251,8 +251,8 @@ class CamerasParent : public PCamerasParent {
   // capture engine. Returns a nullptr in case capture engine failed to be
   // initialized. Video capture thread only.
   std::shared_ptr<webrtc::VideoCaptureModule::DeviceInfo> GetDeviceInfo(
-      int aEngine);
-  VideoEngine* EnsureInitialized(int aEngine);
+      CaptureEngine aEngine);
+  VideoEngine* EnsureInitialized(CaptureEngine aEngine);
 
   // Stops any ongoing capturing and releases resources. Called on
   // mVideoCaptureThread. Idempotent.
@@ -297,6 +297,9 @@ class CamerasParent : public PCamerasParent {
 
   // Set to true in ActorDestroy. PBackground only.
   bool mDestroyed;
+
+  // Set to true after one hop to mVideoCaptureThread from ActorDestroy.
+  bool mDestroyedCaptureThread;
 
   std::map<nsCString, nsTArray<webrtc::VideoCaptureCapability>>
       mAllCandidateCapabilities;

@@ -219,6 +219,9 @@ MediaEngineRemoteVideoSource::CreateFrom(
 }
 
 MediaEngineRemoteVideoSource::~MediaEngineRemoteVideoSource() {
+  if (mCaptureId >= 0) {
+    camera::CamerasChild::RemoveCallbackIfExists(mCaptureId);
+  }
   mFirstFramePromiseHolder.RejectIfExists(NS_ERROR_ABORT, __func__);
 }
 
@@ -283,7 +286,7 @@ nsresult MediaEngineRemoteVideoSource::Allocate(
   {
     MutexAutoLock lock(mMutex);
     mState = kAllocated;
-    mCapability = newCapability;
+    mCapability = std::move(newCapability);
     mCalculation = distanceMode;
     mConstraints = Some(c);
     *mPrefs = aPrefs;
@@ -539,7 +542,7 @@ nsresult MediaEngineRemoteVideoSource::Reconfigure(
                    !(*mPrefs == aPrefs);
 
     // StartCapture() applies mCapability on the device.
-    mCapability = newCapability;
+    mCapability = std::move(newCapability);
     mCalculation = distanceMode;
     mConstraints = Some(c);
     *mPrefs = aPrefs;
@@ -696,7 +699,7 @@ int MediaEngineRemoteVideoSource::DeliverFrame(
       return 0;
     }
     scaledBuffer->CropAndScaleFrom(*buffer);
-    buffer = scaledBuffer;
+    buffer = std::move(scaledBuffer);
     rec.Record();
   }
 

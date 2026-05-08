@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.tabstray.ui.tabitems
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.clickable
@@ -14,13 +15,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,20 +29,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.RadioCheckmark
 import mozilla.components.compose.base.RadioCheckmarkColors
+import mozilla.components.compose.base.button.IconButton
 import mozilla.components.compose.base.menu.DropdownMenu
 import mozilla.components.compose.base.menu.MenuItem
+import mozilla.components.compose.base.modifier.thenConditional
 import mozilla.components.compose.base.text.Text
+import mozilla.components.compose.base.theme.AcornCorners
 import mozilla.components.support.utils.ext.isLandscape
 import mozilla.components.ui.colors.PhotonColors
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
+import org.mozilla.fenix.tabstray.browser.compose.TabItemInteractionState
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
+import org.mozilla.fenix.theme.FirefoxTheme
 import mozilla.components.ui.icons.R as iconsR
 
 // Rounded corner shape used by all tab items
@@ -63,6 +80,19 @@ val ThumbnailShape = RoundedCornerShape(
 
 // The touch target size of a tab's header icon
 val TabHeaderIconTouchTargetSize = 40.dp
+
+val TabListFirstItemShape = RoundedCornerShape(
+    topStart = AcornCorners.medium,
+    topEnd = AcornCorners.medium,
+)
+
+val TabListLastItemShape = RoundedCornerShape(
+    bottomStart = AcornCorners.medium,
+    bottomEnd = AcornCorners.medium,
+)
+
+val TabListSingleItemShape = RoundedCornerShape(AcornCorners.medium)
+val TabListBorderMiddleItemShape = RoundedCornerShape(0.dp)
 
 //region placeholder strings
 private const val PLACEHOLDER_EDIT = "Edit"
@@ -146,17 +176,24 @@ val gridItemAspectRatio: Float
  * Renders the three dot button and its menu items for [org.mozilla.fenix.tabstray.data.TabsTrayItem.TabGroup] views.
  * @param modifier: The Modifier parameter
  * @param includeCloseOption: Whether to include the "Close" dropdown item in the menu item list.
+ * @param onDeleteTabGroupClick Invoked when the user clicks on delete tab group.
+ * @param onEditTabGroupClick Invoked when the user clicks to edit the selected tab group.
+ * @param onCloseTabGroupClick Invoked when the user clicks to close the tab group.
  */
 @Composable
 fun TabGroupMenuButton(
     modifier: Modifier = Modifier,
     includeCloseOption: Boolean = false,
+    onDeleteTabGroupClick: () -> Unit,
+    onEditTabGroupClick: () -> Unit,
+    onCloseTabGroupClick: () -> Unit,
 ) {
     var showDropdownMenu by remember { mutableStateOf(false) }
     IconButton(
         onClick = {
             showDropdownMenu = true
         },
+        contentDescription = PLACEHOLDER_THREE_DOT_MENU_CONTENT_DESCRIPTION,
         modifier = modifier
             .testTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON),
         colors = IconButtonDefaults.iconButtonColors(
@@ -165,16 +202,16 @@ fun TabGroupMenuButton(
     ) {
         Icon(
             painter = painterResource(id = iconsR.drawable.mozac_ic_ellipsis_vertical_24),
-            contentDescription = PLACEHOLDER_THREE_DOT_MENU_CONTENT_DESCRIPTION,
+            contentDescription = null,
         )
 
         DropdownMenu(
             expanded = showDropdownMenu,
             onDismissRequest = { showDropdownMenu = false },
             menuItems = generateTabGroupMenuItems(
-                editTabGroup = {}, // handle edit
-                closeTabGroup = {}, // handle close
-                deleteTabGroup = {}, // handle delete
+                editTabGroup = onEditTabGroupClick,
+                closeTabGroup = onCloseTabGroupClick,
+                deleteTabGroup = onDeleteTabGroupClick,
                 includeCloseOption = includeCloseOption,
             ),
         )
@@ -192,14 +229,12 @@ private fun generateTabGroupMenuItems(
         drawableRes = iconsR.drawable.mozac_ic_edit_24,
         testTag = TabsTrayTestTag.EDIT_TAB_GROUP,
         onClick = editTabGroup,
-        enabled = false,
     )
     val closeItem = MenuItem.IconItem(
         text = Text.String(PLACEHOLDER_CLOSE),
         drawableRes = iconsR.drawable.mozac_ic_tab_group_close_24,
         testTag = TabsTrayTestTag.CLOSE_TAB_GROUP,
         onClick = closeTabGroup,
-        enabled = false,
     )
     val deleteItem = MenuItem.IconItem(
         text = Text.String(PLACEHOLDER_DELETE),
@@ -207,7 +242,6 @@ private fun generateTabGroupMenuItems(
         testTag = TabsTrayTestTag.DELETE_TAB_GROUP,
         onClick = deleteTabGroup,
         level = MenuItem.FixedItem.Level.Critical,
-        enabled = false,
     )
     return if (includeCloseOption) {
         listOf(editItem, closeItem, deleteItem)
@@ -244,5 +278,85 @@ fun tabItemConditionalBorder(selectionState: TabsTrayItemSelectionState): Border
 @Composable
 @ReadOnlyComposable
 fun tabItemBorderFocused(): BorderStroke {
-    return BorderStroke(width = 4.dp, color = MaterialTheme.colorScheme.tertiary)
+    return BorderStroke(width = FirefoxTheme.layout.border.thick, color = MaterialTheme.colorScheme.tertiary)
 }
+
+/**
+ * Animates the tab item's alpha value to be slightly transparent when it is dragged.
+ */
+@Composable
+private fun tabItemAnimatedAlpha(interactionState: TabItemInteractionState): State<Float> {
+    return animateFloatAsState(
+        targetValue = if (interactionState.isDragged) { 0.7f } else { 1f },
+    )
+}
+
+/**
+ * Animates the tab item's size to be slightly reduced when it is dragged.
+ */
+@Composable
+private fun tabItemAnimatedScale(interactionState: TabItemInteractionState): State<Float> {
+    return animateFloatAsState(
+        targetValue = if (interactionState.isDragged || interactionState.isHoveredByItem) 0.75f else 1f,
+    )
+}
+
+/**
+ * Renders an animated scale and alpha transition for the tab item based on its interaction state.
+ * This happens at the graphics layer to avoid recomposition of the item.
+ * The semantics properties are provided so that the state can be evaluated, as evaluating the composable will not
+ * return the correct result, since these graphical animations occur at draw time.
+ */
+@Composable
+fun Modifier.tabItemInteractionAnimation(interactionState: TabItemInteractionState): Modifier {
+    val tabItemAlpha: Float by tabItemAnimatedAlpha(interactionState)
+    val tabItemScale: Float by tabItemAnimatedScale(interactionState)
+    val backdropColor = MaterialTheme.colorScheme.secondaryContainer
+    val backdropBorder = MaterialTheme.colorScheme.tertiary
+    val borderSize = FirefoxTheme.layout.border.thick
+    val cornerSize = FirefoxTheme.layout.corner.xLarge
+
+    return this
+        .thenConditional(
+            Modifier.drawBehind({
+                // A Stroke rect is centered on the shape edge, which will spill outside the drawing area
+                // To make the border match other tabs, we must inset by half the stroke width, and adjust the size
+                val inset = borderSize.toPx() / 2
+                val shapeOffset = Offset(x = inset, y = inset)
+                val shapeSize = Size(this.size.width - shapeOffset.x * 2, this.size.height - shapeOffset.y * 2)
+                drawRoundRect(
+                    color = backdropColor,
+                    topLeft = shapeOffset,
+                    size = shapeSize,
+                    cornerRadius = CornerRadius(cornerSize.toPx()),
+                )
+                drawRoundRect(
+                    color = backdropBorder,
+                    topLeft = shapeOffset,
+                    size = shapeSize,
+                    cornerRadius = CornerRadius(cornerSize.toPx()),
+                    style = Stroke(width = borderSize.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                )
+            }),
+            { interactionState.isHoveredByItem },
+        )
+        .graphicsLayer(alpha = tabItemAlpha, scaleX = tabItemScale, scaleY = tabItemScale)
+        .semantics {
+            scale = tabItemScale
+            alpha = tabItemAlpha
+        }
+}
+
+/**
+ * Semantic property for accessing a Composable item's current graphical scale property.
+ * This is intended to be applied evenly across X and Y and set and fetched as needed for verification.
+ */
+internal val ScaleKey = SemanticsPropertyKey<Float>("Scale")
+internal var SemanticsPropertyReceiver.scale by ScaleKey
+
+/**
+ * Semantic property for accessing a Composable item's alpha property.
+ * This is intended to be set and fetched as needed for verification.
+ */
+internal val AlphaKey = SemanticsPropertyKey<Float>("Alpha")
+internal var SemanticsPropertyReceiver.alpha by AlphaKey

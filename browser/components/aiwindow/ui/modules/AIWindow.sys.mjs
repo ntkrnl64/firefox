@@ -92,7 +92,8 @@ export const AIWindow = {
         windowArgs.hasKey("aiwindow-trigger")
       ) {
         this.recordOpenWindowTelemetry(
-          windowArgs.getPropertyAsAString("aiwindow-trigger")
+          windowArgs.getPropertyAsAString("aiwindow-trigger"),
+          win
         );
       }
     }
@@ -105,6 +106,7 @@ export const AIWindow = {
         win,
         new lazy.AIWindowTabStatesManager(win)
       );
+      this._markActiveStart(win);
     }
 
     if (this._initialized) {
@@ -608,8 +610,9 @@ export const AIWindow = {
     }
   },
 
-  recordOpenWindowTelemetry(trigger) {
+  recordOpenWindowTelemetry(trigger, win) {
     let signedIn = false;
+    const opened_tabs = win?.gBrowser?.tabs.length ?? 0;
     lazy.AIWindowAccountAuth.isSignedIn()
       .then(result => {
         signedIn = result;
@@ -619,6 +622,7 @@ export const AIWindow = {
           trigger,
           fxa: signedIn,
           onboarding: !lazy.hasFirstrunCompleted,
+          opened_tabs,
         });
       });
   },
@@ -671,12 +675,16 @@ export const AIWindow = {
 
         lazy.MemoriesSchedulers.maybeRunAndSchedule();
 
-        this.recordOpenWindowTelemetry(trigger);
+        this._markActiveStart(win);
+        this.recordOpenWindowTelemetry(trigger, win);
       } else {
+        const duration_ms = this._consumeActiveDuration(win);
+        const opened_tabs = win.gBrowser.tabs.length;
         // Uninit the manager first so #onSidebarToggle doesn't clear the
         // SessionStore entry before closeSidebar fires.
         this._uninitTabStateManager(win);
         lazy.AIWindowUI.closeSidebar(win);
+        Glean.smartWindow.classicSwitch.record({ duration_ms, opened_tabs });
       }
     }
   },
@@ -697,8 +705,29 @@ export const AIWindow = {
   },
 
   unloadWindow(win) {
+    if (this.isAIWindowActive(win)) {
+      const duration_ms = this._consumeActiveDuration(win);
+      const opened_tabs = win.gBrowser?.tabs.length ?? 0;
+      Glean.smartWindow.closeWindow.record({ duration_ms, opened_tabs });
+    }
     this._uninitTabStateManager(win);
     this._windowStates.delete(win);
+  },
+
+  _markActiveStart(win) {
+    const windowState = this._windowStates.get(win);
+    if (windowState) {
+      windowState.aiActiveStartTime = Date.now();
+    }
+  },
+
+  _consumeActiveDuration(win) {
+    const windowState = this._windowStates.get(win);
+    const startTime = windowState?.aiActiveStartTime;
+    if (windowState) {
+      delete windowState.aiActiveStartTime;
+    }
+    return startTime ? Date.now() - startTime : 0;
   },
 
   async _authorizeAndToggleWindow(win, trigger) {
@@ -740,13 +769,13 @@ export const AIWindow = {
       }
 
       if (!openNewWindow) {
-        return this._authorizeAndToggleWindow(browser.ownerGlobal, trigger);
+        return this._authorizeAndToggleWindow(browser.documentGlobal, trigger);
       }
 
       const isAuthorized = await lazy.AIWindowAccountAuth.canAccessAIWindow();
       const windowPromise = lazy.BrowserWindowTracker.promiseOpenWindow({
         aiWindow: isAuthorized,
-        openerWindow: browser?.ownerGlobal,
+        openerWindow: browser?.documentGlobal,
       });
 
       const newWin = await windowPromise;
@@ -757,7 +786,7 @@ export const AIWindow = {
 
       // The new window already has the ai-window attribute; toggleAIWindow
       // would skip the state change and therefore skip recording telemetry.
-      this.recordOpenWindowTelemetry(trigger);
+      this.recordOpenWindowTelemetry(trigger, newWin);
       return true;
     } catch (e) {
       console.error("Error launching AI window:", e);
@@ -802,6 +831,7 @@ export const AIWindow = {
     if (!this.isAIWindowActiveAndEnabled(win)) {
       root.toggleAttribute("hide-ai-sidebar", shouldHideSidebarForNewtab);
       root.removeAttribute("aiwindow-immersive-view");
+      root.removeAttribute("aiwindow-has-nav-forward");
       return;
     }
 
@@ -818,6 +848,12 @@ export const AIWindow = {
     const isFirstRun = currentURI.equalsExceptRef(FIRSTRUN_URI);
     root.toggleAttribute("aiwindow-first-run", isFirstRun && isImmersiveView);
     root.toggleAttribute("aiwindow-immersive-view", isImmersiveView);
+
+    const canGoForward =
+      isImmersiveView &&
+      !isFirstRun &&
+      (win.gBrowser.selectedBrowser?.webNavigation?.canGoForward ?? false);
+    root.toggleAttribute("aiwindow-has-nav-forward", canGoForward);
 
     // Set attr on the specific browser that has content to override color scheme
     win.gBrowser.selectedBrowser?.toggleAttribute(

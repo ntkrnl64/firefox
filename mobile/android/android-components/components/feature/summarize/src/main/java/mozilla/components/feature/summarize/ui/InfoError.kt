@@ -4,23 +4,31 @@
 
 package mozilla.components.feature.summarize.ui
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.button.OutlinedButton
 import mozilla.components.compose.base.theme.AcornTheme
 import mozilla.components.concept.llm.ErrorCode
 import mozilla.components.feature.summarize.R
@@ -29,12 +37,18 @@ import mozilla.components.feature.summarize.R
 internal fun InfoError(
     modifier: Modifier = Modifier,
     errorCode: ErrorCode,
+    onDismiss: () -> Unit = {},
 ) {
+    var showErrorCode by remember { mutableStateOf(false) }
+
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(
-            painter = painterResource(mozilla.components.ui.icons.R.drawable.mozac_ic_warning_fill_24),
+            painter = painterResource(mozilla.components.ui.icons.R.drawable.mozac_ic_warning_24),
             contentDescription = null,
-            modifier = Modifier.padding(end = 8.dp),
+            modifier = Modifier
+                .padding(end = 8.dp).size(32.dp)
+                .onLongPress { showErrorCode = true },
+            tint = MaterialTheme.colorScheme.error,
         )
 
         Spacer(modifier = Modifier.height(AcornTheme.layout.space.static300))
@@ -49,13 +63,37 @@ internal fun InfoError(
         Spacer(modifier = Modifier.height(AcornTheme.layout.space.static100))
 
         Text(
-            text = stringResource(R.string.mozac_summarize_info_error_message, errorCode.value),
+            text = stringResource(R.string.mozac_summarize_info_error_message),
             style = AcornTheme.typography.body2,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
 
-        Spacer(modifier = Modifier.height(AcornTheme.layout.space.static200))
+        if (showErrorCode) {
+            Text(
+                text = stringResource(R.string.mozac_summarize_info_error_code, errorCode.value),
+                style = AcornTheme.typography.body2,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(AcornTheme.layout.space.dynamic600))
+
+        OutlinedButton(
+            text = stringResource(R.string.mozac_summarize_error_dissmiss),
+            modifier = Modifier.fillMaxWidth(),
+            contentColor = MaterialTheme.colorScheme.primary,
+            outlineColor = MaterialTheme.colorScheme.outline,
+            onClick = { onDismiss() },
+        )
+    }
+}
+
+@Composable
+private fun Modifier.onLongPress(onLongPress: () -> Unit): Modifier {
+    return this.pointerInput(Unit) {
+        detectTapGestures(onLongPress = { onLongPress() })
     }
 }
 

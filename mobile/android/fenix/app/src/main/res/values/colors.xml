@@ -108,8 +108,6 @@
     <color name="fx_mobile_icon_color_disabled">@color/photonDarkGrey90A40</color>
     <!-- Icon inverted (on color) -->
     <color name="fx_mobile_icon_color_oncolor">@color/photonLightGrey05</color>
-    <!-- Information -->
-    <color name="fx_mobile_icon_color_information">@color/photonBlue30</color>
     <color name="fx_mobile_icon_color_critical">@color/photonRed70</color>
     <!-- Warning icon on Secondary button -->
     <color name="fx_mobile_icon_color_critical_button">@color/photonRed70</color>
@@ -234,10 +232,6 @@
     <color name="search_suggestion_indicator_icon_color_normal_theme">@color/photonGreen70</color>
     <color name="search_suggestion_indicator_icon_bookmark_color_normal_theme">@color/photonBlue50</color>
 
-    <!-- Colors for privacy protection gradient -->
-    <color name="privacy_gradient_start">#AE49EC</color>
-    <color name="privacy_gradient_end">#210340</color>
-
     <!-- Colors for Edge to Edge background  -->
     <color name="homepage_edge_to_edge_gradient_start">#FFF7EAE8</color>
     <color name="homepage_edge_to_edge_gradient_end">#FFF8F3F4</color>
@@ -261,7 +255,6 @@
     <color name="suggestion_highlight_color">#5C592ACB</color>
     <color name="sync_error_background_color">#FFF36E</color>
     <color name="sync_error_text_color">@color/photonYellow90</color>
-    <color name="bottom_bar_shadow">#1A000000</color>
     <color name="preference_scroll_highlight">@color/fx_mobile_surface_container_highest</color>
 
     <!-- Prompt colors -->
@@ -297,7 +290,7 @@
     <color name="spinner_selected_item">#1415141A</color>
 
     <!-- Icon colors -->
-    <color name="mozac_ui_icons_fill">@color/fx_mobile_on_surface</color>
+    <color name="mozac_ui_icons_fill" tools:ignore="UnusedResources">@color/fx_mobile_on_surface</color>
 
     <!-- Add-ons colors -->
     <color name="mozac_feature_addons_messagebar_error_background_color" tools:ignore="UnusedResources">@color/fx_mobile_layer_color_critical</color>

@@ -747,8 +747,8 @@ function updateBrowserRemotenessByURL(aBrowser, aURL) {
   var oa = E10SUtils.predictOriginAttributes({ browser: aBrowser });
   let remoteType = E10SUtils.getRemoteTypeForURI(
     aURL,
-    aBrowser.ownerGlobal.docShell.nsILoadContext.useRemoteTabs,
-    aBrowser.ownerGlobal.docShell.nsILoadContext.useRemoteSubframes,
+    aBrowser.documentGlobal.docShell.nsILoadContext.useRemoteTabs,
+    aBrowser.documentGlobal.docShell.nsILoadContext.useRemoteSubframes,
     aBrowser.remoteType,
     aBrowser.currentURI,
     oa
@@ -904,6 +904,28 @@ async function StartCurrentURI(aURLTargetType) {
     logger.warning(
       "g.windowUtils.isCompositorPaused " + g.windowUtils.isCompositorPaused
     );
+    // Give tests time to clean up opened windows before treating this as an error.
+    const startTime = Date.now();
+    while (
+      (g.windowUtils.isWindowFullyOccluded ||
+        g.windowUtils.isCompositorPaused) &&
+      Date.now() - startTime < g.loadTimeout
+    ) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    if (
+      g.windowUtils.isWindowFullyOccluded ||
+      g.windowUtils.isCompositorPaused
+    ) {
+      logger.error(
+        "persistent g.windowUtils.isWindowFullyOccluded " +
+          g.windowUtils.isWindowFullyOccluded
+      );
+      logger.error(
+        "persistent g.windowUtils.isCompositorPaused " +
+          g.windowUtils.isCompositorPaused
+      );
+    }
   }
 
   if (

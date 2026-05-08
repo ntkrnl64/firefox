@@ -302,8 +302,7 @@ void CustomElementCallback::Call(ElementCallbackType aType,
       } else if (owningValue.IsFile()) {
         value.SetValue().SetAsFile() = owningValue.GetAsFile();
       } else {
-        value.SetValue().SetAsUSVString().ShareOrDependUpon(
-            owningValue.GetAsUSVString());
+        value.SetValue().SetAsUSVString() = owningValue.GetAsUSVString();
       }
       static_cast<LifecycleFormStateRestoreCallback*>(aCallback.get())
           ->Call(mThisObject, value, mArgs.mReason);
@@ -1521,9 +1520,9 @@ void CustomElementRegistry::Upgrade(Element* aElement,
         LifecycleCallbackArgs args;
         args.mName = attrName;
         args.mOldValue = VoidString();
-        args.mNewValue = attrValue;
+        args.mNewValue = std::move(attrValue);
         args.mNamespaceURI =
-            (namespaceURI.IsEmpty() ? VoidString() : namespaceURI);
+            (namespaceURI.IsEmpty() ? VoidString() : std::move(namespaceURI));
 
         nsContentUtils::EnqueueLifecycleCallback(
             ElementCallbackType::eAttributeChanged, aElement, args,
@@ -1564,6 +1563,10 @@ void CustomElementRegistry::Upgrade(Element* aElement,
     return;
   }
 
+  // 11. Set element's custom element state to "custom".
+  data->mState = CustomElementData::State::eCustom;
+  aElement->SetDefined(true);
+
   // 10. If element is a form-associated custom element, then:
   if (data->IsFormAssociated()) {
     // 10.1. Reset the form owner of element.
@@ -1575,10 +1578,6 @@ void CustomElementRegistry::Upgrade(Element* aElement,
 
     internals->UpdateFormOwner();
   }
-
-  // 11. Set element's custom element state to "custom".
-  data->mState = CustomElementData::State::eCustom;
-  aElement->SetDefined(true);
 }
 
 already_AddRefed<nsISupports> CustomElementRegistry::CallGetCustomInterface(
@@ -1764,7 +1763,7 @@ void CustomElementReactionsStack::InvokeReactions(ElementQueue* aElementQueue,
     MOZ_ASSERT(element);
 
     CustomElementData* elementData = element->GetCustomElementData();
-    if (!elementData || !element->GetOwnerGlobal()) {
+    if (!elementData || !element->GetRelevantGlobal()) {
       // This happens when the document is destroyed and the element is already
       // unlinked, no need to fire the callbacks in this case.
       continue;
@@ -1777,7 +1776,7 @@ void CustomElementReactionsStack::InvokeReactions(ElementQueue* aElementQueue,
       auto reaction(std::move(reactions.ElementAt(j)));
       if (reaction) {
         if (!aGlobal && reaction->IsUpgradeReaction()) {
-          nsIGlobalObject* global = element->GetOwnerGlobal();
+          nsIGlobalObject* global = element->GetRelevantGlobal();
           MOZ_ASSERT(!aes);
           aes.emplace(global, "custom elements reaction invocation");
         }

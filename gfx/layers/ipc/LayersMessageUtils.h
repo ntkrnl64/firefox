@@ -18,7 +18,6 @@
 #include "mozilla/RelativeTo.h"
 #include "mozilla/ScrollSnapInfo.h"
 #include "mozilla/ServoBindings.h"
-#include "mozilla/ParamTraits_IsEnumCase.h"
 #include "mozilla/ParamTraits_TiedFields.h"
 #include "mozilla/ipc/ByteBuf.h"
 #include "mozilla/ipc/ProtocolMessageUtils.h"
@@ -441,9 +440,16 @@ struct ParamTraits<mozilla::StyleScrollSnapStop>
           mozilla::StyleScrollSnapStop, mozilla::StyleScrollSnapStop::Normal,
           mozilla::StyleScrollSnapStop::Always> {};
 
+struct ScrollSnapTargetIdValidator {
+  using IntegralType = std::underlying_type_t<mozilla::ScrollSnapTargetId>;
+
+  static bool IsLegalValue(const IntegralType e) { return true; }
+};
+
 template <>
 struct ParamTraits<mozilla::ScrollSnapTargetId>
-    : public ParamTraits_IsEnumCase<mozilla::ScrollSnapTargetId> {};
+    : public EnumSerializer<mozilla::ScrollSnapTargetId,
+                            ScrollSnapTargetIdValidator> {};
 
 template <>
 struct ParamTraits<mozilla::SnapPoint> {
@@ -625,6 +631,7 @@ struct ParamTraits<mozilla::layers::ScrollMetadata>
     WriteParam(aWriter, aParam.mOverscrollBehavior);
     WriteParam(aWriter, aParam.mOverflow);
     WriteParam(aWriter, aParam.mScrollUpdates);
+    WriteParam(aWriter, aParam.mWritingMode);
   }
 
   static bool ReadContentDescription(MessageReader* aReader,
@@ -666,7 +673,8 @@ struct ParamTraits<mozilla::layers::ScrollMetadata>
            ReadParam(aReader, &aResult->mDisregardedDirection) &&
            ReadParam(aReader, &aResult->mOverscrollBehavior) &&
            ReadParam(aReader, &aResult->mOverflow) &&
-           ReadParam(aReader, &aResult->mScrollUpdates);
+           ReadParam(aReader, &aResult->mScrollUpdates) &&
+           ReadParam(aReader, &aResult->mWritingMode);
   }
 };
 
@@ -1037,7 +1045,7 @@ struct ParamTraits<mozilla::layers::CompositorOptions> {
 
 template <>
 struct ParamTraits<mozilla::layers::OverlaySupportType>
-    : public ContiguousEnumSerializerInclusive<
+    : public ContiguousEnumSerializer<
           mozilla::layers::OverlaySupportType,
           mozilla::layers::OverlaySupportType::None,
           mozilla::layers::OverlaySupportType::MAX> {};

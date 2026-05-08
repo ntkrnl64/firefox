@@ -146,6 +146,9 @@ function openInWindow(url, params, sourceWindow) {
   if (params.schemelessInput !== undefined) {
     extraOptions.setPropertyAsUint32("schemelessInput", params.schemelessInput);
   }
+  if (params.aiWindow) {
+    extraOptions.setPropertyAsBool("ai-window", true);
+  }
 
   var allowThirdPartyFixupSupports = Cc[
     "@mozilla.org/supports-PRBool;1"
@@ -682,7 +685,7 @@ export const URILoadingHelper = {
    */
   _resolveInitialTargetWindow(where, params, win, forceNonPrivate) {
     if (where === "current" && params.targetBrowser) {
-      return params.targetBrowser.ownerGlobal;
+      return params.targetBrowser.documentGlobal;
     }
 
     if (where === "tab" || where === "tabshifted") {
@@ -1024,11 +1027,7 @@ export const URILoadingHelper = {
               let tabToReplace = aSplitView.tabs.find(tab => tab.selected);
               let tabToMove = aWindow.gBrowser.tabs[i];
               aSplitView.replaceTab(tabToReplace, tabToMove);
-              aSplitView.ownerGlobal.gBrowser.setIsSplitViewActive(
-                true,
-                aSplitView.tabs
-              );
-              aSplitView.ownerGlobal.focus();
+              aSplitView.documentGlobal.focus();
             } else {
               aWindow.gBrowser.tabContainer.selectedIndex = i;
             }

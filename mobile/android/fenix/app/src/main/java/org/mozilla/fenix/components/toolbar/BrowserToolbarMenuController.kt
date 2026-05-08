@@ -15,12 +15,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.action.EngineAction
-import mozilla.components.browser.state.action.ShareResourceAction
 import mozilla.components.browser.state.ext.getUrl
 import mozilla.components.browser.state.selector.findCustomTabOrSelectedTab
 import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.selector.selectedTab
-import mozilla.components.browser.state.state.content.ShareResourceState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.EngineSession.LoadUrlFlags
 import mozilla.components.concept.engine.prompt.ShareData
@@ -29,7 +27,6 @@ import mozilla.components.feature.top.sites.DefaultTopSitesStorage
 import mozilla.components.feature.top.sites.PinnedSiteStorage
 import mozilla.components.feature.top.sites.TopSite
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
-import mozilla.components.support.ktx.kotlin.isContentUrl
 import mozilla.components.support.utils.BuildManufacturerChecker
 import mozilla.components.ui.widgets.withCenterAlignedButtons
 import mozilla.telemetry.glean.private.NoExtras
@@ -46,6 +43,7 @@ import org.mozilla.fenix.collections.SaveCollectionStep
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.TabCollectionStorage
 import org.mozilla.fenix.components.appstate.AppAction.ShortcutAction
+import org.mozilla.fenix.components.share.createPdfShareAction
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.navigateSafe
@@ -216,15 +214,9 @@ class DefaultBrowserToolbarMenuController(
                     store.state.findTab(it)?.getUrl()
                 } ?: currentSession?.content?.url
 
-                if (url?.isContentUrl() == true) {
-                    val tab = sessionId?.let { store.state.findTab(it) } ?: return
-
-                    store.dispatch(
-                        ShareResourceAction.AddShareAction(
-                            tab.id,
-                            ShareResourceState.LocalResource(url),
-                        ),
-                    )
+                val shareAction = store.createPdfShareAction(sessionId, url)
+                if (shareAction != null) {
+                    store.dispatch(shareAction)
                 } else {
                     val directions = NavGraphDirections.actionGlobalShareFragment(
                         sessionId = sessionId,

@@ -93,8 +93,7 @@ add_task(async function toolbar_icon_status() {
   );
   let content = panelView.querySelector(IPProtectionPanel.CONTENT_TAGNAME);
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
+    isReady: true,
   });
   IPProtectionService.updateState();
   await putServerInRemoteSettings();
@@ -148,8 +147,7 @@ add_task(async function toolbar_icon_status() {
  */
 add_task(async function toolbar_icon_status_new_window() {
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
+    isReady: true,
   });
   IPProtectionService.updateState();
 
@@ -229,8 +227,7 @@ add_task(async function customize_toolbar_remove_widget() {
  */
 add_task(async function toolbar_placement_customized() {
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
+    isReady: true,
   });
 
   let start = CustomizableUI.getPlacementOfWidget(IPProtectionWidget.WIDGET_ID);
@@ -290,12 +287,39 @@ add_task(async function toolbar_placement_customized() {
 });
 
 /**
+ * Tests that the toolbar button badge reflects the openedPanelWithLocation pref.
+ */
+add_task(async function toolbar_badge_opened_with_location() {
+  const OPENED_WITH_LOCATION_PREF =
+    "browser.ipProtection.openedPanelWithLocation";
+  let button = document.getElementById(IPProtectionWidget.WIDGET_ID);
+
+  await SpecialPowers.pushPrefEnv({
+    set: [[OPENED_WITH_LOCATION_PREF, false]],
+  });
+  Assert.ok(
+    button.hasAttribute("badged"),
+    "Toolbar button should be badged when user has not yet opened the panel with location"
+  );
+
+  await SpecialPowers.pushPrefEnv({ set: [[OPENED_WITH_LOCATION_PREF, true]] });
+  Assert.ok(
+    !button.hasAttribute("badged"),
+    "Toolbar button badge should be removed once the user has opened the panel with location"
+  );
+
+  // Each popPrefEnv unwraps one layer from the stack, restoring the
+  // pref to the value it had before that push
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
+});
+
+/**
  * Tests that toolbar widget can be removed and will not be re-added.
  */
 add_task(async function toolbar_removed() {
   setupService({
-    isSignedIn: true,
-    isEnrolled: true,
+    isReady: true,
   });
 
   // Ensure that the added pref is still set, as it is unset at the end of each test.
@@ -351,8 +375,7 @@ add_task(async function toolbar_removed() {
  */
 add_task(async function toolbar_placement_reset() {
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
+    isReady: true,
   });
 
   let start = CustomizableUI.getPlacementOfWidget(IPProtectionWidget.WIDGET_ID);

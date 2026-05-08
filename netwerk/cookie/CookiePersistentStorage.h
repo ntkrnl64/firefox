@@ -5,6 +5,7 @@
 #ifndef mozilla_net_CookiePersistentStorage_h
 #define mozilla_net_CookiePersistentStorage_h
 
+#include "Cookie.h"
 #include "CookieStorage.h"
 
 #include "mozilla/Atomics.h"
@@ -135,7 +136,7 @@ class CookiePersistentStorage final : public CookieStorage,
   struct CookieDomainTuple {
     CookieKey key;
     OriginAttributes originAttributes;
-    UniquePtr<CookieStruct> cookie;
+    RefPtr<Cookie> cookie;
   };
 
   // thread
@@ -146,7 +147,7 @@ class CookiePersistentStorage final : public CookieStorage,
   // Synchronized by the same mMonitor + mInitialized pattern as mReadArray.
   nsTArray<CookieDomainTuple> mCleanupArray;
 
-  Monitor mMonitor MOZ_UNANNOTATED;
+  Monitor mMonitor MOZ_ANNOTATED;
 
   Atomic<bool> mInitialized;
   Atomic<bool> mInitializedDBConn;

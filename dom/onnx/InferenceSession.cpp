@@ -38,18 +38,37 @@ namespace mozilla::dom {
 static OrtEnv* sEnv = nullptr;
 static OrtApi* sAPI = nullptr;
 
+// RAII wrapper over OrtStatus.
+// Takes ownership of a externally allocated OrtStatus* passed at construction.
+// Move-only. OrtStatus released through OrtApi::ReleaseStatus.
 class AutoOrtStatus {
  public:
   MOZ_IMPLICIT AutoOrtStatus(OrtStatus* aStatus = nullptr) : mStatus(aStatus) {
     MOZ_ASSERT(sAPI);
   }
-  ~AutoOrtStatus() {
-    if (mStatus) {
-      sAPI->ReleaseStatus(mStatus);
+  // Prevent copies
+  AutoOrtStatus(const AutoOrtStatus&) = delete;
+  AutoOrtStatus& operator=(const AutoOrtStatus&) = delete;
+  // Move semantics
+  AutoOrtStatus(AutoOrtStatus&& aOther) noexcept
+      : mStatus(std::exchange(aOther.mStatus, nullptr)) {}
+  AutoOrtStatus& operator=(AutoOrtStatus&& aOther) noexcept {
+    if (this != &aOther) {
+      Release();
+      mStatus = std::exchange(aOther.mStatus, nullptr);
     }
+    return *this;
   }
+  ~AutoOrtStatus() { Release(); }
   explicit operator bool() const { return !!mStatus; }
   const char* Message() const { return sAPI->GetErrorMessage(mStatus); }
+  void Release() {
+    if (mStatus) {
+      sAPI->ReleaseStatus(mStatus);
+      mStatus = nullptr;
+    }
+  }
+
   OrtStatus* mStatus;
 };
 
@@ -109,8 +128,8 @@ OrtSessionOptions* ToOrtSessionOption(
 
   LOGD("Inter op num threads: {}", aOptions.mInterOpNumThreads);
   CALL_API(SetInterOpNumThreads, aOptions.mInterOpNumThreads);
-  LOGD("Inter op num threads: {}", aOptions.mIntraOpNumThreads);
-  CALL_API(SetInterOpNumThreads, aOptions.mIntraOpNumThreads);
+  LOGD("Intra op num threads: {}", aOptions.mIntraOpNumThreads);
+  CALL_API(SetIntraOpNumThreads, aOptions.mIntraOpNumThreads);
   CALL_API(SetSessionLogId, aOptions.mLogId.get());
   CALL_API(SetSessionLogSeverityLevel, aOptions.mLogSeverityLevel);
   CALL_API(SetSessionLogVerbosityLevel, aOptions.mLogVerbosityLevel);

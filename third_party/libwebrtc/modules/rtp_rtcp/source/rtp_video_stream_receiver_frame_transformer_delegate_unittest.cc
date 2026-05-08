@@ -13,11 +13,11 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
 #include "absl/memory/memory.h"
-#include "api/array_view.h"
 #include "api/frame_transformer_interface.h"
 #include "api/make_ref_counted.h"
 #include "api/rtp_headers.h"
@@ -63,10 +63,11 @@ std::unique_ptr<RtpFrameObject> CreateRtpFrameObject(
                             /*receive_time=*/Timestamp::Seconds(123456));
   return std::make_unique<RtpFrameObject>(
       kFirstSeqNum, kLastSeqNum, /*markerBit=*/true,
-      /*times_nacked=*/3, /*first_packet_received_time=*/4,
-      /*last_packet_received_time=*/5, /*rtp_timestamp=*/6, /*ntp_time_ms=*/7,
-      VideoSendTiming(), /*payload_type=*/8, video_header.codec,
-      kVideoRotation_0, VideoContentType::UNSPECIFIED, video_header,
+      /*times_nacked=*/3, /*first_packet_received_time=*/Timestamp::Millis(4),
+      /*last_packet_received_time=*/Timestamp::Millis(5), /*rtp_timestamp=*/6,
+      /*ntp_time_ms=*/7, VideoSendTiming(), /*payload_type=*/8,
+      video_header.codec, kVideoRotation_0, VideoContentType::UNSPECIFIED,
+      video_header,
       /*color_space=*/std::nullopt, /*frame_instrumentation_data=*/std::nullopt,
       RtpPacketInfos({packet_info}), EncodedImageBuffer::Create(0));
 }
@@ -342,7 +343,7 @@ TEST(RtpVideoStreamReceiverFrameTransformerDelegateTest,
   scoped_refptr<EncodedImageBufferInterface> buffer =
       EncodedImageBuffer::Create(1);
   ON_CALL(*mock_sender_frame, GetData)
-      .WillByDefault(Return(ArrayView<const uint8_t>(*buffer)));
+      .WillByDefault(Return(std::span<const uint8_t>(*buffer)));
 
   scoped_refptr<TransformedFrameCallback> callback;
   EXPECT_CALL(*mock_frame_transformer, RegisterTransformedFrameSinkCallback)
@@ -353,7 +354,7 @@ TEST(RtpVideoStreamReceiverFrameTransformerDelegateTest,
   EXPECT_CALL(receiver, ManageFrame)
       .WillOnce([&](std::unique_ptr<RtpFrameObject> frame) {
         EXPECT_EQ(frame->codec_type(), metadata.GetCodec());
-        EXPECT_EQ(frame->ReceivedTime(), 12345);
+        EXPECT_EQ(frame->ReceivedTimestamp(), Timestamp::Micros(12345000));
       });
   callback->OnTransformedFrame(std::move(mock_sender_frame));
   ThreadManager::ProcessAllMessageQueuesForTesting();

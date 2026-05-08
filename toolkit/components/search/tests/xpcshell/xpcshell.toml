@@ -175,6 +175,8 @@ support-files = [
 
 ["test_reload_engines_locales.js"]
 
+["test_reload_engines_webextensions.js"]
+
 ["test_remove_engine_notification_box.js"]
 
 ["test_remove_profile_engine.js"]

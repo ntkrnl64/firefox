@@ -15,10 +15,10 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "net/dcsctp/common/internal_types.h"
@@ -141,7 +141,7 @@ void OutstandingData::AckChunk(AckInfo& ack_info,
 
 OutstandingData::AckInfo OutstandingData::HandleSack(
     UnwrappedTSN cumulative_tsn_ack,
-    webrtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+    std::span<const SackChunk::GapAckBlock> gap_ack_blocks,
     bool is_in_fast_recovery) {
   bool cumulative_tsn_ack_advanced =
       cumulative_tsn_ack > last_cumulative_tsn_ack_;
@@ -205,7 +205,7 @@ void OutstandingData::RemoveAcked(UnwrappedTSN cumulative_tsn_ack,
 
 void OutstandingData::AckGapBlocks(
     UnwrappedTSN cumulative_tsn_ack,
-    webrtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+    std::span<const SackChunk::GapAckBlock> gap_ack_blocks,
     AckInfo& ack_info) {
   // Mark all non-gaps as ACKED (but they can't be removed) as (from RFC)
   // "SCTP considers the information carried in the Gap Ack Blocks in the
@@ -226,7 +226,7 @@ void OutstandingData::AckGapBlocks(
 
 void OutstandingData::NackBetweenAckBlocks(
     UnwrappedTSN cumulative_tsn_ack,
-    webrtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+    std::span<const SackChunk::GapAckBlock> gap_ack_blocks,
     bool is_in_fast_recovery,
     bool cumulative_tsn_acked_advanced,
     OutstandingData::AckInfo& ack_info) {
@@ -276,13 +276,17 @@ bool OutstandingData::NackItem(UnwrappedTSN tsn,
                                bool retransmit_now,
                                bool do_fast_retransmit) {
   Item& item = GetItem(tsn);
-  if (item.is_outstanding()) {
+  bool was_outstanding = item.is_outstanding();
+
+  Item::NackAction action = item.Nack(retransmit_now);
+
+  if (was_outstanding && !item.is_outstanding()) {
     unacked_payload_bytes_ -= item.data().size();
     unacked_packet_bytes_ -= GetSerializedChunkSize(item.data());
     --unacked_items_;
   }
 
-  switch (item.Nack(retransmit_now)) {
+  switch (action) {
     case Item::NackAction::kNothing:
       return false;
     case Item::NackAction::kRetransmit:
@@ -340,7 +344,13 @@ void OutstandingData::AbandonAllFor(const Item& item) {
         to_be_fast_retransmitted_.erase(tsn);
         to_be_retransmitted_.erase(tsn);
       }
+      bool was_outstanding = other.is_outstanding();
       other.Abandon();
+      if (was_outstanding) {
+        unacked_payload_bytes_ -= other.data().size();
+        unacked_packet_bytes_ -= GetSerializedChunkSize(other.data());
+        --unacked_items_;
+      }
     }
   }
 }
@@ -522,10 +532,12 @@ OutstandingData::GetChunkStatesForTesting() const {
       state = State::kToBeRetransmitted;
     } else if (item.is_acked()) {
       state = State::kAcked;
+    } else if (item.is_nacked()) {
+      state = State::kNacked;
     } else if (item.is_outstanding()) {
       state = State::kInFlight;
     } else {
-      state = State::kNacked;
+      RTC_CHECK_NOTREACHED();
     }
 
     states.emplace_back(tsn.Wrap(), state);

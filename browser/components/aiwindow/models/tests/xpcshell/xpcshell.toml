@@ -4,9 +4,6 @@ run-if = [
 ]
 head = "head.js"
 firefox-appdir = "browser"
-support-files = [
-  "ai-window-prompts-remote-settings-snapshot.json",
-]
 
 ["test_Chat.js"]
 
@@ -57,5 +54,7 @@ support-files = [
 ["test_Utils.js"]
 
 ["test_Utils_RemoteSettings.js"]
+
+["test_Utils_RemoteSettings_ChatModelChoice.js"]
 
 ["test_intent_classifier.js"]

@@ -13,6 +13,7 @@
 #include "mozjemalloc_types.h"
 #include "mozjemalloc_profiling.h"
 
+#include "ArenaAvailRuns.h"
 #include "Constants.h"
 #include "Chunk.h"
 #include "Globals.h"
@@ -87,26 +88,6 @@ class SizeClass {
 // Arena data structures.
 
 struct arena_bin_t;
-
-struct ArenaChunkMapLink {
-  static RedBlackTreeNode<arena_chunk_map_t>& GetTreeNode(
-      arena_chunk_map_t* aThis) {
-    return aThis->link;
-  }
-};
-
-struct ArenaAvailTreeTrait : public ArenaChunkMapLink {
-  static inline Order Compare(arena_chunk_map_t* aNode,
-                              arena_chunk_map_t* aOther) {
-    size_t size1 = aNode->bits & ~mozilla::gPageSizeMask;
-    size_t size2 = aOther->bits & ~mozilla::gPageSizeMask;
-    Order ret = CompareInt(size1, size2);
-    return (ret != Order::eEqual)
-               ? ret
-               : CompareAddr((aNode->bits & CHUNK_MAP_KEY) ? nullptr : aNode,
-                             aOther);
-  }
-};
 
 namespace mozilla {
 
@@ -250,7 +231,7 @@ static_assert(sizeof(arena_bin_t) == 32);
 
 enum PurgeCondition { PurgeIfThreshold, PurgeUnconditional };
 
-struct arena_t {
+struct arena_t : public BaseAllocClass {
 #if defined(MOZ_DIAGNOSTIC_ASSERT_ENABLED)
 #  define ARENA_MAGIC 0x947d3d24
   uint32_t mMagic = ARENA_MAGIC;
@@ -294,7 +275,7 @@ struct arena_t {
   // and newly-dirtied chunks are placed at the end.  We assume that this makes
   // finding larger runs of dirty pages easier, it probably doesn't affect the
   // chance that a new allocation has a page fault since that is controlled by
-  // the order of mAvailRuns.
+  // the order of mRunsAvail.
   mozilla::DoublyLinkedList<arena_chunk_t, mozilla::DirtyChunkListTrait>
       mChunksDirty MOZ_GUARDED_BY(mLock);
 
@@ -397,11 +378,13 @@ struct arena_t {
   static constexpr size_t LABEL_MAX_CAPACITY = 128;
   char mLabel[LABEL_MAX_CAPACITY] = {};
 
+  // Chunk allocator used for all of this arena's allocations.
+  chunk_allocator_t* mChunkAllocator;
+
  private:
-  // Size/address-ordered tree of this arena's available runs.  This tree
-  // is used for first-best-fit run allocation.
-  RedBlackTree<arena_chunk_map_t, ArenaAvailTreeTrait> mRunsAvail
-      MOZ_GUARDED_BY(mLock);
+  // Collection of this arena's available runs.  This is used for
+  // first-best-fit run allocation.
+  ArenaAvailRuns mRunsAvail MOZ_GUARDED_BY(mLock);
 
  public:
   // mBins is used to store rings of free regions of the following sizes,
@@ -698,11 +681,15 @@ struct arena_t {
 
   bool IsMainThreadOnly() const { return !mLock.LockIsEnabled(); }
 
-  void* operator new(size_t aCount) = delete;
-
+  // Overload new to customise the size.
   void* operator new(size_t aCount, const mozilla::fallible_t&) noexcept;
 
-  void operator delete(void*);
+  // Fallible allocation is unused and an array of arena_t is impossible.
+  void* operator new(size_t aCount) noexcept = delete;
+  void* operator new[](size_t aCount) noexcept = delete;
+  void* operator new[](size_t aCount,
+                       const mozilla::fallible_t&) noexcept = delete;
+  void operator delete[](void* aPtr) = delete;
 };
 
 #endif /* ! ARENA_H */

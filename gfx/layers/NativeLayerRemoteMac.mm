@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "CFTypeRefPtr.h"
+#include "gfxPlatform.h"
 #include "gfxUtils.h"
 #include "GLBlitHelper.h"
 #ifdef XP_MACOSX
@@ -77,10 +78,7 @@ void NativeLayerRemoteMac::AttachExternalImage(
   mIsDRM = isDRM;
 
   MacIOSurface* macIOSurface = texture->GetSurface();
-  bool isHDR =
-      macIOSurface->GetTransferFunction() == gfx::TransferFunction::PQ ||
-      macIOSurface->GetTransferFunction() == gfx::TransferFunction::HLG;
-  mIsHDR = isHDR && StaticPrefs::gfx_color_management_hdr_video();
+  mIsHDR = macIOSurface->IsHDRSurface() && gfxPlatform::UseHDR();
 
   mDirtyLayerInfo |= changedDisplayRect;
   mSnapshotLayer.mMutatedFrontSurface = true;
@@ -254,8 +252,8 @@ void NativeLayerRemoteMac::FlushDirtyLayerInfoToCommandQueue() {
   if (mDirtyLayerInfo) {
     mCommandQueue->AppendCommand(mozilla::layers::CommandLayerInfo(
         ID, GetPosition(), CurrentSurfaceDisplayRect(), ClipRect(),
-        RoundedClipRect(), GetTransform(),
-        static_cast<int8_t>(SamplingFilter()), SurfaceIsFlipped()));
+        RoundedClipRect(), GetTransform(), SamplingFilter(),
+        SurfaceIsFlipped()));
     mDirtyLayerInfo = false;
   }
 }

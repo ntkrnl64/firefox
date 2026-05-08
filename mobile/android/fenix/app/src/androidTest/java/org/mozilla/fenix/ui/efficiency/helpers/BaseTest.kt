@@ -23,6 +23,9 @@ import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.exitMenu
 import org.mozilla.fenix.ui.efficiency.logging.LoggingBridge
 import org.mozilla.fenix.ui.efficiency.logging.TestLogging
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
+import org.mozilla.fenix.ui.efficiency.navigation.planning.PageCatalog
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as AndroidComposeTestRuleV2
 
 /**
  * BaseTest
@@ -68,8 +71,8 @@ abstract class BaseTest(
     val retryWithCompose: TestRule = TestRule { base, description ->
         object : Statement() {
             override fun evaluate() {
-                repeat(3) { attempt ->
-                    _composeRule = AndroidComposeTestRule(
+                repeat(1 + MAX_RETRIES) { attempt ->
+                    _composeRule = AndroidComposeTestRuleV2(
                         HomeActivityIntentTestRule(
                             skipOnboarding = skipOnboarding,
                             isMenuRedesignCFREnabled = isMenuRedesignCFREnabled,
@@ -85,7 +88,7 @@ abstract class BaseTest(
                         cleanup(removeTabs = true)
                         throw t
                     } catch (t: Throwable) {
-                        if (!t.isRetryable() || attempt == 2) throw t
+                        if (!t.isRetryable() || attempt >= MAX_RETRIES) throw t
                         Log.i("BaseTest", "RetryTestRule: ${t::class.simpleName} caught, retrying.")
                         cleanup()
                     }
@@ -113,6 +116,23 @@ abstract class BaseTest(
             TestLogging.reporter = LoggingBridge.createReporter()
         }
         TestLogging.reporter?.reset()
+        if (java.lang.Boolean.getBoolean("logNavigationSummary")) {
+            NavigationRegistry.logPathSummary()
+        }
+        if (java.lang.Boolean.getBoolean("logPageCatalog")) {
+            val pages = PageCatalog.discoverPages()
+
+            Log.i("PageCatalog", "📚 Discovered ${pages.size} pages from PageContext")
+
+            pages.forEachIndexed { index, pageRef ->
+                val page = pageRef.getter(on)
+
+                Log.i(
+                    "PageCatalog",
+                    "   ${index + 1}. ${page.pageName} (property=${pageRef.propertyName})",
+                )
+            }
+        }
 
         // State tracker is a lightweight breadcrumb used by navigation helpers.
         // Source-of-truth remains selector-based verification (mozIsOnPageNow / mozWaitForPageToLoad).
@@ -138,6 +158,13 @@ abstract class BaseTest(
         } catch (_: Throwable) {
             // Logging must never fail a test.
         }
+    }
+
+    private companion object {
+        /**
+         * Number of retry attempts to do, if the test fails.
+         */
+        const val MAX_RETRIES = 1
     }
 }
 

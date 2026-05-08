@@ -10,9 +10,11 @@ const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
 
-const { LINKS } = ChromeUtils.importESModule(
+const { BANDWIDTH, LINKS } = ChromeUtils.importESModule(
   "chrome://browser/content/ipprotection/ipprotection-constants.mjs"
 );
+
+const MAX_IN_GB_PREF = "browser.ipProtection.bandwidth.maxInGb";
 
 ChromeUtils.defineESModuleGetters(lazy, {
   IPProtectionWidget:
@@ -90,8 +92,7 @@ add_task(async function test_unauthenticated_content() {
  */
 add_task(async function test_signin_button() {
   setupService({
-    isSignedIn: false,
-    isEnrolledAndEntitled: false,
+    isReady: false,
   });
   Assert.equal(
     lazy.IPProtectionService.state,
@@ -154,8 +155,7 @@ add_task(async function test_signin_button() {
  */
 add_task(async function test_panel_get_started_entrypoint() {
   setupService({
-    isSignedIn: false,
-    isEnrolledAndEntitled: false,
+    isReady: false,
   });
   const { fxaSignInFlow } = STUBS;
   fxaSignInFlow.resetHistory();
@@ -193,8 +193,7 @@ add_task(async function test_panel_get_started_entrypoint() {
  */
 add_task(async function test_learn_more_vpn_link() {
   setupService({
-    isSignedIn: false,
-    isEnrolledAndEntitled: false,
+    isReady: false,
   });
 
   let content = await openPanel({ unauthenticated: true });
@@ -240,12 +239,144 @@ add_task(async function test_learn_more_vpn_link() {
 });
 
 /**
+ * Tests that clicking the terms of service link opens the correct URL in a new
+ * tab and closes the panel.
+ */
+add_task(async function test_terms_of_service_link() {
+  setupService({
+    isSignedIn: false,
+    isEnrolledAndEntitled: false,
+  });
+
+  let content = await openPanel({ unauthenticated: true });
+  let unauthenticatedContent = content.unauthenticatedEl;
+
+  let tosLink = unauthenticatedContent.shadowRoot.querySelector(
+    "#vpn-terms-of-service"
+  );
+
+  Assert.ok(tosLink, "Terms of service link should be present");
+
+  let openWebLinkInStub = sinon.stub(window, "openWebLinkIn");
+
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+  tosLink.click();
+  await panelHiddenPromise;
+
+  Assert.ok(
+    openWebLinkInStub.calledOnce,
+    "openWebLinkIn should be called once"
+  );
+  Assert.equal(
+    openWebLinkInStub.firstCall.args[0],
+    LINKS.TERMS_OF_SERVICE_URL,
+    "openWebLinkIn should be called with the terms of service URL"
+  );
+  Assert.equal(
+    openWebLinkInStub.firstCall.args[1],
+    "tab",
+    "openWebLinkIn should open in a tab"
+  );
+
+  openWebLinkInStub.restore();
+  cleanupService();
+});
+
+/**
+ * Tests that clicking the privacy notice link opens the correct URL in a new
+ * tab and closes the panel.
+ */
+add_task(async function test_privacy_notice_link() {
+  setupService({
+    isSignedIn: false,
+    isEnrolledAndEntitled: false,
+  });
+
+  let content = await openPanel({ unauthenticated: true });
+  let unauthenticatedContent = content.unauthenticatedEl;
+
+  let privacyLink = unauthenticatedContent.shadowRoot.querySelector(
+    "#vpn-privacy-notice"
+  );
+
+  Assert.ok(privacyLink, "Privacy notice link should be present");
+
+  let openWebLinkInStub = sinon.stub(window, "openWebLinkIn");
+
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+  privacyLink.click();
+  await panelHiddenPromise;
+
+  Assert.ok(
+    openWebLinkInStub.calledOnce,
+    "openWebLinkIn should be called once"
+  );
+  Assert.equal(
+    openWebLinkInStub.firstCall.args[0],
+    LINKS.PRIVACY_NOTICE_URL,
+    "openWebLinkIn should be called with the privacy notice URL"
+  );
+  Assert.equal(
+    openWebLinkInStub.firstCall.args[1],
+    "tab",
+    "openWebLinkIn should open in a tab"
+  );
+
+  openWebLinkInStub.restore();
+  cleanupService();
+});
+
+/**
+ * Tests that BANDWIDTH.MAX_IN_GB use the bandwidth.maxInGb pref
+ * and that the unauthenticated panel reflects the configured value.
+ */
+add_task(async function test_max_in_gb_pref() {
+  Assert.equal(
+    BANDWIDTH.MAX_IN_GB,
+    50,
+    "MAX_IN_GB should default to 50 when the pref is unset"
+  );
+
+  await SpecialPowers.pushPrefEnv({ set: [[MAX_IN_GB_PREF, 100]] });
+  Assert.equal(
+    BANDWIDTH.MAX_IN_GB,
+    100,
+    "MAX_IN_GB should reflect the pref value"
+  );
+
+  setupService({
+    isSignedIn: false,
+    isEnrolledAndEntitled: false,
+  });
+  let content = await openPanel({ unauthenticated: true });
+  let bandwidthMessage = content.unauthenticatedEl.shadowRoot.querySelector(
+    '[data-l10n-id="unauthenticated-bandwidth-limit-message"]'
+  );
+
+  Assert.ok(bandwidthMessage, "Bandwidth limit message should be present");
+  Assert.deepEqual(
+    JSON.parse(bandwidthMessage.getAttribute("data-l10n-args")),
+    { maxUsage: 100 },
+    "Panel should render with the pref-driven max usage"
+  );
+
+  await closePanel();
+  cleanupService();
+  await SpecialPowers.popPrefEnv();
+
+  Assert.equal(
+    BANDWIDTH.MAX_IN_GB,
+    50,
+    "MAX_IN_GB should return to the default after the pref is cleared"
+  );
+});
+
+/**
  * Tests that clicking "get started" still calls fxaSignInFlow when signed in.
  */
 add_task(async function test_panel_get_started_signed_in() {
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: false,
+    isReady: false,
   });
   STUBS.fxaSignInFlow.resetHistory();
   let content = await openPanel({ unauthenticated: true });

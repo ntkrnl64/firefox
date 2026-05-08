@@ -46,6 +46,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   RemoteRenderer: "resource://newtab/lib/RemoteRenderer.sys.mjs",
   SectionsFeed: "resource://newtab/lib/SectionsManager.sys.mjs",
   SectionsLayoutFeed: "resource://newtab/lib/SectionsLayoutFeed.sys.mjs",
+  SportsFeed: "resource://newtab/lib/Widgets/SportsFeed.sys.mjs",
   StartupCacheInit: "resource://newtab/lib/StartupCacheInit.sys.mjs",
   Store: "resource://newtab/lib/Store.sys.mjs",
   SystemTickFeed: "resource://newtab/lib/SystemTickFeed.sys.mjs",
@@ -218,6 +219,67 @@ function showWeather({ geo, locale }) {
     csvPrefHasValue(REGION_WEATHER_CONFIG, geo) &&
     csvPrefHasValue(LOCALE_WEATHER_CONFIG, locale)
   );
+}
+
+/**
+ * Returns the default size for widgets that support large/medium sizes.
+ * This sets a default pref, not a user pref — if the user has explicitly
+ * resized a widget via the UI, their choice takes precedence.
+ *
+ * In the future this will follow the same regional logic as showWeather,
+ * returning different defaults based on the user's region.
+ */
+function getDefaultWidgetSize() {
+  return Services.prefs.getStringPref(
+    "browser.newtabpage.activity-stream.widgets.defaultSize",
+    "large"
+  );
+}
+
+/**
+ * Determines the default size for the consolidated weather widget by inferring
+ * what the user previously had visible before Nova was enabled. This runs at
+ * startup so that existing users are migrated to the correct size without any
+ * explicit one-time migration step.
+ *
+ * This sets a default pref, not a user pref. Users who change their size via
+ * the UI are fully migrated (their choice becomes a user pref — see the
+ * sentinel approach documented in WidgetsRegistry.mjs). Users who never touch
+ * the UI remain dependent on this function at every startup.
+ *
+ * widgets.weather.size uses getValue here instead of value: "" (the approach
+ * used by other widget size prefs) because the correct initial value depends
+ * on the user's prior weather configuration and cannot be a static default.
+ *
+ * - No forecast system pref → user had the classic weather widget → "small" (sidebar)
+ * - Forecast enabled + display !== "detailed" → user switched to simple weather → "small"
+ * - Forecast enabled + maximized → user had the large forecast widget → "large"
+ * - Forecast enabled + not maximized → user had the medium forecast widget → "medium"
+ */
+// @nova-cleanup(remove-pref): Replace this function with a _migratePref call
+// that writes the computed size as a user pref for widgets.weather.size, then
+// change widgets.weather.size in PREFS_CONFIG to value: "" (consistent with
+// other widget size prefs; new users fall through to defaultSize in the registry).
+function getWeatherWidgetSize() {
+  const forecastSystemEnabled = Services.prefs.getBoolPref(
+    "browser.newtabpage.activity-stream.widgets.system.weatherForecast.enabled",
+    false
+  );
+  if (!forecastSystemEnabled) {
+    return "small";
+  }
+  const weatherDisplay = Services.prefs.getStringPref(
+    "browser.newtabpage.activity-stream.weather.display",
+    "detailed"
+  );
+  if (weatherDisplay !== "detailed") {
+    return "small";
+  }
+  const maximized = Services.prefs.getBoolPref(
+    "browser.newtabpage.activity-stream.widgets.maximized",
+    true
+  );
+  return maximized ? getDefaultWidgetSize() : "medium";
 }
 
 function showWeatherOptIn({ geo }) {
@@ -636,6 +698,14 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
+    "newtabWallpapers.user.enabled",
+    {
+      title:
+        "Boolean flag controlling wallpaper visibility -- if true the user's selected wallpaper is shown, if false it is hidden",
+      value: false,
+    },
+  ],
+  [
     "newtabWallpapers.customColor.enabled",
     {
       title: "Boolean flag to turn show custom color select box",
@@ -815,7 +885,7 @@ export const PREFS_CONFIG = new Map([
     "discoverystream.shortcuts.personalization.enabled",
     {
       title: "Boolean flag to enable shortcuts personalization",
-      value: false,
+      value: true,
     },
   ],
   [
@@ -1060,7 +1130,7 @@ export const PREFS_CONFIG = new Map([
     "widgets.enabled",
     {
       title: "Allows users to toggle all widgets on and off at once",
-      value: false,
+      value: true,
     },
   ],
   [
@@ -1117,8 +1187,9 @@ export const PREFS_CONFIG = new Map([
   [
     "widgets.maximized",
     {
-      title: "Toggles maximized state for all widgets in the widgets section",
-      value: false,
+      title:
+        "Toggles maximized state for all widgets in the widgets section. It defaults to true as the default widget size is large",
+      value: true,
     },
   ],
   [
@@ -1165,6 +1236,20 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
+    "widgets.weather.enabled",
+    {
+      title: "Enables the weather widget",
+      value: true,
+    },
+  ],
+  [
+    "widgets.system.weather.enabled",
+    {
+      title: "Enables the weather widget experiment in Nimbus",
+      getValue: showWeather,
+    },
+  ],
+  [
     "widgets.system.weatherForecast.enabled",
     {
       title: "Enables the weather forecast widget experiment in Nimbus",
@@ -1183,6 +1268,27 @@ export const PREFS_CONFIG = new Map([
     "widgets.weather.size",
     {
       title: "Size of the weather forecast widget (small, medium, or large)",
+      getValue: getWeatherWidgetSize,
+    },
+  ],
+  [
+    "widgets.clocks.enabled",
+    {
+      title: "Enables the clock widget",
+      value: true,
+    },
+  ],
+  [
+    "widgets.system.clocks.enabled",
+    {
+      title: "Enables the clock widget experiment in Nimbus",
+      value: false,
+    },
+  ],
+  [
+    "widgets.defaultSize",
+    {
+      title: "Default size for widgets (medium or large)",
       value: "large",
     },
   ],
@@ -1190,7 +1296,72 @@ export const PREFS_CONFIG = new Map([
     "widgets.lists.size",
     {
       title: "Size of the lists widget (medium or large)",
-      value: "large",
+      value: "",
+    },
+  ],
+  [
+    "widgets.focusTimer.size",
+    {
+      title: "Size of the focus timer widget (medium or large)",
+      value: "",
+    },
+  ],
+  [
+    "widgets.sportsWidget.enabled",
+    {
+      title: "Enables the sports widget",
+      value: true,
+    },
+  ],
+  [
+    "widgets.system.sportsWidget.enabled",
+    {
+      title: "Enables the sports widget experiment in Nimbus",
+      value: false,
+    },
+  ],
+  [
+    "widgets.sportsWidget.size",
+    {
+      title: "Size of the sports widget (medium or large)",
+      value: "",
+    },
+  ],
+  [
+    "widgets.sportsWidget.live.enabled",
+    {
+      title: "Enables live scores in the sports widget",
+      value: false,
+    },
+  ],
+  [
+    "widgets.sportsWidget.interaction",
+    {
+      title:
+        "Boolean flag for determining if a user has interacted with the sports widget",
+      value: false,
+    },
+  ],
+  [
+    "widgets.clocks.size",
+    {
+      title: "Size of the clock widget (small, medium, or large)",
+      getValue: getDefaultWidgetSize,
+    },
+  ],
+  [
+    "widgets.clocks.hourFormat",
+    {
+      title:
+        "User override for clock widget hour format ('12', '24', or empty string to use locale default)",
+      value: "",
+    },
+  ],
+  [
+    "widgets.clocks.zones",
+    {
+      title: "Saved clock widget time zones",
+      value: "",
     },
   ],
   [
@@ -1205,6 +1376,14 @@ export const PREFS_CONFIG = new Map([
     {
       title: "Shows a toast when all widgets are hidden via the X button",
       value: false,
+    },
+  ],
+  [
+    "widgets.order",
+    {
+      title:
+        "Widget display order as a comma-separated list of widget IDs. Empty string means use the default registry order.",
+      value: "",
     },
   ],
   [
@@ -1718,6 +1897,12 @@ const FEEDS_DATA = [
     name: "listsfeed",
     factory: () => new lazy.ListsFeed(),
     title: "Handles the data for the Todo list widget",
+    value: true,
+  },
+  {
+    name: "sportsfeed",
+    factory: () => new lazy.SportsFeed(),
+    title: "Handles persistent state for the Sports widget",
     value: true,
   },
   {

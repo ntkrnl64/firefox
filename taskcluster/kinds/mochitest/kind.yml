@@ -5,6 +5,7 @@
 loader: gecko_taskgraph.loader.test:loader
 
 kind-dependencies:
+    - artifact-build
     - build
     - repackage-signing-shippable-l10n-msix
     - repackage-signing-msix
@@ -28,9 +29,9 @@ task-defaults:
     use-uv: true
     worker-type:
         by-test-platform:
-            windows11-64-24h2-asan/.*: win11-64-25h2-large
-            windows11-(32|64)-24h2(-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2
-            windows11-aarch64-24h2(-devedition|-shippable)?/.*: win11-a64-25h2
+            windows.*-asan/.*: win11-64-25h2-large
+            windows.*aarch64.*/.*: win11-a64-25h2
+            windows.*/.*: win11-64-25h2
             default: default
     require-signed-extensions:
         by-release-type:
@@ -43,6 +44,11 @@ task-defaults:
     docker-image:
         in-tree: ubuntu2404-test
     fetches:
+        fetch:
+            by-test-platform:
+                win.*:
+                    - win64-ffmpeg-7.1
+                default: []
         toolchain:
             by-test-platform:
                 win.*:
@@ -78,10 +84,6 @@ task-defaults:
         by-test-platform:
             android-em.*: geckoview-test_runner.apk
             android-hw.*: geckoview-test_runner.apk
-            windows11-64.*:
-                by-variant:
-                    msix: target.installer.msix
-                    default: null
             default: null
     tier:
         by-variant:
@@ -156,7 +158,7 @@ tasks:
                         .*-wayland.*: []
                         windows.*-ccov.*: []
                         linux.*64(-shippable)?/.*: ['trunk']
-                        macosx.*64-aarch64(-shippable)?(-qr)?/.*: ['mozilla-central']
+                        macosx.*64-aarch64(-shippable)?(-qr)?/.*: ['trunk']
                         macosx.*64(-shippable)?(-qr)?/.*: ['trunk']
                         windows11-64-24h2(-shippable)?(-qr)?/.*: ['trunk']
                         linux.*64-ccov/opt: ['mozilla-central']
@@ -169,8 +171,12 @@ tasks:
                         default: []
                 standalone:
                     by-test-platform:
-                        linux.*-64/(opt|debug): ['autoland', 'mozilla-central']
-                        windows.*-64-[^-/]+/(opt|debug): ['autoland', 'mozilla-central']
+                        linux.*-64-shippable/opt: ['mozilla-central']
+                        linux.*-64/debug: ['autoland', 'mozilla-central']
+                        linux.*-64/opt: ['autoland']
+                        windows.*-64-[^-/]+-shippable/opt: ['mozilla-central']
+                        windows.*-64-[^-/]+/debug: ['autoland', 'mozilla-central']
+                        windows.*-64-[^-/]+/opt: ['autoland']
                         default: []
                 headless:
                     by-test-platform:
@@ -326,7 +332,7 @@ tasks:
                         .*-32.*: []
                         linux2404-64(-shippable)?/opt: ['trunk']
                         macosx.*-64(-shippable)?(-qr)?/opt: ['trunk']
-                        windows11-64-24h2(-shippable)?/opt: ['trunk']
+                        windows11-64-25h2(-shippable)?/opt: ['trunk']
                         default: []
                 trainhop-release:
                     by-test-platform:
@@ -334,11 +340,12 @@ tasks:
                         .*-32.*: []
                         linux2404-64(-shippable)?/opt: ['trunk']
                         macosx.*-64(-shippable)?(-qr)?/opt: ['trunk']
-                        windows11-64-24h2(-shippable)?/opt: ['trunk']
+                        windows11-64-25h2(-shippable)?/opt: ['trunk']
                         default: []
                 webrender-sw:
                     by-test-platform:
                         linux.*64/debug: ['all']
+                        linux.*64-artifact/opt: ['mozilla-central']
                         linux.*64-asan/opt: ['all']
                         linux.*64-tsan/opt: built-projects
                         linux.*64/opt: built-projects
@@ -356,11 +363,16 @@ tasks:
                         default: []
                 standalone:
                     by-test-platform:
-                        linux.*-64/(opt|debug): ['autoland', 'mozilla-central']
-                        windows.*-64-[^-/]+/(opt|debug): ['autoland', 'mozilla-central']
+                        linux.*-64-shippable/opt: ['mozilla-central']
+                        linux.*-64/debug: ['autoland', 'mozilla-central']
+                        linux.*-64/opt: ['autoland']
+                        windows.*-64-[^-/]+-shippable/opt: ['mozilla-central']
+                        windows.*-64-[^-/]+/debug: ['autoland', 'mozilla-central']
+                        windows.*-64-[^-/]+/opt: ['autoland']
                         default: []
                 vertical-tabs:
                     by-test-platform:
+                        .*-artifact.*: []
                         .*-asan.*: []
                         .*-ccov.*: []
                         linux.*64(-shippable)?/.*: ['autoland', 'mozilla-central']
@@ -432,7 +444,12 @@ tasks:
         allow-software-gl-layers: false
         fetches:
             fetch:
-                - ort.jsep.wasm
+                by-test-platform:
+                    win.*:
+                        - win64-ffmpeg-7.1
+                        - ort.jsep.wasm
+                    default:
+                        - ort.jsep.wasm
 
     mochitest-browser-chrome-failures:
         description: "Mochitest browser-chrome failures run"
@@ -514,9 +531,7 @@ tasks:
             by-variant:
                 wmf-media-engine:
                     by-test-platform:
-                        .*-asan.*: []
-                        windows11-64.*/debug: []  # Bug 1805736
-                        windows1.*-64.*: ['autoland', 'mozilla-central']
+                        windows11.*: built-projects
                         default: []
                 default:
                     by-test-platform:
@@ -565,10 +580,11 @@ tasks:
         tier: default
         max-run-time:
             by-test-platform:
-                .*-asan.*: 1800
+                .*-asan.*: 2400
                 .*-tsan.*: 2400
                 .*-ccov.*: 2400
-                default: 1500
+                .*/debug: 2400
+                default: 1800
         mozharness:
             mochitest-flavor: browser
         instance-size: default
@@ -605,8 +621,12 @@ tasks:
                         default: built-projects
                 standalone:
                     by-test-platform:
-                        linux.*-64/(opt|debug): ['autoland', 'mozilla-central']
-                        windows.*-64-[^-/]+/(opt|debug): ['autoland', 'mozilla-central']
+                        linux.*-64-shippable/opt: ['mozilla-central']
+                        linux.*-64/debug: ['autoland', 'mozilla-central']
+                        linux.*-64/opt: ['autoland']
+                        windows.*-64-[^-/]+-shippable/opt: ['mozilla-central']
+                        windows.*-64-[^-/]+/debug: ['autoland', 'mozilla-central']
+                        windows.*-64-[^-/]+/opt: ['autoland']
                         default: []
                 inc-origin-init: []
         chunks: dynamic
@@ -648,8 +668,12 @@ tasks:
                         default: []
                 standalone:
                     by-test-platform:
-                        linux.*-64/(opt|debug): ['autoland', 'mozilla-central']
-                        windows.*-64-[^-/]+/(opt|debug): ['autoland', 'mozilla-central']
+                        linux.*-64-shippable/opt: ['mozilla-central']
+                        linux.*-64/debug: ['autoland', 'mozilla-central']
+                        linux.*-64/opt: ['autoland']
+                        windows.*-64-[^-/]+-shippable/opt: ['mozilla-central']
+                        windows.*-64-[^-/]+/debug: ['autoland', 'mozilla-central']
+                        windows.*-64-[^-/]+/opt: ['autoland']
                         default: []
                 http3:
                     by-test-platform:
@@ -771,7 +795,7 @@ tasks:
         loopback-video: true
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         variants:
             - no-fission
@@ -837,7 +861,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         run-without-variant: false
         variants:
@@ -945,8 +969,7 @@ tasks:
                 wmf-media-engine:
                     by-test-platform:
                         .*hw-ref.*: []
-                        windows1.*-ccov.*: []
-                        windows1.*64.*: ['autoland', 'mozilla-central']
+                        windows11.*: built-projects
                         default: []
                 msix:
                     by-test-platform:
@@ -1035,9 +1058,9 @@ tasks:
                         default: default
                 default:
                     by-test-platform:
-                        windows11-64-24h2-asan/.*: win11-64-25h2-large
-                        windows11-(32|64)-24h2(-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2
-                        windows11-aarch64-24h2(-devedition|-shippable)?/.*: win11-a64-25h2
+                        windows.*-asan/.*: win11-64-25h2-large
+                        windows.*aarch64.*/.*: win11-a64-25h2
+                        windows.*/.*: win11-64-25h2
                         default: default
 
     mochitest-valgrind:
@@ -1065,7 +1088,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         test-manifest-loader: null  # don't load tests in the taskgraph
         loopback-video: true
@@ -1110,7 +1133,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         test-manifest-loader: null  # don't load tests in the taskgraph
         loopback-video: true
@@ -1155,7 +1178,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         chunks:
             by-test-platform:
@@ -1206,7 +1229,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         variants:
             - no-fission
@@ -1250,7 +1273,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         variants:
             - webrender-sw
@@ -1272,7 +1295,7 @@ tasks:
         virtualization: virtual-with-gpu
         worker-type:
             by-test-platform:
-                windows11-(32|64)-24h2(-asan|-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2-gpu
+                windows.*/.*: win11-64-25h2-gpu
                 default: default
         loopback-video: true
         variants:

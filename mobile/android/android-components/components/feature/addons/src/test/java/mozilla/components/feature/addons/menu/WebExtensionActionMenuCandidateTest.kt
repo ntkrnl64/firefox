@@ -19,6 +19,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class WebExtensionActionMenuCandidateTest {
@@ -82,7 +83,7 @@ class WebExtensionActionMenuCandidateTest {
         assertTrue(candidate.containerStyle.isEnabled)
 
         assertNull(candidate.start)
-        assertTrue(candidate.end is TextMenuIcon)
+        assertIs<TextMenuIcon>(candidate.end)
 
         assertEquals(
             TextMenuIcon(
@@ -110,7 +111,7 @@ class WebExtensionActionMenuCandidateTest {
         assertEquals("action", candidate.text)
         assertFalse(candidate.containerStyle.isEnabled)
 
-        assertTrue(candidate.start is AsyncDrawableMenuIcon)
+        assertIs<AsyncDrawableMenuIcon>(candidate.start)
         assertNull(candidate.end)
 
         val start = candidate.start as AsyncDrawableMenuIcon

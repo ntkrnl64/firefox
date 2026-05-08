@@ -583,8 +583,7 @@ nsresult nsFrameSelection::ConstrainFrameAndPointToAnchorSubtree(
   RefPtr<PresShell> presShell = mPresShell;
   nsIContent* anchorRoot = anchorContent->GetSelectionRootContent(
       presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
-      static_cast<nsINode::AllowCrossShadowBoundary>(
-          StaticPrefs::dom_shadowdom_selection_across_boundary_enabled()));
+      nsINode::AllowCrossShadowBoundary::Yes);
   NS_ENSURE_TRUE(anchorRoot, NS_ERROR_UNEXPECTED);
 
   //
@@ -596,8 +595,7 @@ nsresult nsFrameSelection::ConstrainFrameAndPointToAnchorSubtree(
   if (content) {
     nsIContent* contentRoot = content->GetSelectionRootContent(
         presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
-        static_cast<nsINode::AllowCrossShadowBoundary>(
-            StaticPrefs::dom_shadowdom_selection_across_boundary_enabled()));
+        nsINode::AllowCrossShadowBoundary::Yes);
     NS_ENSURE_TRUE(contentRoot, NS_ERROR_UNEXPECTED);
 
     if (anchorRoot == contentRoot) {
@@ -623,9 +621,7 @@ nsresult nsFrameSelection::ConstrainFrameAndPointToAnchorSubtree(
         NS_ENSURE_TRUE(cursorContent, NS_ERROR_FAILURE);
         nsIContent* cursorContentRoot = cursorContent->GetSelectionRootContent(
             presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
-            static_cast<nsINode::AllowCrossShadowBoundary>(
-                StaticPrefs::
-                    dom_shadowdom_selection_across_boundary_enabled()));
+            nsINode::AllowCrossShadowBoundary::Yes);
         NS_ENSURE_TRUE(cursorContentRoot, NS_ERROR_UNEXPECTED);
         if (cursorContentRoot == anchorRoot) {
           *aRetFrame = cursorFrame;
@@ -850,7 +846,7 @@ nsresult nsFrameSelection::MoveCaret(nsDirection aDirection,
       sel->CollapseInLimiter(node, offset);
     }
     sel->ScrollIntoView(nsISelectionController::SELECTION_FOCUS_REGION,
-                        ScrollAxis(), ScrollAxis(), scrollFlags);
+                        AxisScrollParams(), AxisScrollParams(), scrollFlags);
     return NS_OK;
   }
 
@@ -964,7 +960,8 @@ nsresult nsFrameSelection::MoveCaret(nsDirection aDirection,
   }
   if (NS_SUCCEEDED(rv)) {
     rv = sel->ScrollIntoView(nsISelectionController::SELECTION_FOCUS_REGION,
-                             ScrollAxis(), ScrollAxis(), scrollFlags);
+                             AxisScrollParams(), AxisScrollParams(),
+                             scrollFlags);
   }
 
   return rv;
@@ -1477,7 +1474,7 @@ nsresult nsFrameSelection::TakeFocus(nsIContent& aNewFocus,
     }
     case FocusMode::kExtendSelection: {
       // Now update the range list:
-      nsINode* inclusiveTableCellAncestor =
+      nsCOMPtr<nsINode> inclusiveTableCellAncestor =
           GetClosestInclusiveTableCellAncestor(&aNewFocus);
       if (mTableSelection.mClosestInclusiveTableCellAncestor &&
           inclusiveTableCellAncestor &&
@@ -1618,8 +1615,10 @@ void nsFrameSelection::PopulateHighlightSelection(
   MOZ_ASSERT(GetPresShell());
   AutoFrameSelectionBatcher selectionBatcher(__FUNCTION__);
   selectionBatcher.AddFrameSelection(this);
+  const Document* doc = GetPresShell()->GetDocument();
   for (const RefPtr<AbstractRange>& range : aHighlight.Ranges()) {
-    if (range->GetComposedDocOfContainers() == GetPresShell()->GetDocument()) {
+    const Document* rangeDoc = range->GetComposedDocOfContainers();
+    if (!rangeDoc || rangeDoc == doc) {
       // since this is run in a context guarded by a selection batcher,
       // no strong reference is needed to keep `range` alive.
       aSelection.AddHighlightRangeAndSelectFramesAndNotifyListeners(
@@ -1740,8 +1739,8 @@ nsresult nsFrameSelection::ScrollSelectionIntoView(SelectionType aSelectionType,
 
   // After ScrollSelectionIntoView(), the pending notifications might be
   // flushed and PresShell/PresContext/Frames may be dead. See bug 418470.
-  return sel->ScrollIntoView(aRegion, ScrollAxis(vScroll), ScrollAxis(),
-                             scrollFlags, mode);
+  return sel->ScrollIntoView(aRegion, AxisScrollParams(vScroll),
+                             AxisScrollParams(), scrollFlags, mode);
 }
 
 nsresult nsFrameSelection::RepaintSelection(SelectionType aSelectionType) {
@@ -1977,7 +1976,7 @@ nsresult nsFrameSelection::PhysicalMove(int16_t aDirection, int16_t aAmount,
   }
 
   // Check that parameters are safe
-  if (aDirection < 0 || aDirection > 3 || aAmount < 0 || aAmount > 1) {
+  if (aDirection < 0 || aDirection > 3 || aAmount < 0 || aAmount > 2) {
     return NS_ERROR_FAILURE;
   }
 
@@ -2040,6 +2039,21 @@ nsresult nsFrameSelection::PhysicalMove(int16_t aDirection, int16_t aAmount,
     }
   }
 
+  if (aAmount == 2) {
+    // Amount 2 is visual intra-line movement (move to line edge).
+    // Determine the logical forward direction from the physical direction
+    // and the writing mode's bidi direction, then use IntraLineMove which
+    // handles eLogical movement correctly.
+    bool isLeftOrUp = (aDirection == nsISelectionController::MOVE_LEFT ||
+                       aDirection == nsISelectionController::MOVE_UP);
+    // In LTR, left/up = backward (beginning), right/down = forward (end).
+    // In RTL, left/up = forward (end), right/down = backward (beginning).
+    bool forward = wm.IsBidiRTL() ? isLeftOrUp : !isLeftOrUp;
+    return IntraLineMove(forward, aExtend);
+  }
+
+  MOZ_ASSERT(aAmount <= 1, "aAmount == 2 should have been handled above");
+
   const PhysicalToLogicalMapping& mapping =
       wm.IsVertical()
           ? wm.IsVerticalLR() ? verticalLR[aDirection] : verticalRL[aDirection]
@@ -2089,6 +2103,11 @@ nsresult nsFrameSelection::IntraLineMove(bool aForward, bool aExtend) {
   }
   return MoveCaret(eDirPrevious, ExtendSelection(aExtend), eSelectBeginLine,
                    eLogical);
+}
+
+nsresult nsFrameSelection::ParagraphMove(bool aForward, bool aExtend) {
+  return MoveCaret(aForward ? eDirNext : eDirPrevious, ExtendSelection(aExtend),
+                   eSelectParagraph, eLogical);
 }
 
 // static

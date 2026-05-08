@@ -246,6 +246,7 @@ struct av1_extracfg {
   int kf_max_pyr_height;
   int sb_qp_sweep;
   aom_screen_detection_mode screen_detection_mode;
+  unsigned int validate_input_hbd;
 };
 
 #if !CONFIG_REALTIME_ONLY
@@ -402,6 +403,7 @@ static const struct av1_extracfg default_extra_cfg = {
   -1,              // kf_max_pyr_height
   0,               // sb_qp_sweep
   AOM_SCREEN_DETECTION_STANDARD,
+  1,  // validate_input_hbd
 };
 #else
 // Some settings are changed for realtime only build.
@@ -558,6 +560,7 @@ static const struct av1_extracfg default_extra_cfg = {
   -1,              // kf_max_pyr_height
   0,               // sb_qp_sweep
   AOM_SCREEN_DETECTION_STANDARD,
+  1,  // validate_input_hbd
 };
 #endif
 
@@ -858,7 +861,7 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
   RANGE_CHECK(extra_cfg, transfer_characteristics, AOM_CICP_TC_BT_709,
               AOM_CICP_TC_HLG);
   RANGE_CHECK(extra_cfg, matrix_coefficients, AOM_CICP_MC_IDENTITY,
-              AOM_CICP_MC_ICTCP);
+              AOM_CICP_MC_YCGCO_RO);
   RANGE_CHECK(extra_cfg, color_range, 0, 1);
 
   /* Average corpus complexity is supported only in the case of single pass
@@ -1016,6 +1019,31 @@ static aom_codec_err_t validate_img(aom_codec_alg_priv_t *ctx,
     }
   }
 #endif
+
+#if CONFIG_AV1_HIGHBITDEPTH
+  if (ctx->extra_cfg.validate_input_hbd &&
+      (img->fmt & AOM_IMG_FMT_HIGHBITDEPTH)) {
+    const unsigned int bit_depth = ctx->oxcf.input_cfg.input_bit_depth;
+    const int max_val = 1 << bit_depth;
+    // Note there is no high bitdepth version of NV12 defined. If one is
+    // added, `num_planes` should be 2 in that case.
+    const int num_planes = img->monochrome ? 1 : 3;
+    for (int plane = 0; plane < num_planes; ++plane) {
+      const unsigned short *src = (const unsigned short *)img->planes[plane];
+      const unsigned int stride = img->stride[plane] / 2;
+      const unsigned int ph = aom_img_plane_height(img, plane);
+      const unsigned int pw = aom_img_plane_width(img, plane);
+      for (unsigned int i = 0; i < ph; ++i) {
+        for (unsigned int j = 0; j < pw; ++j) {
+          if (src[j] >= max_val) {
+            return AOM_CODEC_INVALID_PARAM;
+          }
+        }
+        src += stride;
+      }
+    }
+  }
+#endif  // CONFIG_AV1_HIGHBITDEPTH
 
   return AOM_CODEC_OK;
 }
@@ -1881,6 +1909,13 @@ static aom_codec_err_t ctrl_set_enable_keyframe_filtering(
   struct av1_extracfg extra_cfg = ctx->extra_cfg;
   extra_cfg.enable_keyframe_filtering =
       CAST(AV1E_SET_ENABLE_KEYFRAME_FILTERING, args);
+  return update_extra_cfg(ctx, &extra_cfg);
+}
+
+static aom_codec_err_t ctrl_set_validate_input_hbd(aom_codec_alg_priv_t *ctx,
+                                                   va_list args) {
+  struct av1_extracfg extra_cfg = ctx->extra_cfg;
+  extra_cfg.validate_input_hbd = CAST(AOME_SET_VALIDATE_INPUT_HBD, args);
   return update_extra_cfg(ctx, &extra_cfg);
 }
 
@@ -4069,6 +4104,7 @@ static aom_codec_err_t ctrl_set_svc_params(aom_codec_alg_priv_t *ctx,
         ppi->number_spatial_layers * ppi->number_temporal_layers - 1;
     ctx->next_frame_flags |= AOM_EFLAG_FORCE_KF;
     av1_set_svc_seq_params(ppi);
+    av1_free_svc_cyclic_refresh(cpi);
     // Check for valid values for the spatial/temporal_layer_id here, since
     // there has been a dynamic change in the number_spatial/temporal_layers,
     // and if the ctrl_set_layer_id is not used after this call, the
@@ -4335,16 +4371,9 @@ static aom_codec_err_t encoder_set_option(aom_codec_alg_priv_t *ctx,
   size_t len = strlen(name) + strlen(value) + 4;
   char *const err_string = ctx->ppi->error.detail;
 
-#if __STDC_VERSION__ >= 201112L
-  // We use the keyword _Static_assert because clang-cl does not allow the
-  // convenience macro static_assert to be used in function scope. See
-  // https://bugs.llvm.org/show_bug.cgi?id=48904.
-  _Static_assert(sizeof(ctx->ppi->error.detail) >= ARG_ERR_MSG_MAX_LEN,
-                 "The size of the err_msg buffer for arg_match_helper must be "
-                 "at least ARG_ERR_MSG_MAX_LEN");
-#else
-  assert(sizeof(ctx->ppi->error.detail) >= ARG_ERR_MSG_MAX_LEN);
-#endif
+  static_assert(sizeof(ctx->ppi->error.detail) >= ARG_ERR_MSG_MAX_LEN,
+                "The size of the err_msg buffer for arg_match_helper must be "
+                "at least ARG_ERR_MSG_MAX_LEN");
 
   argv[0] = aom_malloc(len * sizeof(argv[1][0]));
   if (!argv[0]) return AOM_CODEC_MEM_ERROR;
@@ -5027,6 +5056,7 @@ static aom_codec_ctrl_fn_map_t encoder_ctrl_maps[] = {
     ctrl_set_screen_content_detection_mode },
   { AV1E_SET_ENABLE_ADAPTIVE_SHARPNESS, ctrl_set_enable_adaptive_sharpness },
   { AV1E_SET_EXTERNAL_RATE_CONTROL, ctrl_set_external_rate_control },
+  { AOME_SET_VALIDATE_INPUT_HBD, ctrl_set_validate_input_hbd },
 
   // Getters
   { AOME_GET_LAST_QUANTIZER, ctrl_get_quantizer },

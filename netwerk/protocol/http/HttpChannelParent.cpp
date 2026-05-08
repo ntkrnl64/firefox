@@ -274,12 +274,11 @@ void HttpChannelParent::CleanupBackgroundChannel() {
     // BackgroundChannelRegistrar. Only remove our own entry; another
     // HttpChannelParent may have been registered under the same channel Id
     // (e.g. after a redirect), and we must not remove that entry.
-    nsCOMPtr<nsIBackgroundChannelRegistrar> registrar =
+    RefPtr<BackgroundChannelRegistrar> registrar =
         BackgroundChannelRegistrar::GetOrCreate();
     MOZ_ASSERT(registrar);
-    if (RefPtr<BackgroundChannelRegistrar> bkregistrar =
-            do_QueryObject(registrar)) {
-      bkregistrar->DeleteChannelIfMatches(mChannel->ChannelId(), this);
+    if (registrar) {
+      registrar->DeleteChannelIfMatches(mChannel->ChannelId(), this);
     }
 
     // If mAsyncOpenBarrier is greater than zero, it means AsyncOpen procedure
@@ -1067,7 +1066,7 @@ mozilla::ipc::IPCResult HttpChannelParent::RecvRemoveCorsPreflightCacheEntry(
 
 mozilla::ipc::IPCResult HttpChannelParent::RecvSetCookies(
     const nsACString& aBaseDomain, const OriginAttributes& aOriginAttributes,
-    nsIURI* aHost, const bool& aFromHttp, const bool& aIsThirdParty,
+    nsIURI* aHost, const bool& aIsThirdParty,
     nsTArray<CookieStruct>&& aCookies) {
   net::PCookieServiceParent* csParent =
       LoneManagedOrNullAsserts(Manager()->ManagedPCookieServiceParent());
@@ -1081,7 +1080,7 @@ mozilla::ipc::IPCResult HttpChannelParent::RecvSetCookies(
   }
 
   return cs->SetCookies(nsCString(aBaseDomain), aOriginAttributes, aHost,
-                        aFromHttp, aIsThirdParty, aCookies, browsingContext);
+                        aIsThirdParty, aCookies, browsingContext);
 }
 
 //-----------------------------------------------------------------------------
@@ -1107,6 +1106,10 @@ static ResourceTimingStructArgs GetTimingAttributes(HttpBaseChannel* aChannel) {
   args.requestStart() = timeStamp;
   aChannel->GetResponseStart(&timeStamp);
   args.responseStart() = timeStamp;
+  aChannel->GetFirstInterimResponseStart(&timeStamp);
+  args.firstInterimResponseStart() = timeStamp;
+  aChannel->GetFinalResponseHeadersStart(&timeStamp);
+  args.finalResponseHeadersStart() = timeStamp;
   aChannel->GetResponseEnd(&timeStamp);
   args.responseEnd() = timeStamp;
   aChannel->GetAsyncOpen(&timeStamp);
@@ -1194,7 +1197,7 @@ HttpChannelParent::OnStartRequest(nsIRequest* aRequest) {
   // NOTE: Transferring cookies in this way happens here, rather than in
   // `AboutToLoadDocumentForChild`, as we need the PCookieService actor to be
   // initialized before we can transmit cookies.
-  if (!mIPCClosed) {
+  if (!mIPCClosed && chan->IsNavigation()) {
     // FIXME: We should consider skipping sending cookies if the response isn't
     // going to result in the document being rendered (e.g. if we're going to
     // display a load error)

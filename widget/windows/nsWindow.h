@@ -200,8 +200,14 @@ class nsWindow final : public nsIWidget {
   bool IsVisible() const override;
   void ConstrainPosition(DesktopIntPoint&) override;
   void SetSizeConstraints(const SizeConstraints& aConstraints) override;
+  struct DeviceSizeConstraints {
+    int32_t mMinWidth;
+    int32_t mMinHeight;
+    int32_t mMaxWidth;
+    int32_t mMaxHeight;
+  };
+  DeviceSizeConstraints GetDeviceSizeConstraints() const;
   void LockAspectRatio(bool aShouldLock) override;
-  const SizeConstraints GetSizeConstraints() override;
   void SetInputRegion(const InputRegion&) override;
   void Move(const DesktopPoint&) override;
   void Resize(const DesktopSize&, bool aRepaint) override;
@@ -544,7 +550,6 @@ class nsWindow final : public nsIWidget {
    */
   HWND GetTopLevelForFocus(HWND aCurWnd);
   void DispatchFocusToTopLevelWindow(bool aIsActivate);
-  bool DispatchStandardEvent(mozilla::EventMessage aMsg);
   void RelayMouseEvent(UINT aMsg, WPARAM wParam, LPARAM lParam);
   bool ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
                       LRESULT* aRetValue);
@@ -865,8 +870,6 @@ class nsWindow final : public nsIWidget {
   TimeStamp mCachedHitTestTime;
 
   RefPtr<mozilla::widget::InProcessWinCompositorWidget> mBasicLayersSurface;
-
-  double mSizeConstraintsScale;  // scale in effect when setting constraints
 
   // Will be calculated when layer manager is created.
   int32_t mMaxTextureSize = -1;

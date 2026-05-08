@@ -4,6 +4,30 @@
 
 .fxview-tab-list {
   grid-template-columns: unset;
+  position: relative;
+}
+
+.drag-indicator {
+  display: none;
+  position: absolute;
+  inset-inline: 0;
+  height: 1px;
+  /* stylelint-disable stylelint-plugin-mozilla/use-design-tokens */
+  background-color: var(--color-accent-primary);
+  border-radius: var(--border-radius-xsmall);
+  pointer-events: none;
+  z-index: 1;
+
+  &.visible {
+    display: block;
+  }
+}
+
+details[drag-over] > summary,
+.bookmark-folder-label[drag-over] {
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-inset);
+  border-radius: var(--border-radius-small);
 }
 
 virtual-list {
@@ -58,6 +82,11 @@ details summary,
     }
   }
 
+  &:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: var(--focus-outline-inset);
+  }
+
   &::before {
     content: "";
     display: inline-block;
@@ -83,11 +112,11 @@ details {
 }
 
 sidebar-bookmark-row {
-  border-radius: var(--border-radius-medium);
+  border-radius: var(--border-radius-circle);
   height: var(--size-item-large);
   align-items: center;
 
-  &:hover {
+  &:hover:not([selected]) {
     background-color: var(--button-background-color-ghost-hover);
     color: var(--button-text-color-ghost-hover);
 
@@ -95,5 +124,15 @@ sidebar-bookmark-row {
       background-color: var(--button-background-color-ghost-active);
       color: var(--button-text-color-ghost-active);
     }
+  }
+
+  &:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: var(--focus-outline-inset);
+  }
+
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media not -moz-pref("browser.nova.enabled") {
+    border-radius: var(--border-radius-medium);
   }
 }

@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -118,7 +116,7 @@ var gMenuBuilder = {
       ) {
         return false;
       } else if (
-        PrivateBrowsingUtils.isWindowPrivate(contextData.menu.ownerGlobal)
+        PrivateBrowsingUtils.isWindowPrivate(contextData.menu.documentGlobal)
       ) {
         return false;
       }
@@ -438,7 +436,7 @@ var gMenuBuilder = {
           _execute_sidebar_action: global.sidebarActionFor,
         }[item.command];
         if (actionFor) {
-          let win = event.target.ownerGlobal;
+          let win = event.target.documentGlobal;
           actionFor(item.extension).triggerAction(win);
           return;
         }
@@ -462,7 +460,7 @@ var gMenuBuilder = {
   },
 
   setMenuItemIcon(element, extension, contextData, icons) {
-    let parentWindow = contextData.menu.ownerGlobal;
+    let parentWindow = contextData.menu.documentGlobal;
 
     let { icon } = IconDetails.getPreferredIcon(
       icons,
@@ -1090,7 +1088,7 @@ const menuTracker = {
   onSidebarShown(event) {
     // The event target is an element in a browser window, so |window| will be
     // the browser window that contains the sidebar.
-    const window = event.currentTarget.ownerGlobal;
+    const window = event.currentTarget.documentGlobal;
     if (window.SidebarController.currentID === "viewBookmarksSidebar") {
       let sidebarBrowser = window.SidebarController.browser;
       if (sidebarBrowser.contentDocument.readyState !== "complete") {
@@ -1142,7 +1140,7 @@ const menuTracker = {
       gMenuBuilder.build({ menu, tab, pageUrl, inToolsMenu: true });
     }
     if (menu.id === "tabContextMenu") {
-      const tab = menu.ownerGlobal.TabContextMenu.contextTab;
+      const tab = menu.documentGlobal.TabContextMenu.contextTab;
       const pageUrl = tab.linkedBrowser.currentURI.spec;
       gMenuBuilder.build({ menu, tab, pageUrl, onTab: true });
     }
@@ -1310,7 +1308,9 @@ this.menusInternal = class extends ExtensionAPIPersistent {
           await fire.wakeup();
           // If while waiting the tab disappeared we bail out.
           if (
-            !linkedBrowser.ownerGlobal.gBrowser.getTabForBrowser(linkedBrowser)
+            !linkedBrowser.documentGlobal.gBrowser.getTabForBrowser(
+              linkedBrowser
+            )
           ) {
             Cu.reportError(
               `menus.onClicked: target tab closed during background startup.`

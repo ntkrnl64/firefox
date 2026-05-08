@@ -1079,6 +1079,7 @@ class CssRuleView extends EventEmitter {
 
     this.#abortController.abort();
     this.#abortController = null;
+    this.#containers.clear();
 
     this.shortcuts.destroy();
 
@@ -1214,6 +1215,7 @@ class CssRuleView extends EventEmitter {
 
     const isProfilerActive = Services.profiler.IsActive();
     const startTime = isProfilerActive ? ChromeUtils.now() : null;
+    const done = this.inspector.updating("rule-view");
 
     const elementStyle = new ElementStyle(
       element,
@@ -1233,6 +1235,7 @@ class CssRuleView extends EventEmitter {
 
       await this.#populate();
       if (this.elementStyle !== elementStyle) {
+        done();
         return;
       }
       this.elementStyle.onChanged = () => {
@@ -1267,6 +1270,7 @@ class CssRuleView extends EventEmitter {
       }
       console.error("Error while updating the rule view", e);
     }
+    done();
   }
 
   /**
@@ -1507,6 +1511,8 @@ class CssRuleView extends EventEmitter {
     container.classList.add("ruleview-container");
     container.id = containerId;
 
+    this.#containers.set(containerId, { header, container });
+
     return { header, container };
   }
 
@@ -1552,25 +1558,24 @@ class CssRuleView extends EventEmitter {
     );
     container.hidden = false;
 
+    this.#containers.set(containerId, { header, container });
+
     const isPseudo = containerId == PSEUDO_ELEMENTS_CONTAINER_ID;
     const { signal } = this.#abortController;
     toggleButton.addEventListener(
       "click",
-      () => {
-        this.#toggleContainerVisibility(
-          toggleButton,
-          container,
-          isPseudo,
-          !this.showPseudoElements
-        );
-      },
+      this.#toggleContainerVisibility.bind(
+        this,
+        containerId,
+        isPseudo,
+        !this.showPseudoElements
+      ),
       { signal }
     );
 
     if (isPseudo) {
       this.#toggleContainerVisibility(
-        toggleButton,
-        container,
+        containerId,
         isPseudo,
         this.showPseudoElements
       );
@@ -1618,16 +1623,16 @@ class CssRuleView extends EventEmitter {
   /**
    * Toggle the visibility of an expandable container
    *
-   * @param  {DOMNode}  twisty
-   *         Clickable toggle DOM Node
-   * @param  {DOMNode}  container
-   *         Expandable container DOM Node
+   * @param  {string}  containerId
+   *         Container ID.
    * @param  {boolean}  isPseudo
    *         Whether or not the container will hold pseudo element rules
    * @param  {boolean}  showPseudo
    *         Whether or not pseudo element rules should be displayed
    */
-  #toggleContainerVisibility(toggleButton, container, isPseudo, showPseudo) {
+  #toggleContainerVisibility(containerId, isPseudo, showPseudo) {
+    const { header, container } = this.#containers.get(containerId);
+    const toggleButton = header.querySelector("button");
     let isOpen = toggleButton.getAttribute("aria-expanded") === "true";
 
     if (isPseudo) {
@@ -1684,10 +1689,17 @@ class CssRuleView extends EventEmitter {
 
       // Ensure adding the rule editor at the right location
       const lastElement = lastElementPerContainer.get(container);
-      if (lastElement) {
+      // Also avoid any DOM mutation if the rule already exists and wasn't moved
+      if (
+        lastElement &&
+        lastElement.nextElementSibling != rule.editor.element
+      ) {
         lastElement.insertAdjacentElement("afterend", rule.editor.element);
-      } else {
-        container.appendChild(rule.editor.element);
+      } else if (
+        !lastElement &&
+        container.firstElementChild != rule.editor.element
+      ) {
+        container.insertAdjacentElement("afterbegin", rule.editor.element);
       }
       lastElementPerContainer.set(container, rule.editor.element);
     }
@@ -1798,7 +1810,6 @@ class CssRuleView extends EventEmitter {
       } else {
         entry = this.createSimpleContainer(label, id);
       }
-      this.#containers.set(id, entry);
     }
 
     const { header, container } = entry;
@@ -1808,10 +1819,14 @@ class CssRuleView extends EventEmitter {
       const lastContainer = currentContainers.at(-1);
       // Pseudo element rules are sorted **after** element matching rules and inherited rules
       // in ElementStyle.rules, but we want the container to always be shown at the top.
+      //
+      // Also avoid any DOM mutation if the rule already exists and wasn't moved
       if (id == PSEUDO_ELEMENTS_CONTAINER_ID || !lastContainer) {
-        this.element.insertAdjacentElement("afterbegin", header);
-        header.insertAdjacentElement("afterend", container);
-      } else {
+        if (this.element.firstElementChild != header) {
+          this.element.insertAdjacentElement("afterbegin", header);
+          header.insertAdjacentElement("afterend", container);
+        }
+      } else if (lastContainer.nextElementSibling != header) {
         lastContainer.insertAdjacentElement("afterend", header);
         header.insertAdjacentElement("afterend", container);
       }
@@ -1851,16 +1866,21 @@ class CssRuleView extends EventEmitter {
   }
 
   #createRegisteredPropertyEditors() {
-    const registeredPropertiesContainer =
-      this.getOrCreateRegisteredPropertiesExpandableContainer();
-    // Always swipe and rebuild the list of properties from scratch
-    registeredPropertiesContainer.replaceChildren();
-
     const targetRegisteredProperties =
       this.getRegisteredPropertiesForSelectedNodeTarget();
     if (!targetRegisteredProperties?.size) {
+      // Wipe the list, but only if the properties container was populated
+      const entry = this.#containers.get(REGISTERED_PROPERTIES_CONTAINER_ID);
+      if (entry) {
+        entry.container.replaceChildren();
+      }
       return;
     }
+
+    const registeredPropertiesContainer =
+      this.getOrCreateRegisteredPropertiesExpandableContainer();
+    // Always wipe and rebuild the list of properties from scratch
+    registeredPropertiesContainer.replaceChildren();
 
     // Sort properties by their name, as we want to display them in alphabetical order
     const propertyDefinitions = Array.from(
@@ -2404,25 +2424,12 @@ class CssRuleView extends EventEmitter {
     }
 
     // Ensure that smooth scrolling is disabled when the user prefers reduced motion.
-    const win = elementToScrollTo.ownerGlobal;
+    const win = elementToScrollTo.documentGlobal;
     const reducedMotion = win.matchMedia("(prefers-reduced-motion)").matches;
     scrollBehavior = reducedMotion ? "instant" : scrollBehavior;
     elementToScrollTo.scrollIntoView({
       behavior: scrollBehavior,
     });
-  }
-
-  /**
-   * Toggles the visibility of the pseudo element rule's container.
-   */
-  #togglePseudoElementRuleContainer() {
-    const container = this.styleDocument.getElementById(
-      PSEUDO_ELEMENTS_CONTAINER_ID
-    );
-    const toggle = this.styleDocument.querySelector(
-      `[aria-controls="${PSEUDO_ELEMENTS_CONTAINER_ID}"]`
-    );
-    this.#toggleContainerVisibility(toggle, container, true, true);
   }
 
   /**
@@ -2578,7 +2585,7 @@ class CssRuleView extends EventEmitter {
       // Set the scroll behavior to "instant" to avoid timing issues between toggling
       // the pseudo element container and scrolling smoothly to the rule.
       scrollBehavior = "instant";
-      this.#togglePseudoElementRuleContainer();
+      this.#toggleContainerVisibility(PSEUDO_ELEMENTS_CONTAINER_ID, true, true);
     }
 
     const textProp = matchingTextPropComputed.textProp;
@@ -2626,23 +2633,20 @@ class CssRuleView extends EventEmitter {
     }
 
     // Get a potential @property section
-    const propertyContainer = this.styleDocument.getElementById(
-      REGISTERED_PROPERTIES_CONTAINER_ID
-    );
-    if (!propertyContainer) {
+    const entry = this.#containers.get(REGISTERED_PROPERTIES_CONTAINER_ID);
+    if (!entry) {
       return false;
     }
+    const { header, container } = entry;
 
-    const propertyEl = propertyContainer.querySelector(`[data-name="${name}"]`);
+    const propertyEl = container.querySelector(`[data-name="${name}"]`);
     if (!propertyEl) {
       return false;
     }
 
-    const toggle = this.styleDocument.querySelector(
-      `[aria-controls="${REGISTERED_PROPERTIES_CONTAINER_ID}"]`
-    );
-    if (toggle.ariaExpanded === "false") {
-      this.#toggleContainerVisibility(toggle, propertyContainer);
+    const toggleButton = header.querySelector("button");
+    if (toggleButton.ariaExpanded === "false") {
+      this.#toggleContainerVisibility(REGISTERED_PROPERTIES_CONTAINER_ID);
     }
 
     this.#highlightElementInRule({
@@ -2854,12 +2858,7 @@ class RuleViewTool {
       return;
     }
 
-    const done = this.inspector.updating("rule-view");
-    try {
-      await this.view.selectElement(this.inspector.selection.nodeFront);
-    } finally {
-      done();
-    }
+    await this.view.selectElement(this.inspector.selection.nodeFront);
   }
 
   refresh() {

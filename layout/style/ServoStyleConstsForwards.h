@@ -30,7 +30,6 @@
 #include "nsColor.h"
 #include "nsCompatibility.h"
 #include "nsCoord.h"
-#include "nsGkAtoms.h"
 #include "nsIURI.h"
 
 struct RawServoAnimationValueTable;
@@ -41,7 +40,7 @@ class nsINode;
 class nsIContent;
 class nsCSSPropertyIDSet;
 class nsPresContext;
-class nsSimpleContentList;
+class nsStaticAtom;
 class imgRequestProxy;
 struct nsCSSValueSharedList;
 struct AnchorPosResolutionParams;
@@ -54,8 +53,13 @@ namespace mozilla {
 // references the type below in the generated code.
 struct StyleCalcLengthPercentage;
 
+// Forward declaration for `StyleVariableReferenceValue`, which references the
+// the type below in the generated code.
+struct StyleUnparsedSegment;
+using StyleUnparsedValue = CopyableTArray<StyleUnparsedSegment>;
+
 // Forward declaration required due to a circular type dependency between
-// StyleNumericValue and StyleSumValue.
+// StyleNumericValue and StyleMathSum.
 // cbindgen does not currently emit this forward declaration automatically.
 struct StyleNumericValue;
 
@@ -135,11 +139,14 @@ enum SheetParsingMode : uint8_t;
 namespace dom {
 enum class IterationCompositeOperation : uint8_t;
 enum class CallerType : uint32_t;
+class SimpleContentList;
 
 class Element;
 class Document;
 
 }  // namespace dom
+
+using StyleSimpleContentList = dom::SimpleContentList;
 
 // Replacement for a Rust Box<T> for a non-dynamically-sized-type.
 //

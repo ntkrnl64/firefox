@@ -11,7 +11,6 @@ import org.mozilla.fenix.search.awesomebar.SearchSuggestionsProvidersBuilder.Sea
  * Map [SearchFragmentState] to [SearchProviderState] as a subset of properties only specific to search.
  */
 fun SearchFragmentState.toSearchProviderState() = SearchProviderState(
-    showSearchShortcuts = showSearchShortcuts,
     showSearchTermHistory = showSearchTermHistory,
     showHistorySuggestionsForCurrentEngine = showHistorySuggestionsForCurrentEngine,
     showAllHistorySuggestions = showAllHistorySuggestions,

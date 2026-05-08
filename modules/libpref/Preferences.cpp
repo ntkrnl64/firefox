@@ -4,10 +4,6 @@
 
 // Documentation for libpref is in modules/libpref/docs/index.rst.
 
-#include <ctype.h>
-#ifdef NIGHTLY_BUILD
-#  include <regex>
-#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -2504,7 +2500,7 @@ nsPrefBranch::GetStringPref(const char* aPrefName,
   nsCString utf8String;
   nsresult rv = GetCharPref(aPrefName, utf8String);
   if (NS_SUCCEEDED(rv)) {
-    aRetVal = utf8String;
+    aRetVal = std::move(utf8String);
     return rv;
   }
 
@@ -3796,7 +3792,8 @@ class AddPreferencesMemoryReporterRunnable : public Runnable {
       : Runnable("AddPreferencesMemoryReporterRunnable") {}
 
   NS_IMETHOD Run() override {
-    return RegisterStrongMemoryReporter(new PreferenceServiceReporter());
+    return RegisterStrongMemoryReporter(
+        MakeAndAddRef<PreferenceServiceReporter>());
   }
 };
 
@@ -5021,14 +5018,15 @@ struct Internals {
     NS_ENSURE_TRUE(Preferences::InitStaticMembers(), NS_ERROR_NOT_AVAILABLE);
 
     if (Maybe<PrefWrapper> pref = pref_Lookup(aPrefName)) {
-      rv = pref->GetValue(aKind, std::forward<T>(aResult));
+      rv = pref->GetValue(aKind, aResult);
 
       if (profiler_thread_is_being_profiled_for_markers()) {
+        auto str = PrefValueToString(aResult);
         profiler_add_marker(
             "Preference Read", baseprofiler::category::OTHER_PreferenceRead, {},
             PreferenceMarker{},
             ProfilerString8View::WrapNullTerminatedString(aPrefName),
-            Some(aKind), pref->Type(), PrefValueToString(aResult));
+            Some(aKind), pref->Type(), std::move(str));
       }
     }
 
@@ -5043,12 +5041,12 @@ struct Internals {
       rv = pref->GetValue(PrefValueKind::User, aResult);
 
       if (profiler_thread_is_being_profiled_for_markers()) {
+        auto str = PrefValueToString(aResult);
         profiler_add_marker(
             "Preference Read", baseprofiler::category::OTHER_PreferenceRead, {},
             PreferenceMarker{},
             ProfilerString8View::WrapNullTerminatedString(aName),
-            Nothing() /* indicates Shared */, pref->Type(),
-            PrefValueToString(aResult));
+            Nothing() /* indicates Shared */, pref->Type(), std::move(str));
       }
     }
 
@@ -6500,7 +6498,6 @@ static const PrefListEntry sDynamicPrefOverrideList[]{
     PREF_LIST_ENTRY("media.peerconnection.nat_simulator.network_delay_ms"),
     PREF_LIST_ENTRY("media.video_loopback_dev"),
     PREF_LIST_ENTRY("media.webspeech.service.endpoint"),
-    PREF_LIST_ENTRY("network.gio.supported-protocols"),
     PREF_LIST_ENTRY("network.protocol-handler.external."),
     PREF_LIST_ENTRY("network.security.ports.banned"),
     PREF_LIST_ENTRY("nimbus.syncdatastore."),

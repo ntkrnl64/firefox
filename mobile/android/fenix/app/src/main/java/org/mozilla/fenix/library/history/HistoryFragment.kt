@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.library.history
 
+import android.annotation.SuppressLint
 import android.app.Dialog
 import android.content.DialogInterface
 import android.content.Intent
@@ -100,6 +101,7 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.addons.showSnackBar
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.AppStore
+import org.mozilla.fenix.components.LensFeature
 import org.mozilla.fenix.components.QrScanFenixFeature
 import org.mozilla.fenix.components.VoiceSearchFeature
 import org.mozilla.fenix.components.appstate.AppAction
@@ -189,6 +191,16 @@ class HistoryFragment :
     private val voiceSearchLauncher: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             voiceSearchFeature?.get()?.handleVoiceSearchResult(result.resultCode, result.data)
+        }
+    private var lensFeature: ViewBoundFeatureWrapper<LensFeature>? =
+        ViewBoundFeatureWrapper<LensFeature>()
+    private val lensLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            lensFeature?.get()?.handleImageResult(result.resultCode, result.data)
+        }
+    private val lensCameraPermissionLauncher: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            lensFeature?.get()?.onCameraPermissionResult(isGranted)
         }
 
     private val menuBinding by lazy {
@@ -301,10 +313,9 @@ class HistoryFragment :
         super.onViewCreated(view, savedInstanceState)
         requireActivity().addMenuProvider(this, viewLifecycleOwner, Lifecycle.State.RESUMED)
 
-        if (requireContext().settings().shouldUseComposableToolbar) {
-            qrScanFenixFeature = QrScanFenixFeature.register(this, qrScanLauncher)
-            voiceSearchFeature = VoiceSearchFeature.register(this, voiceSearchLauncher)
-        }
+        qrScanFenixFeature = QrScanFenixFeature.register(this, qrScanLauncher)
+        voiceSearchFeature = VoiceSearchFeature.register(this, voiceSearchLauncher)
+        lensFeature = LensFeature.register(this, lensLauncher, lensCameraPermissionLauncher)
 
         consumeFrom(historyStore) {
             historyView.update(it)
@@ -355,10 +366,9 @@ class HistoryFragment :
     override fun onResume() {
         super.onResume()
 
-        val shouldUseComposableToolbar = context?.settings()?.shouldUseComposableToolbar == true
         val isSearchActive = context?.components?.appStore?.state?.searchState?.isSearchActive == true
 
-        if (shouldUseComposableToolbar && isSearchActive) {
+        if (isSearchActive) {
             handleShowingSearchUX()
         } else {
             (activity as NavHostActivity).getSupportActionBarAndInflateIfNecessary().show()
@@ -430,15 +440,8 @@ class HistoryFragment :
             true
         }
         R.id.history_search -> {
-            if (context?.settings()?.shouldUseComposableToolbar == true) {
-                historyStore.dispatch(SearchClicked)
-                handleShowingSearchUX()
-            } else {
-                findNavController().nav(
-                    R.id.historyFragment,
-                    HistoryFragmentDirections.actionGlobalSearchDialog(null),
-                )
-            }
+            historyStore.dispatch(SearchClicked)
+            handleShowingSearchUX()
             true
         }
         R.id.history_delete -> {
@@ -767,6 +770,7 @@ class HistoryFragment :
     internal class DeleteConfirmationDialogFragment(
         private val onDeleteTimeRange: (selectedTimeFrame: RemoveTimeFrame?) -> Unit,
     ) : DialogFragment() {
+        @SuppressLint("InflateParams")
         override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
             MaterialAlertDialogBuilder(requireContext()).apply {
                 val layout = getLayoutInflater().inflate(R.layout.delete_history_time_range_dialog, null)

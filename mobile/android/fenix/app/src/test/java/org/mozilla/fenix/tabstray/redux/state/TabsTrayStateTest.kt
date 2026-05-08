@@ -6,6 +6,7 @@ package org.mozilla.fenix.tabstray.redux.state
 
 import org.mozilla.fenix.tabstray.data.createTab
 import org.mozilla.fenix.tabstray.data.createTabGroup
+import org.mozilla.fenix.tabstray.navigation.TabManagerNavDestination
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState.Mode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -79,43 +80,80 @@ class TabsTrayStateTest {
 
     @Test
     fun `GIVEN tab search is enabled and the user is on the Synced tabs page WHEN in the Tab Manager THEN the search icon is not shown`() {
-        val state = TabsTrayState(selectedPage = Page.SyncedTabs, config = TabsTrayState.TabsTrayConfig(tabSearchEnabled = true))
+        val state = TabsTrayState(
+            selectedPage = Page.SyncedTabs,
+            config = TabsTrayState.TabsTrayConfig(tabSearchEnabled = true),
+        )
         assertFalse(state.searchIconVisible)
     }
 
     @Test
     fun `GIVEN tab search is enabled and the user is on the Normal tabs page WHEN in the Tab Manager THEN the search icon is shown`() {
-        val state = TabsTrayState(selectedPage = Page.NormalTabs, config = TabsTrayState.TabsTrayConfig(tabSearchEnabled = true))
+        val state = TabsTrayState(
+            selectedPage = Page.NormalTabs,
+            config = TabsTrayState.TabsTrayConfig(tabSearchEnabled = true),
+        )
         assertTrue(state.searchIconVisible)
     }
 
     @Test
     fun `GIVEN tab search is enabled and the user is on the Private tabs page WHEN in the Tab Manager THEN the search icon is shown`() {
-        val state = TabsTrayState(selectedPage = Page.PrivateTabs, config = TabsTrayState.TabsTrayConfig(tabSearchEnabled = true))
+        val state = TabsTrayState(
+            selectedPage = Page.PrivateTabs,
+            config = TabsTrayState.TabsTrayConfig(tabSearchEnabled = true),
+        )
         assertTrue(state.searchIconVisible)
     }
 
     @Test
     fun `GIVEN the user is on the Normal tabs page without tabs WHEN in the Tab Manager THEN the search icon is disabled`() {
-        val state = TabsTrayState(selectedPage = Page.NormalTabs, normalTabs = emptyList())
+        val state = TabsTrayState(selectedPage = Page.NormalTabs, normalTabsState = TabsTrayState.NormalTabsState(items = emptyList()))
         assertFalse(state.searchIconEnabled)
     }
 
     @Test
     fun `GIVEN the user is on the Normal tabs page with tabs WHEN in the Tab Manager THEN the search icon is enabled`() {
-        val state = TabsTrayState(selectedPage = Page.NormalTabs, normalTabs = listOf(createTab(url = "")))
+        val state = TabsTrayState(selectedPage = Page.NormalTabs, normalTabsState = TabsTrayState.NormalTabsState(items = listOf(createTab(url = ""))))
         assertTrue(state.searchIconEnabled)
     }
 
     @Test
     fun `GIVEN the user is on the Private tabs page without private tabs WHEN in the Tab Manager THEN the search icon is disabled`() {
-        val state = TabsTrayState(selectedPage = Page.PrivateTabs, privateBrowsing = TabsTrayState.PrivateBrowsingState(tabs = emptyList()))
+        val state = TabsTrayState(
+            selectedPage = Page.PrivateTabs,
+            privateBrowsing = TabsTrayState.PrivateBrowsingState(tabs = emptyList()),
+        )
         assertFalse(state.searchIconEnabled)
     }
 
     @Test
     fun `GIVEN the user is on the Private tabs page with private tabs WHEN in the Tab Manager THEN the search icon is enabled`() {
-        val state = TabsTrayState(selectedPage = Page.PrivateTabs, privateBrowsing = TabsTrayState.PrivateBrowsingState(tabs = listOf(createTab(url = ""))))
+        val state = TabsTrayState(
+            selectedPage = Page.PrivateTabs,
+            privateBrowsing = TabsTrayState.PrivateBrowsingState(tabs = listOf(createTab(url = ""))),
+        )
         assertTrue(state.searchIconEnabled)
+    }
+
+    @Test
+    fun `GIVEN there are multiple destinations on the back stack WHEN popping the backstack THEN the top destination is popped`() {
+        val initialBackStack = listOf(
+            TabManagerNavDestination.Root,
+            TabManagerNavDestination.TabSearch,
+            TabManagerNavDestination.AddToTabGroup,
+        )
+        val actualBackStack = TabsTrayState(backStack = initialBackStack).popBackStack()
+        val expectedBackStack = initialBackStack.dropLast(1)
+
+        assertEquals(expectedBackStack, actualBackStack)
+    }
+
+    @Test
+    fun `GIVEN there is one destination on the back stack WHEN popping the backstack THEN the top destination is not popped`() {
+        val initialBackStack = listOf(TabManagerNavDestination.Root)
+        val actualBackStack = TabsTrayState(backStack = initialBackStack).popBackStack()
+        val expectedBackStack = initialBackStack
+
+        assertEquals(expectedBackStack, actualBackStack)
     }
 }

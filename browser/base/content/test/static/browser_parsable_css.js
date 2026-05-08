@@ -55,6 +55,23 @@ if (AppConstants.platform != "macosx") {
   });
 }
 
+if (!Services.prefs.getBoolPref("dom.select.customizable_select.enabled")) {
+  ignoreList.push({
+    sourceName: /\bforms\.css$/i,
+    errorMessage: /Unknown pseudo-class or pseudo-element ‘picker’./i,
+    isFromDevTools: false,
+  });
+}
+
+if (!Services.prefs.getBoolPref("layout.css.fake-webkit-scrollbar.enabled")) {
+  ignoreList.push({
+    sourceName: /\bwebcompat\/injections\/css\/.*\.css$/i,
+    errorMessage:
+      /Unknown pseudo-class or pseudo-element ‘-webkit-scrollbar’./i,
+    isFromDevTools: false,
+  });
+}
+
 if (!Services.prefs.getBoolPref("layout.css.zoom.enabled")) {
   ignoreList.push({
     sourceName: /\bscrollbars\.css$/i,
@@ -105,7 +122,6 @@ let propNameAllowlist = [
   { propName: "--clickToPlay-width", isFromDevTools: false },
   { propName: "--playButton-width", isFromDevTools: false },
   { propName: "--muteButton-width", isFromDevTools: false },
-  { propName: "--castingButton-width", isFromDevTools: false },
   { propName: "--closedCaptionButton-width", isFromDevTools: false },
   { propName: "--fullscreenButton-width", isFromDevTools: false },
   { propName: "--durationSpan-width", isFromDevTools: false },
@@ -118,9 +134,6 @@ let propNameAllowlist = [
   { propName: "--bezier-diagonal-color", isFromDevTools: true },
   { propName: "--highlighter-font-family", isFromDevTools: true },
 
-  // This variable is used from CSS embedded in JS in adjustableTitle.js
-  { propName: "--icon-url", isFromDevTools: false },
-
   // These are referenced from devtools files.
   {
     propName: "--browser-stack-z-index-devtools-splitter",
@@ -132,10 +145,9 @@ let propNameAllowlist = [
   // styles, which confuses the test.
   { propName: "--panel-border-radius", isFromDevTools: true },
   { propName: "--panel-padding", isFromDevTools: true },
-  { propName: "--panel-background", isFromDevTools: true },
+  { propName: "--panel-background-color", isFromDevTools: true },
   { propName: "--panel-border-color", isFromDevTools: true },
-  { propName: "--panel-shadow", isFromDevTools: true },
-  { propName: "--panel-shadow-margin", isFromDevTools: true },
+  { propName: "--panel-box-shadow", isFromDevTools: true },
 
   // These variables are set in host CSS but consumed in shadow DOM CSS
   // (content-search-handoff-ui component), which confuses the test.
@@ -199,6 +211,10 @@ let propNameAllowlist = [
   // Ignore token properties that follow the patterns --dimension-[number] or --dimension-relative-[number]
   // This enables us to provide our full size/spacing system for developers.
   { propName: /--dimension(-relative)?-\d+/, isFromDevTools: false },
+
+  // This variable is read from JS to determine the column count when handling
+  // keyboard navigation in the New Tab sections grid.
+  { propName: "--sections-col-count", isFromDevTools: false },
 ];
 
 // Add suffix to stylesheets' URI so that we always load them here and

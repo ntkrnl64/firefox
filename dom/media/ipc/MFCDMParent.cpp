@@ -476,6 +476,12 @@ HRESULT MFCDMParent::RecreateCDM() {
 
   MutexAutoLock lock(Mutex());
   mCDMAccessLock.NoteExclusiveAccess();
+  if (mCDM) {
+    auto rv = mCDM->SetPMPHostApp(nullptr);
+    if (FAILED(rv)) {
+      MFCDM_PARENT_LOG("Failed to clear PMP Host App, rv=%lx", rv);
+    }
+  }
   mCDMProxy = nullptr;
   mCDM.Reset();
   mPMPHostWrapper.Reset();
@@ -1012,9 +1018,11 @@ void MFCDMParent::GetCapabilities(const nsString& aKeySystem,
     return;
   }
 
-  // HWDRM is blocked by gfx downloadable blocklist.
+  // HWDRM is blocked by gfx downloadable blocklist. Skip the check when using
+  // the mock CDM for testing, since the blocklist doesn't apply there.
   if (isHardwareDecryption && gfx::gfxVars::IsInitialized() &&
-      !gfx::gfxVars::UseWMFHWDWM()) {
+      !gfx::gfxVars::UseWMFHWDWM() &&
+      !StaticPrefs::media_eme_wmf_use_mock_cdm_for_external_cdms()) {
     MFCDM_PARENT_SLOG("Block HWDRM for %s",
                       NS_ConvertUTF16toUTF8(aKeySystem).get());
     return;
@@ -1550,6 +1558,37 @@ mozilla::ipc::IPCResult MFCDMParent::RecvGetStatusForPolicy(
             resolver(aRv.ResolveValue());
           });
   return IPC_OK();
+}
+
+RefPtr<GenericPromise> MFCDMParent::WaitForHDCPSettleAfterReset() {
+  ASSERT_CDM_ACCESS_READ_ONLY_ON_MANAGER_THREAD();
+  nsCOMPtr<nsISerialEventTarget> backgroundTaskQueue;
+  if (NS_FAILED(NS_CreateBackgroundTaskQueue(
+          __func__, getter_AddRefs(backgroundTaskQueue)))) {
+    MFCDM_PARENT_LOG(
+        "Failed to create background task queue for HDCP settle check");
+    return GenericPromise::CreateAndReject(NS_ERROR_FAILURE, __func__);
+  }
+  RefPtr<GenericPromise::Private> p = new GenericPromise::Private(__func__);
+  // Capture key system and manager thread by value so this check runs
+  // independently of the CDM lifetime — the CDM may be destroyed during
+  // hardware reset recovery before the check completes.
+  nsString keySystem = mKeySystem;
+  RefPtr<nsISerialEventTarget> managerThread = mManagerThread;
+  nsresult rv = backgroundTaskQueue->Dispatch(
+      NS_NewRunnableFunction(__func__, [keySystem, managerThread, p] {
+        auto result = IsHDCPVersionSupported(keySystem, dom::HDCPVersion::_2_2,
+                                             managerThread);
+        MFCDM_PARENT_SLOG("HDCP 2.2 settle check after hardware reset: %s",
+                          result == NS_OK ? "ready" : "not ready");
+        p->Resolve(true, __func__);
+      }));
+  if (NS_FAILED(rv)) {
+    MFCDM_PARENT_LOG("Failed to dispatch HDCP settle check, rv=%x",
+                     static_cast<uint32_t>(rv));
+    p->Reject(rv, __func__);
+  }
+  return p;
 }
 
 void MFCDMParent::ConnectSessionEvents(MFCDMSession* aSession) {

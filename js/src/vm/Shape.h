@@ -202,6 +202,7 @@ class ShapeCachePtr {
   void setShapeSetForAdd(ShapeSetForAdd* hash) {
     MOZ_ASSERT(hash);
     MOZ_ASSERT((uintptr_t(hash) & MASK) == 0);
+    MOZ_ASSERT(!isShapeSetForAdd());  // Don't leak the ShapeSet.
     bits = uintptr_t(hash) | SHAPE_SET_FOR_ADD;
   }
 
@@ -244,15 +245,15 @@ class BaseShape : public gc::TenuredCellWithNonGCPointer<const JSClass> {
   JS::Realm* const realm_;
   const GCPtr<TaggedProto> proto_;
 
-  BaseShape(const BaseShape& base) = delete;
-  BaseShape& operator=(const BaseShape& other) = delete;
-
  public:
   BaseShape(JSContext* cx, const JSClass* clasp, JS::Realm* realm,
             TaggedProto proto);
 
   /* Not defined: BaseShapes must not be stack allocated. */
   ~BaseShape() = delete;
+
+  BaseShape(const BaseShape& base) = delete;
+  BaseShape& operator=(const BaseShape& other) = delete;
 
   JS::Realm* realm() const { return realm_; }
   JS::Compartment* compartment() const {
@@ -320,6 +321,8 @@ class Shape : public gc::CellWithTenuredGCPointer<gc::TenuredCell, BaseShape> {
   friend class gc::RelocationOverlay;
 
  public:
+  Shape(const Shape& other) = delete;
+
   // Base shape, stored in the cell header.
   BaseShape* base() const { return headerPtr(); }
 
@@ -408,8 +411,6 @@ class Shape : public gc::CellWithTenuredGCPointer<gc::TenuredCell, BaseShape> {
     MOZ_ASSERT(this->kind() == kind, "kind must fit in KIND_MASK");
     MOZ_ASSERT(isNative() == base->clasp()->isNativeObject());
   }
-
-  Shape(const Shape& other) = delete;
 
  public:
   Kind kind() const { return Kind((immutableFlags >> KIND_SHIFT) & KIND_MASK); }
@@ -674,7 +675,7 @@ class DictionaryShape : public NativeShape {
 // Shape used for a ProxyObject.
 class ProxyShape : public Shape {
   // Needed to maintain the same size as other shapes.
-  uintptr_t padding_;
+  uintptr_t padding_ = 0;
 
   friend class js::gc::CellAllocator;
   ProxyShape(BaseShape* base, ObjectFlags objectFlags)

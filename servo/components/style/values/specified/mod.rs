@@ -590,7 +590,6 @@ impl Parse for NonNegativeNumberOrPercentage {
     ToShmem,
     ToTyped,
 )]
-#[typed_value(derive_fields)]
 pub struct Opacity(Number);
 
 impl Parse for Opacity {
@@ -612,9 +611,9 @@ impl ToComputedValue for Opacity {
     #[inline]
     fn to_computed_value(&self, context: &Context) -> CSSFloat {
         let value = self.0.to_computed_value(context);
-        if context.for_smil_animation {
-            // SMIL expects to be able to interpolate between out-of-range
-            // opacity values.
+        if context.for_animation {
+            // Type <number> and <percentage> should be able to interpolate
+            // out-of-range opacity values which benefits additive animation
             value
         } else {
             value.min(1.0).max(0.0)
@@ -633,6 +632,7 @@ impl ToComputedValue for Opacity {
 ///
 /// <https://drafts.csswg.org/css-values/#integers>
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, PartialOrd, ToShmem, ToTyped)]
+#[typed(todo_derive_fields)]
 pub enum Integer {
     /// A literal integer value.
     Literal(CSSInteger),

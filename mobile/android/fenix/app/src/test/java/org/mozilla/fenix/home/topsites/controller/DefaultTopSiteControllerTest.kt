@@ -737,7 +737,7 @@ class DefaultTopSiteControllerTest {
 
         controller.handleSelectTopSite(topSite, position)
 
-        verify { marsUseCases.recordInteraction(topSite.clickUrl) }
+        coVerify { marsUseCases.recordInteraction(topSite.clickUrl) }
 
         val event = TopSites.contileClick.testGetValue()!!
 
@@ -827,7 +827,7 @@ class DefaultTopSiteControllerTest {
 
         controller.handleTopSiteImpression(topSite, position)
 
-        verify { marsUseCases.recordInteraction(topSite.impressionUrl) }
+        coVerify { marsUseCases.recordInteraction(topSite.impressionUrl) }
 
         val event = TopSites.contileImpression.testGetValue()!!
 
@@ -925,7 +925,7 @@ class DefaultTopSiteControllerTest {
 
         controller.updateTopSite(topSite = topSite, title = title, url = url)
 
-        verify {
+        coVerify {
             topSitesUseCases.addPinnedSites(title = title, url = url)
         }
     }
@@ -945,7 +945,7 @@ class DefaultTopSiteControllerTest {
 
         controller.updateTopSite(topSite = topSite, title = title, url = url)
 
-        verify {
+        coVerify {
             topSitesUseCases.updateTopSites(topSite = topSite, title = title, url = url)
         }
     }

@@ -319,9 +319,10 @@ networking:
     type: timing_distribution
     time_unit: millisecond
     description: >
-      Time spent on blocking main thread by startup cookie database read (in milliseconds), only for blocking case
+      Time spent blocking the main thread on startup cookie database read and connection initialization (in milliseconds), only for blocking cases.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=870460
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2033900
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=870460
     notification_emails:
@@ -333,9 +334,10 @@ networking:
     type: timing_distribution
     time_unit: millisecond
     description: >
-      How long (in milliseconds) after we finished reading the cookie db until the first cookie request came in (0 implies we blocked the main thread)
+      How long (in milliseconds) after the cookie database connection was initialized until the first cookie request came in (0 implies we blocked the main thread).
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1413839
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2033900
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1413839
     notification_emails:
@@ -2179,6 +2181,22 @@ networking:
       - direct
       - unknown
 
+  proxy_fast_path_used:
+    type: counter
+    description: >
+      The number of HTTP channels that skipped async proxy resolution via the
+      fast path (system proxy reports no proxy configured, no filters
+      registered).
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028356
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028356
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
   os_socket_limit_reached:
     type: counter
     description: >
@@ -2427,6 +2445,7 @@ network.dns:
     bugs:
       - https://bugzil.la/1691408
       - https://bugzil.la/1694949
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032398
     data_reviews:
       - https://bugzil.la/1691408
       - https://bugzil.la/1694949
@@ -2473,7 +2492,6 @@ network.dns:
         description: >
           Time from first confirmation attempt to event being recorded
         type: string
-    telemetry_mirror: NetworkDns_Trrconfirmation_Context
 
 network.sso:
   entra_success:
@@ -2533,6 +2551,23 @@ network.cookies:
       - necko@mozilla.com
     expires: never
     telemetry_mirror: MOZ_SQLITE_COOKIES_OPEN_READAHEAD_MS
+
+  open_error:
+    type: labeled_counter
+    description: >
+      Counts the number of times the cookie DB failed to open at startup,
+      labeled by nsresult error name. Used to diagnose cases where the
+      cookie DB may be incorrectly wiped due to transient I/O errors
+      rather than actual corruption.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1972382
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1972382
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: 157
 
 network:
   id:
@@ -2749,3 +2784,81 @@ network:
         description: >
           The ETLD+1 of the top-level document site.
         type: string
+
+  ssl_token_cache_persistence_records_loaded:
+    type: counter
+    description: >
+      Number of TLS session resumption token records successfully loaded from
+      disk into the cache on startup.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_load_time:
+    type: timing_distribution
+    time_unit: millisecond
+    description: >
+      Wall-clock time from SSLTokensCache::Init() to the
+      completion of loading cached tokens from disk.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_evictions:
+    type: counter
+    description: >
+      Number of TLS session resumption tokens evicted because the in-memory
+      cache exceeded network.ssl_tokens_cache_capacity. Any non-zero value
+      indicates the capacity limit was reached and may need to be increased.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_early_connections:
+    type: counter
+    description: >
+      Number of TLS connections (via Get()) that started before the background
+      disk load completed. Each occurrence is also logged as a warning.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  apple_fast_datapath_used:
+    type: boolean
+    description: >
+      True if the Apple fast datapath (sendmsg_x/recvmsg_x) is being used for
+      UDP I/O. This requires the APIs to be available and the probe to
+      succeed. Only recorded on Apple platforms.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028797
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028797
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never

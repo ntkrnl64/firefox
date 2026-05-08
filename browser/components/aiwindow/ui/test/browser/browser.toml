@@ -7,8 +7,8 @@ prefs = [
 ]
 support-files = [
   "head.js",
-  "test_chat_search_button.html",
-  "test_chat_search_button.mjs",
+  "test_ai_action_result_page.html",
+  "test_ai_action_result.mjs",
   "test_assistant_message_footer_page.html",
   "test_applied_memories_page.html",
   "test_chat_assistant_error.html",
@@ -19,6 +19,10 @@ support-files = [
   "test_smartwindow_panel_list.mjs",
   "test_website_chip_page.html",
   "test_website_chip.mjs",
+  "test_website_select_page.html",
+  "test_website_select.mjs",
+  "test_website_confirmation_page.html",
+  "test_website_confirmation.mjs",
   "test_context_url_page.html",
   "test_context_url_page2.html"
 ]
@@ -27,9 +31,15 @@ support-files = [
 
 ["browser_aichat_content_actors.js"]
 
+["browser_aichat_content_background_token.js"]
+
 ["browser_aichat_content_message_event.js"]
 
+["browser_aichat_content_overflow.js"]
+
 ["browser_aichat_message.js"]
+
+["browser_aichat_message_table.js"]
 
 ["browser_aichat_open_link.js"]
 
@@ -62,25 +72,29 @@ skip-if = [
 
 ["browser_aiwindow_newtab_preload.js"]
 
-["browser_aiwindow_search_button.js"]
-
 ["browser_aiwindow_session_restore.js"]
 
 ["browser_aiwindow_smartbar.js"]
 
 ["browser_aiwindow_smartbar_ask.js"]
 
+["browser_aiwindow_smartbar_context_chips.js"]
+
 ["browser_aiwindow_smartbar_focus.js"]
+
+["browser_aiwindow_smartbar_inline_mentions.js"]
+
+["browser_aiwindow_smartbar_input_cta.js"]
 
 ["browser_aiwindow_smartbar_interactions.js"]
 
 ["browser_aiwindow_smartbar_keyboard_navigation.js"]
 
-["browser_aiwindow_smartbar_context_chips.js"]
-
-["browser_aiwindow_smartbar_inline_mentions.js"]
+["browser_aiwindow_smartbar_suggestions.js"]
 
 ["browser_aiwindow_smartbar_telemetry.js"]
+
+["browser_aiwindow_stop_generation.js"]
 
 ["browser_aiwindow_switcher.js"]
 skip-if = [
@@ -95,9 +109,15 @@ skip-if = [
 
 ["browser_aiwindow_url_security.js"]
 
+["browser_aiwindow_ai_action_result.js"]
+
 ["browser_aiwindow_urlbar_chat.js"]
 
 ["browser_aiwindow_website_chip.js"]
+
+["browser_aiwindow_website_confirmation.js"]
+
+["browser_aiwindow_website_select.js"]
 
 ["browser_aiwindowui.js"]
 
@@ -110,6 +130,12 @@ skip-if = [
 ["browser_smartwindow_assistant_ui_errors.js"]
 
 ["browser_smartwindow_beta_badge.js"]
+
+["browser_smartwindow_chat_browser_tabbable.js"]
+
+["browser_smartwindow_chat_markdown_parser.js"]
+
+["browser_smartwindow_classic_mode_switch.js"]
 
 ["browser_smartwindow_content.js"]
 
@@ -124,6 +150,8 @@ skip-if = [
 ["browser_smartwindow_history_commands.js"]
 
 ["browser_smartwindow_init.js"]
+
+["browser_smartwindow_jump_to_bottom.js"]
 
 ["browser_smartwindow_leak.js"]
 skip-if = [
@@ -149,6 +177,10 @@ skip-if = [
 
 ["browser_smartwindow_shortcut.js"]
 
+["browser_smartwindow_sidebar.js"]
+
+["browser_smartwindow_sidebar_auto_open_pref_prompt.js"]
+
 ["browser_smartwindow_smartbar_tab_state.js"]
 
 ["browser_smartwindow_switcher_telemetry.js"]
@@ -156,12 +188,18 @@ skip-if = [
 ["browser_smartwindow_tab_move.js"]
 
 ["browser_smartwindow_tab_switching.js"]
-skip-if = [
-  "os == 'win' && os_version == '11.26200'", # Bug 2019745
-  "standalone", # Bug 2026433
-]
+
+["browser_smartwindow_tab_switching_memories.js"]
+
+["browser_smartwindow_tab_switching_starters.js"]
 
 ["browser_smartwindow_telemetry.js"]
 skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 2024015
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 2024015
   "os == 'win' && debug && standalone", # Bug 2024015
+  "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 2024015
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 2024015
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 2024015
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 2024015
 ]

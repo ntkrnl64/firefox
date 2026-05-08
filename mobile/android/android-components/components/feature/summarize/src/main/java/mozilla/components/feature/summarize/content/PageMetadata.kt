@@ -29,6 +29,8 @@ data class PageMetadata(
     val structuredDataTypes: List<String> = listOf(),
     val wordCount: Int = 0,
     val language: String = "en",
+    val isReaderable: Boolean = false,
+    val pageTitle: String = "",
 )
 
 private val errorCode = ErrorCode(2002)

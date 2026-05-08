@@ -1,4 +1,3 @@
-// -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -159,7 +158,7 @@ export class AboutReaderParent extends JSWindowActorParent {
       return;
     }
 
-    let doc = browser.ownerGlobal.document;
+    let doc = browser.documentGlobal.document;
     let button = doc.getElementById("reader-mode-button");
     let menuitem = doc.getElementById("menu_readerModeItem");
     let key = doc.getElementById("key_toggleReaderMode");
@@ -202,7 +201,7 @@ export class AboutReaderParent extends JSWindowActorParent {
   }
 
   static toggleReaderMode(event) {
-    let win = event.target.ownerGlobal;
+    let win = event.target.documentGlobal;
     if (win.gBrowser) {
       let browser = win.gBrowser.selectedBrowser;
 

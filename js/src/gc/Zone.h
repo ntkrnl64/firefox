@@ -592,18 +592,21 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   [[nodiscard]] bool findSweepGroupEdges(Zone* atomsZone);
 
   struct JitDiscardOptions {
-    JitDiscardOptions() {}
+    JitDiscardOptions() = default;
     bool discardJitScripts = false;
     bool resetNurseryAllocSites = false;
     bool resetPretenuredAllocSites = false;
   };
+
+  // Circumvent https://github.com/llvm/llvm-project/issues/36032
+  static constexpr JitDiscardOptions DefaultJitDiscardOptions() { return {}; }
 
   void maybeDiscardJitCode(JS::GCContext* gcx);
 
   // Discard JIT code regardless of isPreservingCode().
   void forceDiscardJitCode(
       JS::GCContext* gcx,
-      const JitDiscardOptions& options = JitDiscardOptions());
+      const JitDiscardOptions& options = DefaultJitDiscardOptions());
 
   void resetAllocSitesAndInvalidate(bool resetNurserySites,
                                     bool resetPretenuredSites);
@@ -917,6 +920,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
     return gcGraphEdges.has(otherZone);
   }
   [[nodiscard]] bool addSweepGroupEdgeTo(Zone* otherZone) {
+    MOZ_ASSERT(isGCMarking());
     MOZ_ASSERT(otherZone->isGCMarking());
     return gcSweepGroupEdges().put(otherZone);
   }

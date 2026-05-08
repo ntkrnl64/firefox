@@ -40,6 +40,7 @@ import org.mockito.Mockito.spy
 import org.mockito.Mockito.verify
 import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowDisplay
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class BrowserMenuTest {
@@ -307,8 +308,7 @@ class BrowserMenuTest {
         menu.menuPositioningData = MenuPositioningData(BrowserMenuPlacement.AnchoredToBottom.Dropdown(anchor))
 
         val result = menu.configureExpandableMenu(view, true)
-
-        assertTrue(result is ExpandableLayout)
+        assertIs<ExpandableLayout>(result)
         assertTrue(result.getChildAt(0) == view)
     }
 
@@ -325,8 +325,7 @@ class BrowserMenuTest {
         menu.menuPositioningData = MenuPositioningData(BrowserMenuPlacement.AnchoredToBottom.ManualAnchoring(anchor))
 
         val result = menu.configureExpandableMenu(view, true)
-
-        assertTrue(result is ExpandableLayout)
+        assertIs<ExpandableLayout>(result)
         assertTrue(result.getChildAt(0) == view)
     }
 
@@ -359,7 +358,7 @@ class BrowserMenuTest {
         menu.configureExpandableMenu(menu.menuList!!, false)
 
         assertNotSame(initialLayoutManager, menu.menuList!!.layoutManager)
-        assertTrue(menu.menuList!!.layoutManager is StickyHeaderLinearLayoutManager<*>)
+        assertIs<StickyHeaderLinearLayoutManager<*>>(menu.menuList!!.layoutManager)
     }
 
     @Test

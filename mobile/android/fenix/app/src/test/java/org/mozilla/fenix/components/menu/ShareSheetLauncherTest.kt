@@ -32,6 +32,7 @@ import mozilla.components.browser.state.state.content.ShareResourceState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.prompt.ShareData
+import mozilla.components.support.utils.INTENT_TYPE_PDF
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -104,9 +105,13 @@ class ShareSheetLauncherTest {
 
     @Test
     fun `WHEN custom share sheet triggered AND content url provided THEN browser store updated`() = runTest {
+        val id = "123"
+        val url = "content://www.mozilla.org"
+        val tab = createTab(url = url, id = id)
+        every { browserStore.state } returns BrowserState(tabs = listOf(tab), selectedTabId = tab.id)
         launcher.showCustomShareSheet(
-            id = "123",
-            url = "content://www.mozilla.org",
+            id = id,
+            url = url,
             title = "Mozilla",
             isCustomTab = true,
         )
@@ -220,10 +225,8 @@ class ShareSheetLauncherTest {
         val id = "1"
         val url = "content://pdf.pdf"
         val title = "title"
-        val tab = createTab(
-            url = url,
-            id = id,
-        )
+        val tab = createTab(url = url, id = id)
+        every { browserStore.state } returns BrowserState(tabs = listOf(tab), selectedTabId = tab.id)
         launcher.showCustomShareSheet(
             id = tab.id,
             url = url,
@@ -235,7 +238,37 @@ class ShareSheetLauncherTest {
             browserStore.dispatch(
                 ShareResourceAction.AddShareAction(
                     id,
-                    ShareResourceState.LocalResource(url),
+                    ShareResourceState.LocalResource(url, contentType = INTENT_TYPE_PDF),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `GIVEN the current tab is a remote PDF WHEN custom share sheet is triggered THEN trigger ShareResourceAction`() = runTest {
+        val id = "1"
+        val url = "https://mozilla.org/document.pdf"
+        val tab = createTab(url = url, id = id).let {
+            it.copy(content = it.content.copy(isPdf = true))
+        }
+        every { browserStore.state } returns BrowserState(tabs = listOf(tab), selectedTabId = tab.id)
+        launcher.showCustomShareSheet(
+            id = tab.id,
+            url = url,
+            title = "title",
+            isCustomTab = true,
+        )
+
+        verify {
+            browserStore.dispatch(
+                ShareResourceAction.AddShareAction(
+                    id,
+                    ShareResourceState.InternetResource(
+                        url = url,
+                        contentType = INTENT_TYPE_PDF,
+                        private = false,
+                        referrerUrl = url,
+                    ),
                 ),
             )
         }

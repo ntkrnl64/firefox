@@ -16,100 +16,103 @@ ChromeUtils.defineESModuleGetters(lazy, {
 const DEFAULT_HOMEPAGE_URL = "about:home";
 const BLANK_HOMEPAGE_URL = "chrome://browser/content/blanktab.html";
 
-/**
- * @backward-compat { version 150 }
- * `home-pane-loaded` is fired by home-startup.mjs (chrome, baked at build time).
- * This notification was introduced in Firefox 150, so the redesign path in
- * observe() cannot be train-hopped on earlier releases.
- */
 export const PREFERENCES_LOADED_EVENT = "home-pane-loaded";
 export const PREFERENCES_LOADED_EVENT_SUBPANE = "customHomepage-pane-loaded";
 
 // These "section" objects are formatted in a way to be similar to the ones from
 // SectionsManager to construct the preferences view.
-const PREFS_FOR_SETTINGS = () => [
-  {
-    id: "web-search",
-    pref: {
-      feed: "showSearch",
-      titleString: "home-prefs-search-header",
-    },
-  },
-  {
-    id: "weather",
-    pref: {
-      feed: "showWeather",
-      titleString: "home-prefs-weather-header",
-      descString: "home-prefs-weather-description",
-      learnMore: {
-        link: {
-          href: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page",
-          id: "home-prefs-weather-learn-more-link",
-        },
+// @nova-cleanup(remove-conditional): Remove novaEnabled check; hardcode feed: "widgets.weather.enabled" and shouldHidePref using widgets.system.weather.enabled; convert function body back to arrow returning array literal
+const PREFS_FOR_SETTINGS = () => {
+  const novaEnabled = Services.prefs.getBoolPref(
+    "browser.newtabpage.activity-stream.nova.enabled",
+    false
+  );
+  return [
+    {
+      id: "web-search",
+      pref: {
+        feed: "showSearch",
+        titleString: "home-prefs-search-header",
       },
     },
-    eventSource: "WEATHER",
-    shouldHidePref: !Services.prefs.getBoolPref(
-      "browser.newtabpage.activity-stream.system.showWeather",
-      false
-    ),
-  },
-  {
-    id: "topsites",
-    pref: {
-      feed: "feeds.topsites",
-      titleString: "home-prefs-shortcuts-header",
-      descString: "home-prefs-shortcuts-description",
-    },
-    maxRows: 4,
-    rowsPref: "topSitesRows",
-    eventSource: "TOP_SITES",
-  },
-  {
-    id: "topstories",
-    pref: {
-      feed: "feeds.section.topstories",
-      titleString: {
-        id: "home-prefs-recommended-by-header-generic",
-      },
-      descString: {
-        id: "home-prefs-recommended-by-description-generic",
-      },
-    },
-    shouldHidePref: !Services.prefs.getBoolPref(
-      "browser.newtabpage.activity-stream.feeds.system.topstories",
-      true
-    ),
-    eventSource: "TOP_STORIES",
-  },
-  {
-    id: "support-firefox",
-    pref: {
-      feed: "showSponsoredCheckboxes",
-      titleString: "home-prefs-support-firefox-header",
-      nestedPrefs: [
-        {
-          name: "showSponsoredTopSites",
-          titleString: "home-prefs-shortcuts-by-option-sponsored",
-          eventSource: "SPONSORED_TOP_SITES",
+    {
+      id: "weather",
+      pref: {
+        feed: novaEnabled ? "widgets.weather.enabled" : "showWeather",
+        titleString: "home-prefs-weather-header",
+        descString: "home-prefs-weather-description",
+        learnMore: {
+          link: {
+            href: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page",
+            id: "home-prefs-weather-learn-more-link",
+          },
         },
-        {
-          name: "showSponsored",
-          titleString: "home-prefs-recommended-by-option-sponsored-stories",
-          eventSource: "POCKET_SPOCS",
-          shouldHidePref: !Services.prefs.getBoolPref(
-            "browser.newtabpage.activity-stream.feeds.system.topstories",
-            true
-          ),
-          shouldDisablePref: !Services.prefs.getBoolPref(
-            "browser.newtabpage.activity-stream.feeds.section.topstories",
-            true
-          ),
-        },
-      ],
+      },
+      eventSource: "WEATHER",
+      shouldHidePref: !Services.prefs.getBoolPref(
+        novaEnabled
+          ? "browser.newtabpage.activity-stream.widgets.system.weather.enabled"
+          : "browser.newtabpage.activity-stream.system.showWeather",
+        false
+      ),
     },
-  },
-];
+    {
+      id: "topsites",
+      pref: {
+        feed: "feeds.topsites",
+        titleString: "home-prefs-shortcuts-header",
+        descString: "home-prefs-shortcuts-description",
+      },
+      maxRows: 4,
+      rowsPref: "topSitesRows",
+      eventSource: "TOP_SITES",
+    },
+    {
+      id: "topstories",
+      pref: {
+        feed: "feeds.section.topstories",
+        titleString: {
+          id: "home-prefs-recommended-by-header-generic",
+        },
+        descString: {
+          id: "home-prefs-recommended-by-description-generic",
+        },
+      },
+      shouldHidePref: !Services.prefs.getBoolPref(
+        "browser.newtabpage.activity-stream.feeds.system.topstories",
+        true
+      ),
+      eventSource: "TOP_STORIES",
+    },
+    {
+      id: "support-firefox",
+      pref: {
+        feed: "showSponsoredCheckboxes",
+        titleString: "home-prefs-support-firefox-header",
+        nestedPrefs: [
+          {
+            name: "showSponsoredTopSites",
+            titleString: "home-prefs-shortcuts-by-option-sponsored",
+            eventSource: "SPONSORED_TOP_SITES",
+          },
+          {
+            name: "showSponsored",
+            titleString: "home-prefs-recommended-by-option-sponsored-stories",
+            eventSource: "POCKET_SPOCS",
+            shouldHidePref: !Services.prefs.getBoolPref(
+              "browser.newtabpage.activity-stream.feeds.system.topstories",
+              true
+            ),
+            shouldDisablePref: !Services.prefs.getBoolPref(
+              "browser.newtabpage.activity-stream.feeds.section.topstories",
+              true
+            ),
+          },
+        ],
+      },
+    },
+  ];
+};
 
 export class AboutPreferences {
   init() {
@@ -131,11 +134,11 @@ export class AboutPreferences {
         this.uninit();
         break;
       case at.SETTINGS_OPEN:
-        action._target.browser.ownerGlobal.openPreferences("paneHome");
+        action._target.window.openPreferences("paneHome");
         break;
       // This is used to open the web extension settings page for an extension
       case at.OPEN_WEBEXT_SETTINGS:
-        action._target.browser.ownerGlobal.BrowserAddonUI.openAddonsMgr(
+        action._target.window.BrowserAddonUI.openAddonsMgr(
           `addons://detail/${encodeURIComponent(action.data)}`
         );
         break;
@@ -161,20 +164,13 @@ export class AboutPreferences {
     if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
       const { SettingGroupManager } = window;
 
-      /**
-       * @backward-compat { version 150 }
-       * On Firefox < 150, the preferences component was registering Home & New Tab groups
-       * itself before firing `home-pane-loaded`. Skip re-registration on those versions.
-       */
-      if (!SettingGroupManager._data?.has("homepage")) {
-        this._registerPreferences(window);
+      this._registerPreferences(window);
 
-        SettingGroupManager.registerGroups({
-          homepage: this._setupHomepageGroup(window),
-          customHomepage: this._setupCustomHomepageGroup(window),
-          home: this._setupHomeGroup(window),
-        });
-      }
+      SettingGroupManager.registerGroups({
+        homepage: this._setupHomepageGroup(window),
+        customHomepage: this._setupCustomHomepageGroup(window),
+        home: this._setupHomeGroup(window),
+      });
       return;
     }
 
@@ -217,6 +213,14 @@ export class AboutPreferences {
         type: "bool",
       },
       {
+        id: "browser.newtabpage.activity-stream.widgets.system.weather.enabled",
+        type: "bool",
+      },
+      {
+        id: "browser.newtabpage.activity-stream.widgets.weather.enabled",
+        type: "bool",
+      },
+      {
         id: "browser.newtabpage.activity-stream.widgets.system.lists.enabled",
         type: "bool",
       },
@@ -230,6 +234,22 @@ export class AboutPreferences {
       },
       {
         id: "browser.newtabpage.activity-stream.widgets.focusTimer.enabled",
+        type: "bool",
+      },
+      {
+        id: "browser.newtabpage.activity-stream.widgets.system.sportsWidget.enabled",
+        type: "bool",
+      },
+      {
+        id: "browser.newtabpage.activity-stream.widgets.sportsWidget.enabled",
+        type: "bool",
+      },
+      {
+        id: "browser.newtabpage.activity-stream.widgets.system.clocks.enabled",
+        type: "bool",
+      },
+      {
+        id: "browser.newtabpage.activity-stream.widgets.clocks.enabled",
         type: "bool",
       },
       {
@@ -769,24 +789,60 @@ export class AboutPreferences {
   _setupHomeGroup(window) {
     const { Preferences } = window;
 
+    // The Firefox Home section should be disabled when neither "New windows"
+    // nor "New tabs" is set to Firefox Home.
+    const firefoxHomeDeps = ["homepageNewWindows", "homepageNewTabs"];
+    const firefoxHomeActive = ({ homepageNewWindows, homepageNewTabs }) =>
+      homepageNewWindows.value === "home" || homepageNewTabs.value === "true";
+
+    Preferences.addSetting({
+      id: "firefoxHomeDisabledNotice",
+      deps: firefoxHomeDeps,
+      visible: deps => !firefoxHomeActive(deps),
+    });
+
     // Search
     Preferences.addSetting({
       id: "webSearch",
       pref: "browser.newtabpage.activity-stream.showSearch",
+      deps: firefoxHomeDeps,
+      disabled: deps => !firefoxHomeActive(deps),
     });
 
     // Weather
-    Preferences.addSetting({
-      id: "showWeather",
-      pref: "browser.newtabpage.activity-stream.system.showWeather",
-    });
+    // @nova-cleanup(remove-conditional): Remove novaEnabled check and else branch; keep only the Nova registration block (weatherEnabled + weather addSetting calls)
+    const novaEnabled = Services.prefs.getBoolPref(
+      "browser.newtabpage.activity-stream.nova.enabled",
+      false
+    );
 
-    Preferences.addSetting({
-      id: "weather",
-      pref: "browser.newtabpage.activity-stream.showWeather",
-      deps: ["showWeather"],
-      visible: ({ showWeather }) => showWeather.value,
-    });
+    if (novaEnabled) {
+      Preferences.addSetting({
+        id: "weatherEnabled",
+        pref: "browser.newtabpage.activity-stream.widgets.system.weather.enabled",
+      });
+
+      Preferences.addSetting({
+        id: "weather",
+        pref: "browser.newtabpage.activity-stream.widgets.weather.enabled",
+        deps: ["weatherEnabled", ...firefoxHomeDeps],
+        visible: ({ weatherEnabled }) => weatherEnabled.value,
+        disabled: deps => !firefoxHomeActive(deps),
+      });
+    } else {
+      Preferences.addSetting({
+        id: "showWeather",
+        pref: "browser.newtabpage.activity-stream.system.showWeather",
+      });
+
+      Preferences.addSetting({
+        id: "weather",
+        pref: "browser.newtabpage.activity-stream.showWeather",
+        deps: ["showWeather", ...firefoxHomeDeps],
+        visible: ({ showWeather }) => showWeather.value,
+        disabled: deps => !firefoxHomeActive(deps),
+      });
+    }
 
     // Widgets: general
     Preferences.addSetting({
@@ -797,8 +853,9 @@ export class AboutPreferences {
     Preferences.addSetting({
       id: "widgets",
       pref: "browser.newtabpage.activity-stream.widgets.enabled",
-      deps: ["widgetsEnabled"],
+      deps: ["widgetsEnabled", ...firefoxHomeDeps],
       visible: ({ widgetsEnabled }) => widgetsEnabled.value,
+      disabled: deps => !firefoxHomeActive(deps),
     });
 
     // Widgets: lists
@@ -827,10 +884,37 @@ export class AboutPreferences {
       visible: ({ timerEnabled }) => timerEnabled.value,
     });
 
+    // Widgets: sports
+    Preferences.addSetting({
+      id: "sportsWidgetEnabled",
+      pref: "browser.newtabpage.activity-stream.widgets.system.sportsWidget.enabled",
+    });
+
+    Preferences.addSetting({
+      id: "sportsWidget",
+      pref: "browser.newtabpage.activity-stream.widgets.sportsWidget.enabled",
+      deps: ["sportsWidgetEnabled"],
+      visible: ({ sportsWidgetEnabled }) => sportsWidgetEnabled.value,
+    });
+
+    Preferences.addSetting({
+      id: "clocksEnabled",
+      pref: "browser.newtabpage.activity-stream.widgets.system.clocks.enabled",
+    });
+
+    Preferences.addSetting({
+      id: "clocks",
+      pref: "browser.newtabpage.activity-stream.widgets.clocks.enabled",
+      deps: ["clocksEnabled"],
+      visible: ({ clocksEnabled }) => clocksEnabled.value,
+    });
+
     // Shortcuts
     Preferences.addSetting({
       id: "shortcuts",
       pref: "browser.newtabpage.activity-stream.feeds.topsites",
+      deps: firefoxHomeDeps,
+      disabled: deps => !firefoxHomeActive(deps),
     });
     Preferences.addSetting({
       id: "shortcutsRows",
@@ -847,8 +931,9 @@ export class AboutPreferences {
     Preferences.addSetting({
       id: "stories",
       pref: "browser.newtabpage.activity-stream.feeds.section.topstories",
-      deps: ["systemTopstories"],
+      deps: ["systemTopstories", ...firefoxHomeDeps],
       visible: ({ systemTopstories }) => systemTopstories.value,
+      disabled: deps => !firefoxHomeActive(deps),
     });
 
     // Dependencies for "manage topics" checkbox
@@ -896,7 +981,8 @@ export class AboutPreferences {
     Preferences.addSetting({
       id: "supportFirefox",
       pref: "browser.newtabpage.activity-stream.showSponsoredCheckboxes",
-      deps: ["sponsoredShortcuts", "sponsoredStories"],
+      deps: ["sponsoredShortcuts", "sponsoredStories", ...firefoxHomeDeps],
+      disabled: deps => !firefoxHomeActive(deps),
       onUserChange(value, { sponsoredShortcuts, sponsoredStories }) {
         // When supportFirefox changes, automatically update child preferences to match
         sponsoredShortcuts.value = !!value;
@@ -920,6 +1006,8 @@ export class AboutPreferences {
       visible: ({ systemTopstories }) => !!systemTopstories.value,
       disabled: ({ stories }) => !stories.value,
     });
+    // Not disabled when Firefox Home is off — the promo remains visible
+    // regardless of the homepage setting.
     Preferences.addSetting({
       id: "supportFirefoxPromo",
       deps: ["supportFirefox"],
@@ -929,6 +1017,8 @@ export class AboutPreferences {
     Preferences.addSetting({
       id: "recentActivity",
       pref: "browser.newtabpage.activity-stream.feeds.section.highlights",
+      deps: firefoxHomeDeps,
+      disabled: deps => !firefoxHomeActive(deps),
     });
     Preferences.addSetting({
       id: "recentActivityRows",
@@ -947,6 +1037,8 @@ export class AboutPreferences {
       pref: "browser.newtabpage.activity-stream.section.highlights.includeDownloads",
     });
 
+    // Not hidden when Firefox Home is off — the wallpaper link remains
+    // visible regardless of the homepage setting.
     Preferences.addSetting({
       id: "chooseWallpaper",
     });
@@ -957,6 +1049,14 @@ export class AboutPreferences {
       l10nId: "home-prefs-content-header",
       iconSrc: "chrome://browser/skin/home.svg",
       items: [
+        {
+          id: "firefoxHomeDisabledNotice",
+          control: "moz-message-bar",
+          l10nId: "home-prefs-firefox-home-disabled-notice",
+          controlAttrs: {
+            type: "info",
+          },
+        },
         {
           id: "webSearch",
           l10nId: "home-prefs-search-header2",
@@ -979,6 +1079,14 @@ export class AboutPreferences {
             {
               id: "timer",
               l10nId: "home-prefs-timer-header",
+            },
+            {
+              id: "sportsWidget",
+              l10nId: "home-prefs-sports-widget-header",
+            },
+            {
+              id: "clocks",
+              l10nId: "home-prefs-clocks-header",
             },
           ],
         },

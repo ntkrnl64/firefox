@@ -2525,7 +2525,7 @@ void MacroAssemblerRiscv64Compat::handleFailureWithHandlerTail(
 
   // Found a wasm catch handler, restore state and jump to it.
   bind(&wasmCatch);
-  wasm::GenerateJumpToCatchHandler(asMasm(), sp, a1, a2);
+  wasm::GenerateJumpToCatchHandler(asMasm(), sp, a1, a2, a3);
 }
 
 CodeOffset MacroAssemblerRiscv64Compat::toggledJump(Label* label) {
@@ -2590,7 +2590,7 @@ CodeOffset MacroAssembler::farJumpWithPatch() {
   Register scratch = temps.Acquire();
   Register scratch2 = temps.Acquire();
   // Allocate space which will be patched by patchFarJump().
-  CodeOffset farJump(nextInstrOffset(5).getOffset());
+  CodeOffset farJump(nextInstrOffset(5, 0).getOffset());
   auipc(scratch, 0);
   lw(scratch2, scratch, 4 * sizeof(Instr));
   add(scratch, scratch, scratch2);

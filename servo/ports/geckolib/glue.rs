@@ -106,7 +106,7 @@ use style::string_cache::{Atom, WeakAtom};
 use style::style_adjuster::StyleAdjuster;
 use style::stylesheets::container_rule::ContainerSizeQuery;
 use style::stylesheets::import_rule::{ImportLayer, ImportSheet};
-use style::stylesheets::keyframes_rule::{Keyframe, KeyframeSelector, KeyframesStepValue};
+use style::stylesheets::keyframes_rule::{Keyframe, KeyframeSelectors, KeyframesStepValue};
 use style::stylesheets::scope_rule::{ImplicitScopeRoot, ScopeRootCandidate, ScopeSubjectMap};
 use style::stylesheets::supports_rule::parse_condition_or_declaration;
 use style::stylesheets::{
@@ -147,6 +147,7 @@ use style::values::generics::color::ColorMixFlags;
 use style::values::generics::easing::BeforeFlag;
 use style::values::generics::length::GenericAnchorSizeFunction;
 use style::values::resolved;
+use style::values::resolved::ToResolvedValue;
 use style::values::specified::align::AlignFlags;
 use style::values::specified::intersection_observer::IntersectionObserverMargin;
 use style::values::specified::position::PositionTryFallbacksItem;
@@ -3020,7 +3021,7 @@ pub unsafe extern "C" fn Servo_SelectorList_QueryFirst(
 pub unsafe extern "C" fn Servo_SelectorList_QueryAll(
     node: &RawGeckoNode,
     selectors: &SelectorList,
-    content_list: *mut structs::nsSimpleContentList,
+    content_list: *mut structs::SimpleContentList,
     may_use_invalidation: bool,
 ) {
     use style::dom_apis::{self, MayUseInvalidation, QueryAll};
@@ -3057,7 +3058,7 @@ pub unsafe extern "C" fn Servo_SelectorList_QueryAllWithScope(
     node: &RawGeckoNode,
     rules: &nsTArray<&LockedStyleRule>,
     scope_rules: &nsTArray<ScopeRuleData>,
-    content_list: *mut structs::nsSimpleContentList,
+    content_list: *mut structs::SimpleContentList,
 ) {
     let root = GeckoNode(node);
     let quirks_mode = root.owner_doc().quirks_mode();
@@ -3185,7 +3186,7 @@ pub extern "C" fn Servo_Keyframe_GetKeyText(keyframe: &LockedKeyframe, result: &
 pub extern "C" fn Servo_Keyframe_SetKeyText(keyframe: &LockedKeyframe, text: &nsACString) -> bool {
     let text = unsafe { text.as_str_unchecked() };
     let mut input = ParserInput::new(&text);
-    if let Ok(selector) = Parser::new(&mut input).parse_entirely(KeyframeSelector::parse) {
+    if let Ok(selector) = Parser::new(&mut input).parse_entirely(KeyframeSelectors::parse) {
         write_locked_arc(keyframe, |keyframe: &mut Keyframe| {
             keyframe.selector = selector;
         });
@@ -3392,6 +3393,7 @@ pub extern "C" fn Servo_PageRule_SetSelectorText(
             /* namespaces = */ Default::default(),
             None,
             None,
+            /* attr_taint */ Default::default(),
         );
 
         match parser.parse_entirely(|i| PageSelectors::parse(&context, i)) {
@@ -3500,6 +3502,45 @@ pub extern "C" fn Servo_ContainerRule_QueryContainerFor(
         }
     }
     ptr::null()
+}
+
+#[no_mangle]
+pub extern "C" fn Servo_ContainerRule_QueryConditionMatchesElement(
+    rule: &ContainerRule,
+    element: &RawGeckoElement,
+    condition_index: usize,
+    per_doc_data: &PerDocumentStyleData,
+) -> bool {
+    let Some(condition) = rule.conditions.0.get(condition_index) else {
+        return false;
+    };
+
+    let stylist = &per_doc_data.borrow().stylist;
+    let quirks_mode = stylist.quirks_mode();
+    let mut selector_caches = SelectorCaches::default();
+    let mut context: MatchingContext<'_, style::selector_parser::SelectorImpl> =
+        MatchingContext::new(
+            MatchingMode::Normal,
+            /* bloom_filter = */ None,
+            &mut selector_caches,
+            quirks_mode,
+            NeedsSelectorFlags::No,
+            MatchingForInvalidation::No,
+        );
+
+    condition
+        .matches(
+            stylist,
+            GeckoElement(element),
+            context.extra_data.originating_element_style,
+            &mut context.extra_data.cascade_input_flags,
+        )
+        .to_bool(
+            // Consider unknown as false so we're consistent with that's done in
+            // CascadeData::container_condition_matches and won't indicate unsupported
+            // functions/idents as supported (see https://drafts.csswg.org/mediaqueries/#typedef-general-enclosed)
+            false,
+        )
 }
 
 #[no_mangle]
@@ -3887,6 +3928,7 @@ pub extern "C" fn Servo_FontFaceRule_SetDescriptor(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     write_locked_arc_worker(rule, |rule: &mut FontFaceRule| {
@@ -4237,6 +4279,7 @@ pub extern "C" fn Servo_CounterStyleRule_SetDescriptor(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     write_locked_arc(rule, |rule: &mut CounterStyleRule| {
@@ -4958,6 +5001,7 @@ pub extern "C" fn Servo_ParseEasing(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     let easing = easing.to_string();
     let mut input = ParserInput::new(&easing);
@@ -5526,6 +5570,49 @@ pub unsafe extern "C" fn Servo_DeclarationBlock_SetPropertyById(
     )
 }
 
+#[no_mangle]
+pub extern "C" fn Servo_DeclarationBlock_SetPropertyTypedValue(
+    declarations: &LockedDeclarationBlock,
+    property_id: &structs::CSSPropertyId,
+    value: &nsACString,
+    url_extra_data: *mut URLExtraData,
+    before_change_closure: DeclarationBlockMutationClosure,
+    changed: &mut bool,
+) -> nsresult {
+    let property_id =
+        get_property_id_from_csspropertyid!(property_id, nsresult::NS_ERROR_INVALID_ARG);
+    let non_custom_property_id = property_id.non_custom_id();
+
+    let mut source_declarations = SourcePropertyDeclaration::default();
+
+    let result = parse_property_into(
+        &mut source_declarations,
+        property_id,
+        value,
+        Origin::Author,
+        unsafe { UrlExtraData::from_ptr_ref(&url_extra_data) },
+        ParsingMode::DEFAULT,
+        QuirksMode::NoQuirks,
+        CssRuleType::Style,
+        None,
+    );
+
+    match result {
+        Ok(()) => {
+            *changed = set_property_to_declarations(
+                non_custom_property_id,
+                declarations,
+                &mut source_declarations,
+                before_change_closure,
+                Importance::Normal,
+            );
+
+            nsresult::NS_OK
+        },
+        Err(_) => nsresult::NS_ERROR_DOM_SYNTAX_ERR,
+    }
+}
+
 fn remove_property(
     declarations: &LockedDeclarationBlock,
     property_id: PropertyId,
@@ -5605,6 +5692,7 @@ pub extern "C" fn Servo_NumericDeclaration_Parse(text: &nsACString) -> *mut Nume
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let string = unsafe { text.as_str_unchecked() };
@@ -5784,6 +5872,7 @@ pub unsafe extern "C" fn Servo_MediaList_SetText(
         // TODO(emilio): Looks like error reporting could be useful here?
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     write_locked_arc(list, |list: &mut MediaList| {
@@ -5830,6 +5919,7 @@ pub extern "C" fn Servo_MediaList_AppendMedium(list: &LockedMediaList, new_mediu
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     write_locked_arc(list, |list: &mut MediaList| {
         list.append_medium(&context, new_medium);
@@ -5852,6 +5942,7 @@ pub extern "C" fn Servo_MediaList_DeleteMedium(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     write_locked_arc(list, |list: &mut MediaList| {
         list.delete_medium(&context, old_medium)
@@ -6571,6 +6662,7 @@ pub unsafe extern "C" fn Servo_DeclarationBlock_SetFontFamily(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     let result = FontFamily::parse(&context, &mut parser);
     if let Ok(family) = result {
@@ -6606,8 +6698,9 @@ pub unsafe extern "C" fn Servo_DeclarationBlock_SetBackgroundImage(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
-    let url = SpecifiedUrl::parse_from_string(string.into(), &context, CorsMode::None);
+    let url = SpecifiedUrl::new_from_untainted_string(string.into(), &context, CorsMode::None);
     let decl = PropertyDeclaration::BackgroundImage(BackgroundImage(vec![Image::Url(url)].into()));
     write_locked_arc(declarations, |decls: &mut PropertyDeclarationBlock| {
         decls.push(decl, Importance::Normal);
@@ -6706,6 +6799,7 @@ pub extern "C" fn Servo_CSSSupports(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     cond.eval(&context)
@@ -6728,6 +6822,7 @@ pub extern "C" fn Servo_CSSSupportsForImport(after_rule: &nsACString) -> bool {
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let (_layer, supports) = ImportRule::parse_layer_and_supports(&mut input, &mut context);
@@ -6957,7 +7052,6 @@ fn create_context_for_animation<'a>(
     per_doc_data: &'a PerDocumentStyleDataImpl,
     style: &'a ComputedValues,
     parent_style: Option<&'a ComputedValues>,
-    for_smil_animation: bool,
     rule_cache_conditions: &'a mut RuleCacheConditions,
     container_size_query: ContainerSizeQuery<'a>,
 ) -> Context<'a> {
@@ -6968,7 +7062,6 @@ fn create_context_for_animation<'a>(
             style,
             parent_style,
         ),
-        for_smil_animation,
         per_doc_data.stylist.quirks_mode(),
         rule_cache_conditions,
         container_size_query,
@@ -7061,7 +7154,6 @@ pub extern "C" fn Servo_GetComputedKeyframeValues(
         &data,
         &style,
         parent_style,
-        /* for_smil_animation = */ false,
         &mut conditions,
         container_size_query,
     );
@@ -7199,7 +7291,6 @@ pub extern "C" fn Servo_GetAnimationValues(
         &data,
         &style,
         parent_style,
-        /* for_smil_animation = */ true,
         &mut conditions,
         container_size_query,
     );
@@ -7245,7 +7336,6 @@ pub extern "C" fn Servo_AnimationValue_Compute(
         &data,
         style,
         parent_style,
-        /* for_smil_animation = */ false,
         &mut conditions,
         container_size_query,
     );
@@ -8504,7 +8594,7 @@ pub unsafe extern "C" fn Servo_GetResolvedValue(
         element_info: resolved::ResolvedElementInfo {
             element: GeckoElement(element),
         },
-        for_property: prop,
+        for_property: PropertyId::NonCustom(prop),
         current_longhand: None,
     };
 
@@ -8573,9 +8663,11 @@ pub unsafe extern "C" fn Servo_GetCustomPropertyValue(
     style: &ComputedValues,
     name: &nsACString,
     raw_data: &PerDocumentStyleData,
-    value: &mut nsACString,
+    element: &RawGeckoElement,
+    value: Option<&mut nsACString>,
 ) -> bool {
     let data = raw_data.borrow();
+    let device = data.stylist.device();
     let name = Atom::from(name.as_str_unchecked());
     let custom_registration = data.stylist.get_custom_property_registration(&name);
     let computed_value = style.custom_properties.get(custom_registration, &name);
@@ -8583,9 +8675,23 @@ pub unsafe extern "C" fn Servo_GetCustomPropertyValue(
         Some(v) => v,
         None => return false,
     };
-    // TODO(emilio): This might want to return resolved colors and so on for example, see
-    // https://github.com/w3c/csswg-drafts/issues/10371.
-    computed_value.to_css(&mut CssWriter::new(value)).unwrap();
+
+    let Some(value) = value else { return true };
+
+    let mut context = resolved::Context {
+        style,
+        device,
+        element_info: resolved::ResolvedElementInfo {
+            element: GeckoElement(element),
+        },
+        for_property: PropertyId::Custom(name),
+        current_longhand: None,
+    };
+    computed_value
+        .clone()
+        .to_resolved_value(&mut context)
+        .to_css(&mut CssWriter::new(value))
+        .unwrap();
     true
 }
 
@@ -8913,6 +9019,7 @@ pub unsafe extern "C" fn Servo_IsValidCSSColor(value: &nsACString) -> bool {
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     specified::Color::is_valid(&context, &mut input)
 }
@@ -8927,7 +9034,7 @@ unsafe fn compute_color(
     current_color: &AbsoluteColor,
     value: &nsACString,
     loader: *mut Loader,
-) -> Option<ComputeColorResult> {
+) -> Result<ComputeColorResult, ()> {
     let mut input = ParserInput::new(value.as_str_unchecked());
     let mut input = Parser::new(&mut input);
     let reporter = loader.as_mut().and_then(|loader| {
@@ -8944,6 +9051,7 @@ unsafe fn compute_color(
         /* namespaces = */ Default::default(),
         reporter.as_ref().map(|e| e as &dyn ParseErrorReporter),
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let data;
@@ -8960,7 +9068,7 @@ unsafe fn compute_color(
     let result_color = computed.resolve_to_absolute(current_color);
     let was_current_color = computed.is_currentcolor();
 
-    Some(ComputeColorResult {
+    Ok(ComputeColorResult {
         result_color,
         was_current_color,
     })
@@ -8976,7 +9084,7 @@ pub unsafe extern "C" fn Servo_ComputeColor(
     loader: *mut Loader,
 ) -> bool {
     let current_color = AbsoluteColor::from_nscolor(current_color);
-    let Some(result) = compute_color(raw_data, &current_color, value, loader) else {
+    let Ok(result) = compute_color(raw_data, &current_color, value, loader) else {
         return false;
     };
 
@@ -8993,7 +9101,7 @@ pub unsafe extern "C" fn Servo_ComputeAbsoluteColor(
     value: &nsACString,
     result_color: &mut AbsoluteColor,
 ) -> bool {
-    if let Some(color) = compute_color(raw_data, &AbsoluteColor::BLACK, value, ptr::null_mut()) {
+    if let Ok(color) = compute_color(raw_data, &AbsoluteColor::BLACK, value, ptr::null_mut()) {
         *result_color = color.result_color;
         true
     } else {
@@ -9043,6 +9151,7 @@ pub unsafe extern "C" fn Servo_ColorTo(
         /* namespaces = */ Default::default(),
         reporter.as_ref().map(|e| e as &dyn ParseErrorReporter),
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let specified = match specified::Color::parse(&context, &mut input) {
@@ -9151,6 +9260,7 @@ pub unsafe extern "C" fn Servo_IntersectionObserverMargin_Parse(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let margin = parser.parse_entirely(|p| IntersectionObserverMargin::parse(&context, p));
@@ -9192,6 +9302,7 @@ pub extern "C" fn Servo_ParseTransformIntoMatrix(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let transform = match parser.parse_entirely(|t| transform::parse(&context, t)) {
@@ -9231,6 +9342,7 @@ pub extern "C" fn Servo_ParseFilters(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let mut filters = vec![];
@@ -9296,6 +9408,7 @@ pub unsafe extern "C" fn Servo_ParseFontShorthandForMatching(
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     let font = match parser.parse_entirely(|f| font::parse_value(&context, f)) {
@@ -9394,6 +9507,7 @@ pub unsafe extern "C" fn Servo_SourceSizeList_Parse(value: &nsACString) -> *mut 
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
 
     // NB: Intentionally not calling parse_entirely.
@@ -9683,6 +9797,7 @@ pub extern "C" fn Servo_GenericFontFamily_Parse(input: &nsACString) -> GenericFo
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     let value = input.to_utf8();
     let mut input = ParserInput::new(&value);
@@ -9703,6 +9818,7 @@ pub extern "C" fn Servo_ColorScheme_Parse(input: &nsACString, out: &mut u8) -> b
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     let input = unsafe { input.as_str_unchecked() };
     let mut input = ParserInput::new(&input);
@@ -9857,6 +9973,7 @@ where
         /* namespaces = */ Default::default(),
         None,
         None,
+        /* attr_taint */ Default::default(),
     );
     let mut input = ParserInput::new(string);
     Parser::new(&mut input)
@@ -9949,13 +10066,7 @@ pub extern "C" fn Servo_SlowRgbToNearestColorName(
 pub extern "C" fn Servo_ColorNameToRgb(name: &nsACString, out: &mut structs::nscolor) -> bool {
     match cssparser::color::parse_named_color(unsafe { name.as_str_unchecked() }) {
         Ok((r, g, b)) => {
-            *out = AbsoluteColor::new(
-                ColorSpace::Srgb,
-                r,
-                g,
-                b,
-                1.0,
-            ).to_nscolor();
+            *out = AbsoluteColor::new(ColorSpace::Srgb, r, g, b, 1.0).to_nscolor();
             true
         },
         _ => false,
@@ -10127,6 +10238,7 @@ pub unsafe extern "C" fn Servo_Value_Matches_Syntax(
         url_data,
         None,
         AllowComputationallyDependent::Yes,
+        /* attr_taint */ Default::default(),
     )
     .is_ok()
 }

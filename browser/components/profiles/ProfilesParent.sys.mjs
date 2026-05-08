@@ -101,14 +101,15 @@ export class ProfilesParent extends JSWindowActorParent {
       }
       case "Profiles:GetNewProfileContent": {
         Glean.profilesNew.displayed.record();
-        let isDark = gBrowser.selectedBrowser.ownerGlobal.matchMedia(
+        let isDark = gBrowser.selectedBrowser.documentGlobal.matchMedia(
           "(-moz-system-dark-theme)"
         ).matches;
         return this.#getProfileContent(isDark);
       }
       case "Profiles:GetEditProfileContent": {
         Glean.profilesExisting.displayed.record();
-        let isDark = gBrowser.selectedBrowser.ownerGlobal.matchMedia(
+        await lazy.BackupService.init().postRecoveryComplete;
+        let isDark = gBrowser.selectedBrowser.documentGlobal.matchMedia(
           "(-moz-system-dark-theme)"
         ).matches;
         return this.#getProfileContent(isDark);

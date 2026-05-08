@@ -110,8 +110,9 @@ use crate::internal_types::{FastHashMap, PlaneSplitter, Filter};
 use crate::internal_types::{PlaneSplitterIndex, PlaneSplitAnchor, TextureSource};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use plane_split::{Clipper, Polygon};
-use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
+use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveKind};
 use crate::prim_store::PrimitiveScratchBuffer;
+use crate::prim_store::storage;
 use crate::print_tree::PrintTreePrinter;
 use crate::render_backend::DataStores;
 use crate::render_task_graph::RenderTaskId;
@@ -242,7 +243,7 @@ impl PictureScratchBuffer {
 pub struct RasterConfig {
     /// How this picture should be composited into
     /// the parent surface.
-    // TODO(gw): We should remove this and just use what is in PicturePrimitive
+    // TODO(gw): We should remove this and just use what is in PictureInstance
     pub composite_mode: PictureCompositeMode,
     /// Index to the surface descriptor for this
     /// picture.
@@ -432,13 +433,13 @@ impl PrimitiveList {
         // Pictures are always put into a new cluster, to make it faster to
         // iterate all pictures in a given primitive list.
         match prim_instance.kind {
-            PrimitiveInstanceKind::Picture { pic_index, .. } => {
+            PrimitiveKind::Picture { pic_index, .. } => {
                 self.child_pictures.push(pic_index);
             }
-            PrimitiveInstanceKind::TextRun { .. } => {
+            PrimitiveKind::TextRun { .. } => {
                 self.needs_scissor_rect = true;
             }
-            PrimitiveInstanceKind::YuvImage { .. } => {
+            PrimitiveKind::YuvImage { .. } => {
                 // Any YUV image that requests a compositor surface is implicitly
                 // opaque. Though we might treat this prim as an underlay, which
                 // doesn't require an overlay surface, we add to the count anyway
@@ -449,7 +450,7 @@ impl PrimitiveList {
                     self.yuv_image_surface_count += 1;
                 }
             }
-            PrimitiveInstanceKind::Image { .. } => {
+            PrimitiveKind::Image { .. } => {
                 // For now, we assume that any image that wants a compositor surface
                 // is transparent, and uses the existing overlay compositor surface
                 // infrastructure. In future, we could detect opaque images, however
@@ -511,7 +512,7 @@ impl PrimitiveList {
 
 bitflags! {
     #[cfg_attr(feature = "capture", derive(Serialize))]
-    /// Flags describing properties for a given PicturePrimitive
+    /// Flags describing properties for a given PictureInstance
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct PictureFlags : u8 {
         /// This picture is a resolve target (doesn't actually render content itself,
@@ -525,15 +526,12 @@ bitflags! {
     }
 }
 
+/// Per-frame scratch data for a Picture primitive. Pushed in `take_context`
+/// and read by both prepare and batch through the `scratch_handle` carried
+/// on `PrimitiveKind::Picture`.
+#[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct PicturePrimitive {
-    /// List of primitives, and associated info for this picture.
-    pub prim_list: PrimitiveList,
-
-    /// If false and transform ends up showing the back of the picture,
-    /// it will be considered invisible.
-    pub is_backface_visible: bool,
-
+pub struct PictureScratch {
     /// All render tasks have 0-2 input tasks.
     pub primary_render_task_id: Option<RenderTaskId>,
     /// If a mix-blend-mode, contains the render task for
@@ -545,17 +543,36 @@ pub struct PicturePrimitive {
     /// This is also used by SVGFEBlend, SVGFEComposite and
     /// SVGFEDisplacementMap filters.
     pub secondary_render_task_id: Option<RenderTaskId>,
+    /// Optional cache handles for storing extra data in the
+    /// GPU cache, depending on the type of picture.
+    pub extra_gpu_data: SmallVec<[GpuBufferAddress; 1]>,
+}
+
+impl PictureScratch {
+    pub fn empty() -> Self {
+        PictureScratch {
+            primary_render_task_id: None,
+            secondary_render_task_id: None,
+            extra_gpu_data: SmallVec::new(),
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+pub struct PictureInstance {
+    /// List of primitives, and associated info for this picture.
+    pub prim_list: PrimitiveList,
+
+    /// If false and transform ends up showing the back of the picture,
+    /// it will be considered invisible.
+    pub is_backface_visible: bool,
+
     /// How this picture should be composited.
     /// If None, don't composite - just draw directly on parent surface.
     pub composite_mode: Option<PictureCompositeMode>,
 
     pub raster_config: Option<RasterConfig>,
     pub context_3d: Picture3DContext<OrderedPictureChild>,
-
-    // Optional cache handles for storing extra data
-    // in the GPU cache, depending on the type of
-    // picture.
-    pub extra_gpu_data: SmallVec<[GpuBufferAddress; 1]>,
 
     /// The spatial node index of this picture when it is
     /// composited into the parent picture.
@@ -588,7 +605,7 @@ pub struct PicturePrimitive {
     pub snapshot: Option<SnapshotInfo>,
 }
 
-impl PicturePrimitive {
+impl PictureInstance {
     pub fn print<T: PrintTreePrinter>(
         &self,
         pictures: &[Self],
@@ -659,14 +676,11 @@ impl PicturePrimitive {
         flags: PictureFlags,
         snapshot: Option<SnapshotInfo>,
     ) -> Self {
-        PicturePrimitive {
+        PictureInstance {
             prim_list,
-            primary_render_task_id: None,
-            secondary_render_task_id: None,
             composite_mode,
             raster_config: None,
             context_3d,
-            extra_gpu_data: SmallVec::new(),
             is_backface_visible: prim_flags.contains(PrimitiveFlags::IS_BACKFACE_VISIBLE),
             spatial_node_index,
             prev_local_rect: LayoutRect::zero(),
@@ -688,10 +702,8 @@ impl PicturePrimitive {
         data_stores: &mut DataStores,
         scratch: &mut PrimitiveScratchBuffer,
         tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
-    ) -> Option<(PictureContext, PictureState, PrimitiveList)> {
-        frame_state.visited_pictures[pic_index.0] = true;
-        self.primary_render_task_id = None;
-        self.secondary_render_task_id = None;
+    ) -> Option<(PictureContext, PictureState, PrimitiveList, storage::Index<PictureScratch>)> {
+        let mut picture_scratch = PictureScratch::empty();
 
         let dbg_flags = DebugFlags::PICTURE_CACHING_DBG | DebugFlags::PICTURE_BORDERS;
         if frame_context.debug_flags.intersects(dbg_flags) {
@@ -802,7 +814,7 @@ impl PicturePrimitive {
                 };
 
                 if let PictureCompositeMode::IntermediateSurface = raster_config.composite_mode {
-                    if !scratch.required_sub_graphs.contains(&pic_index) {
+                    if !scratch.frame.required_sub_graphs.contains(&pic_index) {
                         return None;
                     }
                 }
@@ -818,11 +830,11 @@ impl PicturePrimitive {
                     frame_context,
                     frame_state,
                     data_stores,
-                    &mut self.extra_gpu_data,
+                    &mut picture_scratch.extra_gpu_data,
                 );
 
-                self.primary_render_task_id = render_tasks[0];
-                self.secondary_render_task_id = render_tasks[1];
+                picture_scratch.primary_render_task_id = render_tasks[0];
+                picture_scratch.secondary_render_task_id = render_tasks[1];
 
                 let is_sub_graph = self.flags.contains(PictureFlags::IS_SUB_GRAPH);
 
@@ -873,7 +885,8 @@ impl PicturePrimitive {
 
         let prim_list = mem::replace(&mut self.prim_list, PrimitiveList::empty());
 
-        Some((context, state, prim_list))
+        let scratch_handle = scratch.frame.pictures.push(picture_scratch);
+        Some((context, state, prim_list, scratch_handle))
     }
 
     pub fn restore_context(
@@ -881,9 +894,9 @@ impl PicturePrimitive {
         pic_index: PictureIndex,
         prim_list: PrimitiveList,
         context: PictureContext,
-        prim_instances: &[PrimitiveInstance],
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
+        scratch: &PrimitiveScratchBuffer,
     ) {
         // Pop any dirty regions this picture set
         for _ in 0 .. context.dirty_region_count {
@@ -902,7 +915,7 @@ impl PicturePrimitive {
             let splitter = &mut frame_state.plane_splitters[plane_splitter_index.0];
 
             // Resolve split planes via BSP
-            PicturePrimitive::resolve_split_planes(
+            PictureInstance::resolve_split_planes(
                 splitter,
                 list,
                 &mut frame_state.frame_gpu_data.f32,
@@ -912,14 +925,12 @@ impl PicturePrimitive {
             // Add the child prims to the relevant command buffers
             let mut cmd_buffer_targets = Vec::new();
             for child in list {
-                let child_prim_instance = &prim_instances[child.anchor.instance_index.0 as usize];
-
                 if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
-                    &child_prim_instance.vis,
+                    &scratch.frame.draws[child.anchor.instance_index.0 as usize],
                     &mut cmd_buffer_targets,
                 ) {
                     let prim_cmd = PrimitiveCommand::complex(
-                        child.anchor.instance_index,
+                        storage::Index::from_u32(child.anchor.instance_index.0),
                         child.gpu_address
                     );
 
@@ -1360,6 +1371,7 @@ impl PicturePrimitive {
         &mut self,
         frame_state: &mut FrameBuildingState,
         data_stores: &mut DataStores,
+        scratch: &mut PictureScratch,
     ) {
         let raster_config = match self.raster_config {
             Some(ref mut raster_config) => raster_config,
@@ -1372,7 +1384,7 @@ impl PicturePrimitive {
             &frame_state.surfaces[raster_config.surface_index.0],
             &mut frame_state.frame_gpu_data,
             data_stores,
-            &mut self.extra_gpu_data
+            &mut scratch.extra_gpu_data,
         );
     }
 

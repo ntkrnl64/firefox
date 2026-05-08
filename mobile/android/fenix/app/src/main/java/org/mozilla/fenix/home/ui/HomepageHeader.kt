@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
@@ -45,8 +47,10 @@ fun HomepageHeader(
     wordmarkTextColor: Color?,
     privateBrowsingButtonColor: Color,
     browsingMode: BrowsingMode,
+    isSportsWidgetEnabled: Boolean,
     browsingModeChanged: (BrowsingMode) -> Unit,
     onLogoClicked: () -> Unit,
+    onLogoLongClicked: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -55,7 +59,11 @@ fun HomepageHeader(
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        WordmarkLogo(onLogoClicked)
+        WordmarkLogo(
+            isSportsWidgetEnabled = isSportsWidgetEnabled,
+            onLogoClicked = onLogoClicked,
+            onLogoLongClicked = onLogoLongClicked,
+        )
 
         WordmarkText(wordmarkTextColor)
 
@@ -83,6 +91,7 @@ private fun PrivateBrowsingButton(
             )
             .size(40.dp)
             .semantics {
+                role = Role.Switch
                 testTagsAsResourceId = true
                 testTag = PRIVATE_BROWSING_HOMEPAGE_BUTTON
             },
@@ -123,8 +132,10 @@ private fun HomepageHeaderPreview(
                     ),
                 ),
                 browsingMode = BrowsingMode.Normal,
+                isSportsWidgetEnabled = true,
                 browsingModeChanged = {},
                 onLogoClicked = {},
+                onLogoLongClicked = {},
             )
         }
     }

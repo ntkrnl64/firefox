@@ -93,6 +93,10 @@ RegExpObject* js::RegExpAlloc(JSContext* cx, NewObjectKind newKind,
     // internal slot to true. Step 5. Else, Step 5.i. Set the value of obj’s
     // [[LegacyFeaturesEnabled]] internal slot to false.
     legacyFeaturesEnabled = (!newTarget || newTarget == thisRealmRegExp);
+    if (!legacyFeaturesEnabled &&
+        !JSObject::setLegacyFeaturesDisabled(cx, regexp)) {
+      return nullptr;
+    }
   }
   regexp->setLegacyFeaturesEnabled(legacyFeaturesEnabled);
 
@@ -742,15 +746,6 @@ RegExpRunStatus RegExpShared::execute(JSContext* cx,
 
   if (re->kind() == RegExpShared::Kind::Atom) {
     return RegExpShared::executeAtom(re, input, start, matches);
-  }
-
-  /*
-   * Ensure sufficient memory for output vector.
-   * No need to initialize it. The RegExp engine fills them in on a match.
-   */
-  if (!matches->allocOrExpandArray(re->pairCount())) {
-    ReportOutOfMemory(cx);
-    return RegExpRunStatus::Error;
   }
 
   uint32_t interruptRetries = 0;

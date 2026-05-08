@@ -2300,11 +2300,11 @@ bool IRGenerator::canOptimizeConstantDataProperty(NativeObject* holder,
   return true;
 }
 
-void IRGenerator::emitConstantDataPropertyResult(NativeObject* holder,
-                                                 ObjOperandId holderId,
-                                                 PropertyKey key,
-                                                 PropertyInfo prop,
-                                                 ObjectFuse* objFuse) {
+void IRGenerator::emitGuardConstantDataProperty(NativeObject* holder,
+                                                ObjOperandId holderId,
+                                                PropertyKey key,
+                                                PropertyInfo prop,
+                                                ObjectFuse* objFuse) {
   MOZ_ASSERT(prop.isDataProperty());
 
   auto data = objFuse->getConstantPropertyGuardData(prop);
@@ -2314,6 +2314,14 @@ void IRGenerator::emitConstantDataPropertyResult(NativeObject* holder,
 #ifdef DEBUG
   writer.assertPropertyLookup(holderId, key, prop.slot());
 #endif
+}
+
+void IRGenerator::emitConstantDataPropertyResult(NativeObject* holder,
+                                                 ObjOperandId holderId,
+                                                 PropertyKey key,
+                                                 PropertyInfo prop,
+                                                 ObjectFuse* objFuse) {
+  emitGuardConstantDataProperty(holder, holderId, key, prop, objFuse);
 
   Value result = holder->getSlot(prop.slot());
   MOZ_RELEASE_ASSERT(!result.isMagic());
@@ -11282,6 +11290,106 @@ AttachDecision InlinableNativeIRGenerator::tryAttachDateGet(
   return AttachDecision::Attach;
 }
 
+AttachDecision InlinableNativeIRGenerator::tryAttachDateNow() {
+  // Expecting no arguments.
+  if (argsLength() != 0) {
+    return AttachDecision::NoAction;
+  }
+
+  // Initialize the input operand.
+  Int32OperandId argcId = initializeInputOperand();
+
+  // Guard callee is the 'now' native function.
+  emitNativeCalleeGuard(argcId);
+
+  NumberOperandId nowId = writer.dateNow();
+  writer.loadDoubleResult(nowId);
+
+  writer.returnFromIC();
+
+  trackAttached("DateNow");
+  return AttachDecision::Attach;
+}
+
+AttachDecision InlinableNativeIRGenerator::tryAttachDateParse() {
+  // Need one String argument.
+  if (argsLength() != 1 || !arg(0).isString()) {
+    return AttachDecision::NoAction;
+  }
+
+  // Initialize the input operand.
+  Int32OperandId argcId = initializeInputOperand();
+
+  // Guard callee is the 'parse' native function.
+  ObjOperandId calleeId = emitNativeCalleeGuard(argcId);
+
+  // Guard string argument.
+  ValOperandId argId = loadArgument(calleeId, ArgumentKind::Arg0);
+  StringOperandId strId = writer.guardToString(argId);
+  StringOperandId linearStrId = writer.linearizeString(strId);
+
+  NumberOperandId timeId = writer.dateParse(linearStrId);
+  writer.loadDoubleResult(timeId);
+
+  writer.returnFromIC();
+
+  trackAttached("DateParse");
+  return AttachDecision::Attach;
+}
+
+AttachDecision InlinableNativeIRGenerator::tryAttachDateConstructor() {
+  // Expecting no arguments or a single number or string argument.
+  if (argsLength() > 1) {
+    return AttachDecision::NoAction;
+  }
+  if (argsLength() == 1 && !arg(0).isNumber() && !arg(0).isString()) {
+    return AttachDecision::NoAction;
+  }
+
+  auto* templateObj = DateObject::createTemplateObject(cx_);
+  if (!templateObj) {
+    cx_->recoverFromOutOfMemory();
+    return AttachDecision::NoAction;
+  }
+
+  // Initialize the input operand.
+  Int32OperandId argcId = initializeInputOperand();
+
+  // Guard callee is the 'Date' function.
+  ObjOperandId calleeId = emitNativeCalleeGuard(argcId);
+
+  NumberOperandId utcTimeId;
+  if (argsLength() == 0) {
+    // Current time when no arguments are present.
+    utcTimeId = writer.dateNow();
+  } else {
+    ValOperandId argId = loadArgument(calleeId, ArgumentKind::Arg0);
+
+    if (arg(0).isNumber()) {
+      // Guard number argument.
+      NumberOperandId numId = writer.guardIsNumber(argId);
+
+      // Clip number to time.
+      utcTimeId = writer.timeClip(numId);
+    } else {
+      MOZ_ASSERT(arg(0).isString());
+
+      // Guard string argument.
+      StringOperandId strId = writer.guardToString(argId);
+      StringOperandId linearStrId = writer.linearizeString(strId);
+
+      // Parse string as date.
+      utcTimeId = writer.dateParse(linearStrId);
+    }
+  }
+
+  writer.newDateObjectResult(templateObj, utcTimeId);
+  writer.returnFromIC();
+
+  trackAttached("DateConstructor");
+  return AttachDecision::Attach;
+}
+
 AttachDecision CallIRGenerator::tryAttachFunCall(HandleFunction callee) {
   MOZ_ASSERT(callee->isNativeWithoutJitEntry());
 
@@ -13119,6 +13227,8 @@ AttachDecision InlinableNativeIRGenerator::tryAttachStub() {
         return tryAttachStringConstructor();
       case InlinableNative::Object:
         return tryAttachObjectConstructor();
+      case InlinableNative::Date:
+        return tryAttachDateConstructor();
       default:
         break;
     }
@@ -13587,6 +13697,9 @@ AttachDecision InlinableNativeIRGenerator::tryAttachStub() {
       return tryAttachMapSize();
 
     // Date natives and intrinsics.
+    case InlinableNative::Date:
+      return AttachDecision::NoAction;  // Not inlined when called as a
+                                        // function.
     case InlinableNative::DateGetTime:
       return tryAttachDateGetTime();
     case InlinableNative::DateGetFullYear:
@@ -13603,6 +13716,10 @@ AttachDecision InlinableNativeIRGenerator::tryAttachStub() {
       return tryAttachDateGet(DateComponent::Minutes);
     case InlinableNative::DateGetSeconds:
       return tryAttachDateGet(DateComponent::Seconds);
+    case InlinableNative::DateNow:
+      return tryAttachDateNow();
+    case InlinableNative::DateParse:
+      return tryAttachDateParse();
 
     // WeakMap/WeakSet natives.
     case InlinableNative::WeakMapGet:
@@ -15359,6 +15476,7 @@ AttachDecision UnaryArithIRGenerator::tryAttachStub() {
   TRY_ATTACH(tryAttachBigInt());
   TRY_ATTACH(tryAttachStringInt32());
   TRY_ATTACH(tryAttachStringNumber());
+  TRY_ATTACH(tryAttachDateToNumber());
 
   trackAttached(IRGenerator::NotAttached);
   return AttachDecision::NoAction;
@@ -15715,6 +15833,50 @@ AttachDecision UnaryArithIRGenerator::tryAttachStringNumber() {
       trackAttached("UnaryArith.StringNumberToNumeric");
       break;
     default:
+      MOZ_CRASH("Unexpected OP");
+  }
+
+  writer.returnFromIC();
+  return AttachDecision::Attach;
+}
+
+AttachDecision UnaryArithIRGenerator::tryAttachDateToNumber() {
+  if (!val_.isObject() || !val_.toObject().is<DateObject>()) {
+    return AttachDecision::NoAction;
+  }
+
+  DateObject* obj = &val_.toObject().as<DateObject>();
+
+  DateObjectToNumberInfo info;
+  if (!canOptimizeDateObjectToNumber(obj, &info)) {
+    return AttachDecision::NoAction;
+  }
+  MOZ_ASSERT(res_.isNumber());
+
+  ValOperandId valId(writer.setInputOperandId(0));
+  NumberOperandId numId = emitGuardDateObjectToNumber(obj, valId, info);
+
+  switch (op_) {
+    case JSOp::Pos:
+      writer.loadDoubleResult(numId);
+      trackAttached("UnaryArith.DatePos");
+      break;
+    case JSOp::Neg:
+      writer.doubleNegationResult(numId);
+      trackAttached("UnaryArith.DateNeg");
+      break;
+    case JSOp::ToNumeric:
+      writer.loadDoubleResult(numId);
+      trackAttached("UnaryArith.DateToNumeric");
+      break;
+    case JSOp::BitNot: {
+      Int32OperandId intId = writer.truncateDoubleToUInt32(numId);
+      writer.int32NotResult(intId);
+      trackAttached("UnaryArith.DateBitNot");
+      break;
+    }
+    default:
+      // JSOp::Inc and JSOp::Dec require a numeric input.
       MOZ_CRASH("Unexpected OP");
   }
 
@@ -16513,22 +16675,19 @@ AttachDecision BinaryArithIRGenerator::tryAttachStringNumberArith() {
   return AttachDecision::Attach;
 }
 
-static bool CheckPropertyIsNativeFunction(JSContext* cx, JSObject* obj,
-                                          jsbytecode* pc, PropertyKey propKey,
-                                          JSNative nativeFn, JSFunction** fn,
-                                          NativeObject** holder, size_t* slot) {
-  Maybe<PropertyInfo> prop;
+bool IRGenerator::canOptimizeConstantNativeFunctionProperty(
+    NativeObject* obj, PropertyKey propKey, JSNative nativeFn,
+    NativeObject** holder, Maybe<PropertyInfo>* prop, ObjectFuse** holderFuse) {
   NativeGetPropKind kind =
-      CanAttachNativeGetProp(cx, obj, propKey, holder, &prop, pc);
+      CanAttachNativeGetProp(cx_, obj, propKey, holder, prop, pc_);
   if (kind != NativeGetPropKind::Slot) {
     return false;
   }
 
   MOZ_ASSERT(holder);
-  MOZ_ASSERT(prop->isDataProperty());
+  MOZ_ASSERT((*prop)->isDataProperty());
 
-  *slot = prop->slot();
-  Value calleeVal = (*holder)->getSlot(*slot);
+  Value calleeVal = (*holder)->getSlot((*prop)->slot());
   if (!calleeVal.isObject() || !calleeVal.toObject().is<JSFunction>()) {
     return false;
   }
@@ -16537,20 +16696,47 @@ static bool CheckPropertyIsNativeFunction(JSContext* cx, JSObject* obj,
     return false;
   }
 
-  *fn = &calleeVal.toObject().as<JSFunction>();
-  return true;
+  return canOptimizeConstantDataProperty(*holder, **prop, holderFuse);
 }
 
-static void EmitGuardPropertyIsNativeFunction(CacheIRWriter& writer,
-                                              JSObject* dateObj, JSFunction* fn,
-                                              NativeObject* holder, size_t slot,
-                                              ObjOperandId objId) {
-  MOZ_ASSERT(holder);
+// Verify that we can use a fuse to validate that this object has
+// the original `valueOf` and `toPrimitive` properties, allowing us to
+// load the UTCTime slot directly.
+bool IRGenerator::canOptimizeDateObjectToNumber(
+    NativeObject* obj, DateObjectToNumberInfo* result) {
+  if (!canOptimizeConstantNativeFunctionProperty(
+          obj, NameToId(cx_->names().valueOf), date_valueOf, &result->holder,
+          &result->valueOfProp, &result->holderFuse)) {
+    return false;
+  }
+  NativeObject* toPrimitiveHolder = nullptr;
+  ObjectFuse* toPrimitiveFuse = nullptr;
+  if (!canOptimizeConstantNativeFunctionProperty(
+          obj, PropertyKey::Symbol(cx_->wellKnownSymbols().toPrimitive),
+          date_toPrimitive, &toPrimitiveHolder, &result->toPrimitiveProp,
+          &toPrimitiveFuse)) {
+    return false;
+  }
+  // Verify that both properties live on the same prototype object.
+  return result->holder == toPrimitiveHolder &&
+         result->holderFuse == toPrimitiveFuse;
+}
+
+NumberOperandId IRGenerator::emitGuardDateObjectToNumber(
+    NativeObject* dateObj, ValOperandId valId, DateObjectToNumberInfo& info) {
+  ObjOperandId objId = writer.guardToObject(valId);
   ObjOperandId holderId =
-      EmitReadSlotGuard(writer, &dateObj->as<NativeObject>(), holder, objId);
-  ValOperandId calleeValId = EmitLoadSlot(writer, holder, holderId, slot);
-  ObjOperandId calleeId = writer.guardToObject(calleeValId);
-  writer.guardSpecificFunction(calleeId, fn);
+      EmitGuardObjectFuseHolder(writer, dateObj, info.holder, objId);
+  emitGuardConstantDataProperty(info.holder, holderId,
+                                NameToId(cx_->names().valueOf),
+                                *info.valueOfProp, info.holderFuse);
+  emitGuardConstantDataProperty(
+      info.holder, holderId,
+      PropertyKey::Symbol(cx_->wellKnownSymbols().toPrimitive),
+      *info.toPrimitiveProp, info.holderFuse);
+  ValOperandId utcValId =
+      writer.loadFixedSlot(objId, DateObject::offsetOfUTCTimeSlot());
+  return writer.guardIsNumber(utcValId);
 }
 
 AttachDecision BinaryArithIRGenerator::tryAttachDateArith() {
@@ -16582,54 +16768,16 @@ AttachDecision BinaryArithIRGenerator::tryAttachDateArith() {
     return AttachDecision::NoAction;
   }
 
-  JSFunction* lhsDateValueOfFn = nullptr;
-  NativeObject* lhsDateValueOfHolder = nullptr;
-  size_t lhsDateValueOfSlot;
-
-  JSFunction* lhsToPrimitiveFn = nullptr;
-  NativeObject* lhsToPrimitiveHolder = nullptr;
-  size_t lhsToPrimitiveSlot;
-
-  if (lhs_.isObject()) {
-    if (!CheckPropertyIsNativeFunction(
-            cx_, &lhs_.toObject(), pc_, NameToId(cx_->names().valueOf),
-            date_valueOf, &lhsDateValueOfFn, &lhsDateValueOfHolder,
-            &lhsDateValueOfSlot)) {
-      return AttachDecision::NoAction;
-    }
-
-    if (!CheckPropertyIsNativeFunction(
-            cx_, &lhs_.toObject(), pc_,
-            PropertyKey::Symbol(cx_->wellKnownSymbols().toPrimitive),
-            date_toPrimitive, &lhsToPrimitiveFn, &lhsToPrimitiveHolder,
-            &lhsToPrimitiveSlot)) {
-      return AttachDecision::NoAction;
-    }
+  DateObjectToNumberInfo lhsInfo;
+  if (lhs_.isObject() && !canOptimizeDateObjectToNumber(
+                             &lhs_.toObject().as<NativeObject>(), &lhsInfo)) {
+    return AttachDecision::NoAction;
   }
 
-  JSFunction* rhsDateValueOfFn = nullptr;
-  NativeObject* rhsDateValueOfHolder = nullptr;
-  size_t rhsDateValueOfSlot;
-
-  JSFunction* rhsToPrimitiveFn = nullptr;
-  NativeObject* rhsToPrimitiveHolder = nullptr;
-  size_t rhsToPrimitiveSlot;
-
-  if (rhs_.isObject()) {
-    if (!CheckPropertyIsNativeFunction(
-            cx_, &rhs_.toObject(), pc_, NameToId(cx_->names().valueOf),
-            date_valueOf, &rhsDateValueOfFn, &rhsDateValueOfHolder,
-            &rhsDateValueOfSlot)) {
-      return AttachDecision::NoAction;
-    }
-
-    if (!CheckPropertyIsNativeFunction(
-            cx_, &rhs_.toObject(), pc_,
-            PropertyKey::Symbol(cx_->wellKnownSymbols().toPrimitive),
-            date_toPrimitive, &rhsToPrimitiveFn, &rhsToPrimitiveHolder,
-            &rhsToPrimitiveSlot)) {
-      return AttachDecision::NoAction;
-    }
+  DateObjectToNumberInfo rhsInfo;
+  if (rhs_.isObject() && !canOptimizeDateObjectToNumber(
+                             &rhs_.toObject().as<NativeObject>(), &rhsInfo)) {
+    return AttachDecision::NoAction;
   }
 
   ValOperandId lhsId(writer.setInputOperandId(0));
@@ -16639,36 +16787,16 @@ AttachDecision BinaryArithIRGenerator::tryAttachDateArith() {
   NumberOperandId rhsNumId;
 
   if (lhs_.isObject()) {
-    ObjOperandId lhsObjId = writer.guardToObject(lhsId);
-    // The shape guard in EmitGuardPropertyIsNativeFunction ensures the object
-    // is a Date object.
-    EmitGuardPropertyIsNativeFunction(writer, &lhs_.toObject(),
-                                      lhsDateValueOfFn, lhsDateValueOfHolder,
-                                      lhsDateValueOfSlot, lhsObjId);
-    EmitGuardPropertyIsNativeFunction(writer, &lhs_.toObject(),
-                                      lhsToPrimitiveFn, lhsToPrimitiveHolder,
-                                      lhsToPrimitiveSlot, lhsObjId);
-
-    ValOperandId lhsUtcValId =
-        writer.loadFixedSlot(lhsObjId, DateObject::offsetOfUTCTimeSlot());
-    lhsNumId = writer.guardIsNumber(lhsUtcValId);
+    lhsNumId = emitGuardDateObjectToNumber(&lhs_.toObject().as<NativeObject>(),
+                                           lhsId, lhsInfo);
   } else {
     MOZ_ASSERT(lhs_.isNumber());
     lhsNumId = writer.guardIsNumber(lhsId);
   }
 
   if (rhs_.isObject()) {
-    ObjOperandId rhsObjId = writer.guardToObject(rhsId);
-    EmitGuardPropertyIsNativeFunction(writer, &rhs_.toObject(),
-                                      rhsDateValueOfFn, rhsDateValueOfHolder,
-                                      rhsDateValueOfSlot, rhsObjId);
-    EmitGuardPropertyIsNativeFunction(writer, &rhs_.toObject(),
-                                      rhsToPrimitiveFn, rhsToPrimitiveHolder,
-                                      rhsToPrimitiveSlot, rhsObjId);
-
-    ValOperandId rhsUtcValId =
-        writer.loadFixedSlot(rhsObjId, DateObject::offsetOfUTCTimeSlot());
-    rhsNumId = writer.guardIsNumber(rhsUtcValId);
+    rhsNumId = emitGuardDateObjectToNumber(&rhs_.toObject().as<NativeObject>(),
+                                           rhsId, rhsInfo);
   } else {
     MOZ_ASSERT(rhs_.isNumber());
     rhsNumId = writer.guardIsNumber(rhsId);

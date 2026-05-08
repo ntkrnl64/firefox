@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -14,7 +13,6 @@
 
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/Maybe.h"
-#include "mozilla/UniquePtrExtensions.h"  // For UniqueFileHandle
 
 #include "CrashAnnotations.h"
 
@@ -81,6 +79,8 @@ static inline bool IsDummy() {
 #endif
 }
 
+nsresult OOPInit(nsIFile* aXREDirectory);
+void OOPDeinit();
 nsresult SetExceptionHandler(nsIFile* aXREDirectory, bool force = false);
 nsresult UnsetExceptionHandler();
 
@@ -260,18 +260,15 @@ bool CreateMinidumpsAndPair(ProcessHandle aTargetPid,
                             AnnotationTable& aTargetAnnotations,
                             nsIFile** aTargetDumpOut);
 
-#if defined(XP_WIN) || defined(XP_MACOSX) || defined(XP_IOS)
-using CrashPipeType = const char*;
-#else
-using CrashPipeType = mozilla::UniqueFileHandle;
-#endif
-
 // Parent-side API for children
 #if defined(MOZ_WIDGET_ANDROID)
 void SetCrashHelperPipes(FileHandle breakpadFd, FileHandle crashHelperFd);
 #endif
-CrashPipeType GetChildNotificationPipe();
-bool RegisterChildIPCChannel(mozilla::geckoargs::ChildProcessArgs& aArgs);
+bool RegisterChildIPCChannel(mozilla::geckoargs::ChildProcessArgs& aArgs,
+                             GeckoChildID aID);
+#if defined(XP_WIN)
+bool ChildProcessProxyRendezvous(GeckoChildID aID, DWORD aPid, HANDLE aHandle);
+#endif  // defined(XP_WIN)
 
 // Child-side API
 MOZ_EXPORT bool SetRemoteExceptionHandler(int& aArgc, char** aArgv);

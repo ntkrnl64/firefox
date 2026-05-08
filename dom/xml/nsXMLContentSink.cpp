@@ -973,7 +973,7 @@ nsXMLContentSink::HandleStartElement(const char16_t* aName,
 nsresult nsXMLContentSink::HandleStartElement(
     const char16_t* aName, const char16_t** aAtts, uint32_t aAttsCount,
     uint32_t aLineNumber, uint32_t aColumnNumber, bool aInterruptable) {
-  MOZ_ASSERT(aAttsCount % 2 == 0, "incorrect aAttsCount");
+  MOZ_RELEASE_ASSERT(aAttsCount % 2 == 0, "incorrect aAttsCount");
   // Adjust aAttsCount so it's the actual number of attributes
   aAttsCount /= 2;
 
@@ -1050,7 +1050,7 @@ nsresult nsXMLContentSink::HandleStartElement(
   if (!mXSLTProcessor) {
     if (content == mDocElement) {
       nsContentUtils::AddScriptRunner(
-          new nsDocElementCreatedNotificationRunner(mDocument));
+          MakeAndAddRef<nsDocElementCreatedNotificationRunner>(mDocument));
 
       if (aInterruptable && NS_SUCCEEDED(result) && mParser &&
           !mParser->IsParserEnabled()) {

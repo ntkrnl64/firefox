@@ -6,12 +6,15 @@ package org.mozilla.fenix.settings
 
 import android.annotation.SuppressLint
 import android.content.DialogInterface
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
@@ -41,6 +44,10 @@ import mozilla.components.feature.addons.ui.AddonFilePicker
 import mozilla.components.service.fxrelay.eligibility.Eligible
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.ktx.android.view.showKeyboard
+import mozilla.components.support.utils.BuildManufacturerChecker
+import mozilla.components.support.utils.DateTimeProvider
+import mozilla.components.support.utils.DefaultDateTimeProvider
+import mozilla.components.support.utils.ext.navigateToDefaultBrowserAppsSettings
 import mozilla.components.ui.widgets.withCenterAlignedButtons
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.Config
@@ -51,6 +58,7 @@ import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.GleanMetrics.SettingsSearch
 import org.mozilla.fenix.GleanMetrics.TrackingProtection
 import org.mozilla.fenix.GleanMetrics.Translations
+import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
@@ -61,11 +69,12 @@ import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.getPreferenceKey
 import org.mozilla.fenix.ext.navigateToNotificationsSettings
 import org.mozilla.fenix.ext.openInNewTab
-import org.mozilla.fenix.ext.openSetDefaultBrowserOption
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.ext.showToolbarWithIconButton
+import org.mozilla.fenix.home.maybeNavigateToSystemSetToDefaultAction
+import org.mozilla.fenix.home.maybeRequestDefaultBrowserPrompt
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.perf.ProfilerViewModel
 import org.mozilla.fenix.perf.ProfilerViewModelFactory
@@ -73,6 +82,7 @@ import org.mozilla.fenix.settings.account.AccountUiView
 import org.mozilla.fenix.snackbar.FenixSnackbarDelegate
 import org.mozilla.fenix.snackbar.SnackbarBinding
 import org.mozilla.fenix.utils.Settings
+import java.lang.ref.WeakReference
 import kotlin.system.exitProcess
 import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.GleanMetrics.Settings as SettingsMetrics
@@ -91,6 +101,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
         ProfilerViewModelFactory(requireActivity().application)
     }
     private val snackbarBinding = ViewBoundFeatureWrapper<SnackbarBinding>()
+    private val dateTimeProvider: DateTimeProvider by lazy { DefaultDateTimeProvider() }
 
     @VisibleForTesting
     internal val accountObserver = object : AccountObserver {
@@ -153,7 +164,6 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
                 getString(R.string.pref_key_search_bookmarks),
                 getString(R.string.pref_key_search_browsing_history),
                 getString(R.string.pref_key_show_clipboard_suggestions),
-                getString(R.string.pref_key_show_search_engine_shortcuts),
                 getString(R.string.pref_key_open_links_in_a_private_tab),
                 getString(R.string.pref_key_sync_logins),
                 getString(R.string.pref_key_sync_bookmarks),
@@ -418,6 +428,10 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
                 SettingsFragmentDirections.actionSettingsFragmentToHttpsOnlyFragment()
             }
 
+            resources.getString(R.string.pref_key_ip_protection_settings) -> {
+                SettingsFragmentDirections.actionSettingsFragmentToIpProtectionFragment()
+            }
+
             resources.getString(R.string.pref_key_tracking_protection_settings) -> {
                 TrackingProtection.etpSettings.record(NoExtras())
                 SettingsFragmentDirections.actionSettingsFragmentToTrackingProtectionFragment()
@@ -627,6 +641,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
         )
         setupGeckoLogsPreference(settings)
         setupHttpsOnlyPreferences(settings)
+        setupIPProtectionPreferences(settings)
         setupNotificationPreference(
             NotificationManagerCompat.from(requireContext()).areNotificationsEnabled(),
         )
@@ -639,6 +654,15 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
         setupEmailMaskPreference(settings, requireComponents)
     }
 
+    private val setToDefaultPromptRequestLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            with(requireContext()) {
+                maybeNavigateToSystemSetToDefaultAction(result.resultCode, settings(), dateTimeProvider) {
+                    navigateToDefaultBrowserAppsSettings(BuildManufacturerChecker())
+                }
+            }
+        }
+
     /**
      * For >=Q -> Use new RoleManager API to show in-app browser switching dialog.
      * For <Q && >=N -> Navigate user to Android Default Apps Settings.
@@ -646,7 +670,10 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
      */
     private fun getClickListenerForMakeDefaultBrowser(): Preference.OnPreferenceClickListener {
         return Preference.OnPreferenceClickListener {
-            activity?.openSetDefaultBrowserOption()
+            maybeRequestDefaultBrowserPrompt(
+                WeakReference((requireActivity() as? HomeActivity)),
+                setToDefaultPromptRequestLauncher,
+            )
             true
         }
     }
@@ -841,6 +868,15 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment 
                     getString(R.string.preferences_https_only_on_private)
                 else -> null
             }
+    }
+
+    private fun setupIPProtectionPreferences(settings: Settings) {
+        findPreference<IPProtectionPreference>(
+            getPreferenceKey(R.string.pref_key_ip_protection_settings),
+        )?.apply {
+            isVisible = settings.isIPProtectionAvailable
+            showBetaBadge = FxNimbus.features.ipProtection.value().showBetaBadge
+        }
     }
 
     private fun updateProfilerUI(profilerStatus: Boolean) {

@@ -4,11 +4,9 @@
 
 package org.mozilla.fenix.ui
 
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
-import org.mozilla.fenix.customannotations.SkipLeaks
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.helpers.FenixTestRule
@@ -29,6 +27,7 @@ import org.mozilla.fenix.ui.robots.browserScreen
 import org.mozilla.fenix.ui.robots.homeScreen
 import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.notificationShade
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as AndroidComposeTestRuleV2
 
 /**
  *  Tests for verifying basic functionality of tabbed browsing
@@ -53,16 +52,16 @@ class TabbedBrowsingTest {
 
     private val mockWebServer get() = fenixTestRule.mockWebServer
 
-    @get:Rule
+    @get:Rule(order = 1)
     val composeTestRule =
-        AndroidComposeTestRule(
+        AndroidComposeTestRuleV2(
             HomeActivityIntentTestRule.withDefaultSettingsOverrides(
                 skipOnboarding = true,
             ),
         ) { it.activity }
 
-    @get:Rule
-    val memoryLeaksRule = DetectMemoryLeaksRule()
+    @get:Rule(order = 2)
+    val memoryLeaksRule = DetectMemoryLeaksRule(composeTestRule = { composeTestRule })
 
     // @Rule(order = 2)
     // @JvmField
@@ -109,7 +108,7 @@ class TabbedBrowsingTest {
         }.openTabDrawer(composeTestRule) {
             verifyExistingOpenTabs("Test_Page_1")
             closeTab()
-            verifySnackBarText("Tab closed")
+            verifySnackBarText(composeTestRule, "Tab closed")
             clickSnackbarButton(composeTestRule, "UNDO")
         }
         browserScreen(composeTestRule) {
@@ -131,7 +130,9 @@ class TabbedBrowsingTest {
             verifyExistingOpenTabs(webPages[1].title)
             swipeTabRight(webPages[0].title)
             verifySnackBarText("Tab closed")
+            waitForAppWindowToBeUpdated()
             clickSnackbarButton(composeTestRule, "UNDO")
+            waitForAppWindowToBeUpdated()
             verifyExistingOpenTabs(webPages[0].title)
             verifyExistingOpenTabs(webPages[1].title)
             swipeTabRight(webPages[0].title)
@@ -140,7 +141,9 @@ class TabbedBrowsingTest {
             verifyExistingOpenTabs(webPages[1].title)
             swipeTabLeft(webPages[1].title)
             verifySnackBarText("Tab closed")
+            waitForAppWindowToBeUpdated()
             clickSnackbarButton(composeTestRule, "UNDO")
+            waitForAppWindowToBeUpdated()
         }
         browserScreen(composeTestRule) {
             verifyPageContent(webPages[1].content)
@@ -166,7 +169,7 @@ class TabbedBrowsingTest {
         }.openTabDrawer(composeTestRule) {
             verifyExistingOpenTabs("Test_Page_1")
             closeTab()
-            verifySnackBarText("Private tab closed")
+            verifySnackBarText(composeTestRule, "Private tab closed")
             clickSnackbarButton(composeTestRule, "UNDO")
         }
         browserScreen(composeTestRule) {
@@ -177,7 +180,6 @@ class TabbedBrowsingTest {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/903592
     @SmokeTest
     @Test
-    @SkipLeaks
     fun verifyCloseAllPrivateTabsNotificationTest() {
         val defaultWebPage = mockWebServer.getGenericAsset(1)
 
@@ -203,6 +205,7 @@ class TabbedBrowsingTest {
         }.openTabDrawer {
             verifyNormalBrowsingButtonIsSelected()
             verifyPrivateBrowsingButtonIsSelected(false)
+            verifyTabGroupsButtonIsSelected(false)
             verifySyncedTabsButtonIsSelected(false)
             verifyNoOpenTabsInNormalBrowsing()
             verifyFab()
@@ -221,6 +224,7 @@ class TabbedBrowsingTest {
         }.toggleToPrivateTabs {
             verifyNormalBrowsingButtonIsSelected(false)
             verifyPrivateBrowsingButtonIsSelected(true)
+            verifyTabGroupsButtonIsSelected(false)
             verifySyncedTabsButtonIsSelected(false)
             verifyNoOpenTabsInPrivateBrowsing()
             verifyFab()
@@ -241,6 +245,7 @@ class TabbedBrowsingTest {
         }.openTabDrawer(composeTestRule) {
             verifyNormalBrowsingButtonIsSelected()
             verifyPrivateBrowsingButtonIsSelected(isSelected = false)
+            verifyTabGroupsButtonIsSelected(isSelected = false)
             verifySyncedTabsButtonIsSelected(isSelected = false)
             verifyThreeDotButton()
             verifyNormalTabsList()
@@ -268,6 +273,7 @@ class TabbedBrowsingTest {
         }.openTabDrawer(composeTestRule) {
             verifyNormalBrowsingButtonIsSelected(false)
             verifyPrivateBrowsingButtonIsSelected(true)
+            verifyTabGroupsButtonIsSelected(false)
             verifySyncedTabsButtonIsSelected(false)
             verifyThreeDotButton()
             verifyPrivateTabsList()
@@ -561,6 +567,35 @@ class TabbedBrowsingTest {
             verifyOpenTabsOrder(title = webPages[3].title, position = 4)
             swipeTabLeft(title = webPages[0].title)
             verifyOpenTabsOrder(title = webPages[1].title, position = 1)
+        }
+    }
+
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/3968085
+    @SmokeTest
+    @Test
+    fun verifyTheSearchTabsFunctionalityTest() {
+        val firstWebPage = mockWebServer.getGenericAsset(1)
+        val secondWebPage = mockWebServer.getGenericAsset(2)
+
+        navigationToolbar(composeTestRule) {
+        }.enterURLAndEnterToBrowser(firstWebPage.url) {
+            waitForPageToLoad()
+            verifyPageContent(firstWebPage.content)
+        }.openTabDrawer(composeTestRule) {
+        }.openNewTab {
+        }.submitQuery(secondWebPage.url.toString()) {
+            waitForPageToLoad()
+            verifyPageContent(secondWebPage.content)
+        }.openTabDrawer(composeTestRule) {
+            clickSearchTabsButton()
+            searchTab("android")
+            verifyNoTabsFoundScreen()
+            clickClearTabSearchButton()
+            searchTab("localhost")
+            verifySearchedTabIsDisplayed(firstWebPage.title)
+        }.clickSearchedTab(firstWebPage.title) {
+            verifyPageContent(firstWebPage.content)
+            verifyTabCounter("2")
         }
     }
 }

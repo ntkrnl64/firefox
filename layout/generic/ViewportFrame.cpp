@@ -14,6 +14,7 @@
 #include "mozilla/ComputedStyleInlines.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerLabels.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/RestyleManager.h"
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/ServoStyleSet.h"
@@ -488,17 +489,6 @@ void ViewportFrame::Reflow(nsPresContext* aPresContext,
   FinishAndStoreOverflow(&aDesiredSize);
 
   NS_FRAME_TRACE_REFLOW_OUT("ViewportFrame::Reflow", aStatus);
-}
-
-void ViewportFrame::UpdateStyle(ServoRestyleState& aRestyleState) {
-  RefPtr<ComputedStyle> newStyle =
-      aRestyleState.StyleSet().ResolveInheritingAnonymousBoxStyle(
-          Style()->GetPseudoType(), nullptr);
-
-  MOZ_ASSERT(!GetNextContinuation(), "Viewport has continuations?");
-  SetComputedStyle(newStyle);
-
-  UpdateStyleOfOwnedAnonBoxes(aRestyleState);
 }
 
 void ViewportFrame::AppendDirectlyOwnedAnonBoxes(

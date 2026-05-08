@@ -50,6 +50,56 @@ add_task(function test_ChatConversation_constructor_defaults() {
     soft.strictEqual(conversation.description, undefined);
     soft.strictEqual(conversation.pageUrl, undefined);
     soft.strictEqual(conversation.pageMeta, undefined);
+    soft.strictEqual(conversation.memoriesToggled, null);
+  });
+});
+
+add_task(function test_ChatConversation_memoriesToggled_property() {
+  Assert.withSoftAssertions(soft => {
+    // Test default value
+    const conversation1 = new ChatConversation({});
+    soft.equal(
+      conversation1.memoriesToggled,
+      null,
+      "Default memoriesToggled should be null"
+    );
+
+    // Test setting via constructor
+    const conversation2 = new ChatConversation({ memoriesToggled: true });
+    soft.equal(
+      conversation2.memoriesToggled,
+      true,
+      "Constructor should set memoriesToggled to true"
+    );
+
+    const conversation3 = new ChatConversation({ memoriesToggled: false });
+    soft.equal(
+      conversation3.memoriesToggled,
+      false,
+      "Constructor should set memoriesToggled to false"
+    );
+
+    // Test setting via property
+    conversation1.memoriesToggled = true;
+    soft.equal(
+      conversation1.memoriesToggled,
+      true,
+      "Should be able to set memoriesToggled to true"
+    );
+
+    conversation1.memoriesToggled = false;
+    soft.equal(
+      conversation1.memoriesToggled,
+      false,
+      "Should be able to set memoriesToggled to false"
+    );
+
+    conversation1.memoriesToggled = null;
+    soft.equal(
+      conversation1.memoriesToggled,
+      null,
+      "Should be able to reset memoriesToggled to null"
+    );
   });
 });
 
@@ -1321,4 +1371,149 @@ add_task(function test_securityProperties_plainObject_normalization() {
       "privateData should default to false when missing from input"
     );
   });
+});
+
+add_task(async function test_convertUrlToToken_tokenGeneration() {
+  const cases = [
+    {
+      message: "Works for a URL with a path.",
+      url: "http://www.github.com/foo/bar/baz",
+      expected: "GITHUB_COM_FOO_BAR_BAZ_1",
+    },
+    {
+      message:
+        "Returns a new number for a URL that is different but creates the same token.",
+      url: "http://www.github.com/foo/bar/baz?ignored",
+      expected: "GITHUB_COM_FOO_BAR_BAZ_2",
+    },
+    {
+      message: "Returns the exact same token given another URL",
+      url: "http://www.github.com/foo/bar/baz",
+      expected: "GITHUB_COM_FOO_BAR_BAZ_1",
+    },
+    {
+      message:
+        "Returns a different token given the same URL with a different protocol",
+      url: "https://www.github.com/foo/bar/baz",
+      expected: "GITHUB_COM_FOO_BAR_BAZ_3",
+    },
+    {
+      message: "Can handle about URLs.",
+      url: "about:config",
+      expected: "ABOUT_CONFIG_1",
+    },
+    {
+      message: "Uses non-http protocols",
+      url: "ftp://github.com/foo/bar/baz",
+      expected: "FTP_GITHUB_COM_FOO_BAR_BAZ_1",
+    },
+    {
+      message: "Uses invalid protocols",
+      url: "asdf://github.com/foo/bar/baz",
+      expected: "ASDF_GITHUB_COM_FOO_BAR_BAZ_1",
+    },
+    {
+      message: "Ignores the port.",
+      url: "http://github.com:1234/ignore/port",
+      expected: "GITHUB_COM_IGNORE_PORT_1",
+    },
+    {
+      message: "Ignores the params.",
+      url: "http://www.github.com/ignore/params?token=xxx",
+      expected: "GITHUB_COM_IGNORE_PARAMS_1",
+    },
+    {
+      message: "Ignores the hash.",
+      url: "http://www.github.com/ignore/hash/part?token=xxx#hash",
+      expected: "GITHUB_COM_IGNORE_HASH_PART_1",
+    },
+    {
+      message: "Truncates text in the host from 110 to 100.",
+      url: `http://www.${"a".repeat(110)}.com/foo`,
+      expected: "A".repeat(100) + "_1",
+    },
+    {
+      message: "Skips text in the path that is too long",
+      url: `http://github.com/skip/long/path/` + "A".repeat(100),
+      expected: "GITHUB_COM_SKIP_LONG_PATH_1",
+    },
+  ];
+  // Re-use the chat conversation.
+  const conversation = new ChatConversation({});
+
+  for (const { message, url, expected } of cases) {
+    const token = conversation.convertUrlToToken(url);
+    Assert.equal(token, expected, message);
+  }
+});
+
+add_task(async function test_generatePrompt_tableInstructions_pref_enabled() {
+  Services.prefs.setBoolPref("browser.smartwindow.allowTables", false);
+  registerCleanupFunction(() =>
+    Services.prefs.clearUserPref("browser.smartwindow.allowTables")
+  );
+
+  const mockEngineInstance = {
+    loadPrompt: lazy.sinon
+      .stub()
+      .onFirstCall()
+      .resolves("system prompt {tableInstructions}")
+      .onSecondCall()
+      .resolves("table instructions content"),
+  };
+  const conversation = new ChatConversation({});
+  const getRealTimeInfoStub = lazy.sinon
+    .stub(ChatConversation, "getRealTimeInfo")
+    .resolves(null);
+  lazy.sinon.stub(conversation, "getMemoriesContext").resolves(null);
+
+  await conversation.generatePrompt("hello", null, mockEngineInstance);
+
+  getRealTimeInfoStub.restore();
+
+  const systemMessage = conversation.messages.find(
+    m => m.role === MESSAGE_ROLE.SYSTEM
+  );
+  Assert.ok(
+    systemMessage.content.body.includes("table instructions content"),
+    "system prompt should include table instructions when pref is true"
+  );
+});
+
+add_task(async function test_generatePrompt_tableInstructions_pref_disabled() {
+  Services.prefs.setBoolPref("browser.smartwindow.allowTables", true);
+  registerCleanupFunction(() =>
+    Services.prefs.clearUserPref("browser.smartwindow.allowTables")
+  );
+
+  const mockEngineInstance = {
+    loadPrompt: lazy.sinon
+      .stub()
+      .onFirstCall()
+      .resolves("system prompt {tableInstructions}")
+      .onSecondCall()
+      .resolves("do tables"),
+  };
+  const conversation = new ChatConversation({});
+  const getRealTimeInfoStub = lazy.sinon
+    .stub(ChatConversation, "getRealTimeInfo")
+    .resolves(null);
+  lazy.sinon.stub(conversation, "getMemoriesContext").resolves(null);
+
+  await conversation.generatePrompt("hello", null, mockEngineInstance);
+
+  getRealTimeInfoStub.restore();
+
+  Assert.equal(
+    mockEngineInstance.loadPrompt.callCount,
+    2,
+    "loadPrompt should be called twice"
+  );
+  const systemMessage = conversation.messages.find(
+    m => m.role === MESSAGE_ROLE.SYSTEM
+  );
+  Assert.ok(
+    !systemMessage.content.body.includes("table instructions"),
+    "system prompt should not include table instructions when pref is false"
+  );
 });

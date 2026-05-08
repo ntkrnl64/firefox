@@ -62,7 +62,6 @@ import org.mozilla.fenix.GleanMetrics.SitePermissions
 import org.mozilla.fenix.GleanMetrics.Sync
 import org.mozilla.fenix.GleanMetrics.SyncedTabs
 import org.mozilla.fenix.GleanMetrics.Toolbar
-import org.mozilla.fenix.search.awesomebar.ShortcutsSuggestionProvider
 import org.mozilla.fenix.telemetry.ACTION_TAB_COUNTER_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_TAB_COUNTER_LONG_CLICKED
 import org.mozilla.fenix.telemetry.SOURCE_ADDRESS_BAR
@@ -200,15 +199,13 @@ internal class ReleaseMetricController(
                 contextMenuAllowList[item]?.let { extraKey ->
                     ContextMenu.itemTapped.record(ContextMenu.ItemTappedExtra(extraKey))
                 }
-            }
-            Unit
+            } ?: Unit
         }
 
         Component.BROWSER_MENU to BrowserMenuFacts.Items.WEB_EXTENSION_MENU_ITEM -> {
             metadata?.get("id")?.let {
                 Addons.openAddonInToolbarMenu.record(Addons.OpenAddonInToolbarMenuExtra(it.toString()))
-            }
-            Unit
+            } ?: Unit
         }
         Component.FEATURE_PROMPTS to CreditCardAutofillDialogFacts.Items.AUTOFILL_CREDIT_CARD_FORM_DETECTED ->
             CreditCards.formDetected.record(NoExtras())
@@ -334,12 +331,18 @@ internal class ReleaseMetricController(
         }
         Component.FEATURE_AWESOMEBAR to AwesomeBarFacts.Items.OPTIMIZED_SUGGESTION_CARD_DISPLAYED -> {
             Awesomebar.optimizedSuggestionCardDisplayed.record(
-                Awesomebar.OptimizedSuggestionCardDisplayedExtra(cardType = value),
+                Awesomebar.OptimizedSuggestionCardDisplayedExtra(
+                    cardType = value,
+                    extra = metadata?.get("extra")?.toString(),
+                ),
             )
         }
         Component.FEATURE_AWESOMEBAR to AwesomeBarFacts.Items.OPTIMIZED_SUGGESTION_CARD_CLICKED -> {
             Awesomebar.optimizedSuggestionCardClicked.record(
-                Awesomebar.OptimizedSuggestionCardClickedExtra(cardType = value),
+                Awesomebar.OptimizedSuggestionCardClickedExtra(
+                    cardType = value,
+                    extra = metadata?.get("extra")?.toString(),
+                ),
             )
         }
         Component.FEATURE_CONTEXTMENU to ContextMenuFacts.Items.TEXT_SELECTION_OPTION -> {
@@ -499,8 +502,7 @@ internal class ReleaseMetricController(
                     settings.enabledAddonsCount = enabledAddons.size
                     settings.enabledAddonsList = enabledAddons.joinToString(",")
                 }
-            }
-            Unit
+            } ?: Unit
         }
         Component.COMPOSE_AWESOMEBAR to ComposeAwesomeBarFacts.Items.PROVIDER_DURATION -> {
             metadata?.get(ComposeAwesomeBarFacts.MetadataKeys.DURATION_PAIR)
@@ -512,15 +514,13 @@ internal class ReleaseMetricController(
                         is SessionSuggestionProvider -> PerfAwesomebar.sessionSuggestions
                         is SearchSuggestionProvider -> PerfAwesomebar.searchEngineSuggestions
                         is ClipboardSuggestionProvider -> PerfAwesomebar.clipboardSuggestions
-                        is ShortcutsSuggestionProvider -> PerfAwesomebar.shortcutsSuggestions
                         // NB: add PerfAwesomebar.syncedTabsSuggestions once we're using SyncedTabsSuggestionProvider
                         else -> {
                             Logger("Metrics").error("Unknown suggestion provider: $provider")
                             null
                         }
                     }?.accumulateSamples(listOf(providerTiming.second as Long))
-                }
-            Unit
+                } ?: Unit
         }
         Component.FEATURE_TOP_SITES to TopSitesFacts.Items.COUNT -> {
             value?.let {
@@ -532,8 +532,7 @@ internal class ReleaseMetricController(
                 }
 
                 settings.topSitesSize = count
-            }
-            Unit
+            } ?: Unit
         }
         Component.FEATURE_SITEPERMISSIONS to SitePermissionsFacts.Items.PERMISSIONS -> {
             when (action) {

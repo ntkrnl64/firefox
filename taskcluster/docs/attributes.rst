@@ -241,6 +241,10 @@ For jobs that operate on only one locale, we set the attribute ``locale`` to the
 specific locale involved. Currently this is only in l10n versions of the
 ``beetmover`` and ``balrog`` kinds.
 
+build_target
+============
+The build_target used in update requests for the platform. A list of these can be found in ``python/mozrelease/mozrelease/platforms.py``.
+
 signed
 ======
 Signals that the output of this task contains signed artifacts.
@@ -610,3 +614,10 @@ flatpak_name
 ============
 
 name of the built flatpak app (e.g. `org.mozilla.firefox`)
+
+msi_display_name
+================
+
+The human-readable product name for the MSI installer (e.g. ``Firefox Nightly``,
+``Firefox Beta``, ``Firefox``). Used by downstream signing tasks to construct
+the Authenticode comment embedded in the installer signature.

@@ -60,19 +60,6 @@ interface TabManagerInteractor :
     fun onShareSelectedTabs()
 
     /**
-     * Invoked when a drag-drop operation with a tab is completed.
-     *
-     * @param tabId ID of the tab being moved.
-     * @param targetId ID of the tab the moved tab's new neighbor.
-     * @param placeAfter [Boolean] indicating whether the moved tab is being placed before or after [targetId].
-     */
-    fun onTabsMove(
-        tabId: String,
-        targetId: String?,
-        placeAfter: Boolean,
-    )
-
-    /**
      * Invoked when the recently closed item is clicked.
      */
     fun onRecentlyClosedClicked()
@@ -99,7 +86,7 @@ interface TabManagerInteractor :
     /**
      * A new tab has been selected.
      */
-    fun onTabSelected(tab: TabsTrayItem, source: String? = null)
+    fun onTabSelected(tab: TabsTrayItem.Tab, source: String? = null)
 
     /**
      * A tab has been closed.
@@ -126,14 +113,6 @@ class DefaultTabManagerInteractor(
 
     override fun onDeleteSelectedTabsClicked() {
         controller.handleDeleteSelectedTabsClicked()
-    }
-
-    override fun onTabsMove(
-        tabId: String,
-        targetId: String?,
-        placeAfter: Boolean,
-    ) {
-        controller.handleTabsMove(tabId, targetId, placeAfter)
     }
 
     override fun onForceSelectedTabsAsInactiveClicked() {
@@ -166,7 +145,7 @@ class DefaultTabManagerInteractor(
         controller.handleTabDeletion(tab.id, source)
     }
 
-    override fun onTabSelected(tab: TabsTrayItem, source: String?) {
+    override fun onTabSelected(tab: TabsTrayItem.Tab, source: String?) {
         controller.handleTabSelected(tab, source)
     }
 

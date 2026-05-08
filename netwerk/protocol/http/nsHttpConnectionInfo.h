@@ -124,6 +124,7 @@ class nsHttpConnectionInfo final : public ARefBase {
   already_AddRefed<nsHttpConnectionInfo> CreateConnectUDPFallbackConnInfo();
 
   [[nodiscard]] nsresult CreateWildCard(nsHttpConnectionInfo** outParam);
+  bool IsWildCard() const { return mIsWildCard; }
 
   const char* ProxyHost() const {
     return mProxyInfo ? mProxyInfo->Host().get() : nullptr;
@@ -263,7 +264,9 @@ class nsHttpConnectionInfo final : public ARefBase {
   const nsCString& GetProxyNPNToken() const { return mProxyNPNToken; }
   const nsCString& GetUsername() { return mUsername; }
 
-  const OriginAttributes& GetOriginAttributes() { return mOriginAttributes; }
+  const OriginAttributes& GetOriginAttributes() const {
+    return mOriginAttributes;
+  }
 
   // Returns true for any kind of proxy (http, socks, https, etc..)
   bool UsingProxy();
@@ -355,6 +358,7 @@ class nsHttpConnectionInfo final : public ARefBase {
 
   uint64_t mWebTransportId = 0;  // current dedicated Id only used for
                                  // Webtransport, zero means not dedicated
+  bool mIsWildCard = false;
 
   bool mHappyEyeballsEnabled = false;
 

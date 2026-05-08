@@ -6,7 +6,6 @@ package org.mozilla.fenix.tabstray
 
 import io.mockk.mockk
 import junit.framework.TestCase
-import mozilla.components.browser.state.state.createTab
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -20,9 +19,15 @@ import org.mozilla.fenix.GleanMetrics.TabSearch
 import org.mozilla.fenix.GleanMetrics.TabsTray
 import org.mozilla.fenix.helpers.FenixGleanTestRule
 import org.mozilla.fenix.nimbus.FakeNimbusEventStore
+import org.mozilla.fenix.tabstray.data.TabGroupTheme
+import org.mozilla.fenix.tabstray.data.TabStorageUpdate
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
+import org.mozilla.fenix.tabstray.data.createTab
+import org.mozilla.fenix.tabstray.navigation.TabManagerNavDestination
+import org.mozilla.fenix.tabstray.redux.action.TabGroupAction
 import org.mozilla.fenix.tabstray.redux.action.TabSearchAction
 import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
+import org.mozilla.fenix.tabstray.redux.state.TabGroupFormState
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
 import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.robolectric.RobolectricTestRunner
@@ -51,10 +56,23 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.hasInactiveTabs.testGetValue())
         assertNull(Metrics.inactiveTabsCount.testGetValue())
 
-        store.dispatch(TabsTrayAction.UpdateInactiveTabs(emptyList()))
+        store.dispatch(
+            TabsTrayAction.TabDataUpdateReceived(
+                TabStorageUpdate(
+                    selectedTabId = "id",
+                    normalItems = emptyList(),
+                    normalTabCount = 0,
+                    selectedNormalItemIndex = 0,
+                    inactiveTabs = listOf(mockk(), mockk()),
+                    privateTabs = emptyList(),
+                    selectedPrivateItemIndex = 0,
+                    tabGroups = emptyList(),
+                ),
+            ),
+        )
         assertNotNull(TabsTray.hasInactiveTabs.testGetValue())
         assertNotNull(Metrics.inactiveTabsCount.testGetValue())
-        assertEquals(0L, Metrics.inactiveTabsCount.testGetValue())
+        assertEquals(2L, Metrics.inactiveTabsCount.testGetValue())
     }
 
     @Test
@@ -71,7 +89,7 @@ class TabsTrayTelemetryMiddlewareTest {
 
     @Test
     fun `WHEN multi select mode by long press is entered THEN relevant metrics are collected`() {
-        store.dispatch(TabsTrayAction.AddSelectTabItem(mockk()))
+        store.dispatch(TabsTrayAction.AddSelectTab(mockk()))
 
         assertNotNull(TabsTray.enterMultiselectMode.testGetValue())
         val snapshot = TabsTray.enterMultiselectMode.testGetValue()!!
@@ -190,8 +208,8 @@ class TabsTrayTelemetryMiddlewareTest {
         TestCase.assertNull(TabSearch.resultClicked.testGetValue())
 
         val tabs = listOf(
-            TabsTrayItem.Tab(tab = createTab(url = "mozilla.com")),
-            TabsTrayItem.Tab(tab = createTab(url = "developer.mozilla.org")),
+            createTab(url = "www.mozilla.com"),
+            createTab(url = "www.developer.mozilla.org"),
         )
         store.dispatch(TabSearchAction.SearchResultsUpdated(results = tabs))
 
@@ -208,10 +226,16 @@ class TabsTrayTelemetryMiddlewareTest {
     /**
      *  [TabSearch.navigateBackIconClicked] coverage
      */
-
     @Test
     fun `WHEN the navigation back icon is clicked THEN record navigate back icon clicked telemetry`() {
         TestCase.assertNull(TabSearch.navigateBackIconClicked.testGetValue())
+
+        store = TabsTrayStore(
+            middlewares = listOf(tabsTrayTelemetryMiddleware),
+            initialState = TabsTrayState(
+                backStack = listOf(TabManagerNavDestination.TabSearch),
+            ),
+        )
 
         store.dispatch(TabsTrayAction.NavigateBackInvoked)
 
@@ -221,5 +245,137 @@ class TabsTrayTelemetryMiddlewareTest {
         assertEquals(1, snapshot.size)
 
         assertEquals("navigate_back_icon_clicked", snapshot.single().name)
+    }
+
+    /**
+     * [TabsTray.tabGroupCreated] coverage
+     */
+    @Test
+    fun `GIVEN creating a new group WHEN SaveClicked is dispatched THEN the creation metric is reported`() {
+        assertNull(TabsTray.tabGroupCreated.testGetValue())
+
+        val createFormState = TabGroupFormState(
+            tabGroupId = null,
+            name = "New Group",
+            nextTabGroupNumber = 1,
+            edited = true,
+        )
+        store = TabsTrayStore(
+            middlewares = listOf(tabsTrayTelemetryMiddleware),
+            initialState = TabsTrayState(
+                tabGroupState = TabsTrayState.TabGroupState(formState = createFormState),
+            ),
+        )
+
+        store.dispatch(TabGroupAction.SaveClicked)
+
+        assertNotNull(TabsTray.tabGroupCreated.testGetValue())
+    }
+
+    @Test
+    fun `GIVEN editing an existing group WHEN SaveClicked is dispatched THEN the creation metric is NOT reported`() {
+        assertNull(TabsTray.tabGroupCreated.testGetValue())
+
+        val editFormState = TabGroupFormState(
+            tabGroupId = "existing group",
+            name = "Edited Group",
+            edited = true,
+        )
+        store = TabsTrayStore(
+            middlewares = listOf(tabsTrayTelemetryMiddleware),
+            initialState = TabsTrayState(
+                tabGroupState = TabsTrayState.TabGroupState(formState = editFormState),
+            ),
+        )
+
+        store.dispatch(TabGroupAction.SaveClicked)
+
+        assertNull(TabsTray.tabGroupCreated.testGetValue())
+    }
+
+    /**
+     * [TabsTray.tabGroupDeleted] coverage
+     */
+    @Test
+    fun `WHEN a tab group deletion is confirmed THEN the deletion metric is reported`() {
+        assertNull(TabsTray.tabGroupDeleted.testGetValue())
+
+        val mockGroup = TabsTrayItem.TabGroup(
+            id = "test group",
+            title = "Test",
+            theme = TabGroupTheme.default,
+            tabs = mutableListOf(),
+        )
+        store.dispatch(TabGroupAction.DeleteConfirmed(mockGroup))
+
+        assertNotNull(TabsTray.tabGroupDeleted.testGetValue())
+    }
+
+    /**
+     * [TabsTray.tabAddedToGroup] coverage
+     */
+    @Test
+    fun `WHEN a single tab is added to a tab group THEN the metric is reported with count 1`() {
+        assertNull(TabsTray.tabAddedToGroup.testGetValue())
+
+        store.dispatch(TabGroupAction.TabAddedToGroup(tabId = "id", groupId = "id"))
+
+        assertNotNull(TabsTray.tabAddedToGroup.testGetValue())
+        val snapshot = TabsTray.tabAddedToGroup.testGetValue()!!
+        assertEquals(1, snapshot.size)
+        assertEquals("1", snapshot.single().extra?.getValue("tab_count"))
+    }
+
+    @Test
+    fun `GIVEN multiselect mode WHEN multiple tabs are added to a tab group THEN the metric is reported with the correct count`() {
+        assertNull(TabsTray.tabAddedToGroup.testGetValue())
+
+        val mockTab1 = createTab(url = "www.example1.com")
+        val mockTab2 = createTab(url = "www.example2.com")
+        val mockTab3 = createTab(url = "www.example3.com")
+
+        store = TabsTrayStore(
+            middlewares = listOf(tabsTrayTelemetryMiddleware),
+            initialState = TabsTrayState(
+                mode = TabsTrayState.Mode.Select(selectedTabs = setOf(mockTab1, mockTab2, mockTab3)),
+            ),
+        )
+
+        store.dispatch(TabGroupAction.SelectedTabsAddedToGroup("id"))
+
+        assertNotNull(TabsTray.tabAddedToGroup.testGetValue())
+        val snapshot = TabsTray.tabAddedToGroup.testGetValue()!!
+        assertEquals(1, snapshot.size)
+        assertEquals("3", snapshot.single().extra?.getValue("tab_count"))
+    }
+
+    /**
+     * [TabsTray.tabGroupOpened] coverage
+     */
+    @Test
+    fun `GIVEN normal mode WHEN TabGroupClicked is dispatched THEN the tab group opened metric is reported`() {
+        assertNull(TabsTray.tabGroupOpened.testGetValue())
+
+        val mockGroup = TabsTrayItem.TabGroup(
+            id = "test group",
+            title = "Test",
+            theme = TabGroupTheme.default,
+            tabs = mutableListOf(),
+        )
+        store.dispatch(TabGroupAction.TabGroupClicked(mockGroup))
+
+        assertNotNull(TabsTray.tabGroupOpened.testGetValue())
+    }
+
+    /**
+     * [Metrics.tabGroupCreationMode] coverage
+     */
+    @Test
+    fun `WHEN AddToNewTabGroup is dispatched THEN the tab group creation mode menu metric is reported`() {
+        assertNull(Metrics.tabGroupCreationMode["menu"].testGetValue())
+
+        store.dispatch(TabGroupAction.AddToNewTabGroup)
+
+        assertEquals(1, Metrics.tabGroupCreationMode["menu"].testGetValue())
     }
 }

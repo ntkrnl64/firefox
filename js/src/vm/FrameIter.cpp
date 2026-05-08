@@ -174,10 +174,10 @@ void JitFrameIter::settle() {
       // The JS-JIT exit frame doesn't support stack switching and will only be
       // used if original wasm func was on the main stack.
 #ifdef ENABLE_WASM_JSPI
-      MOZ_ASSERT(!act_->cx()->wasm().findSuspenderForStackAddress(
-          prevFP->wasmCaller()));
+      MOZ_ASSERT(!act_->cx()->wasm().findStackForAddress(
+          act_->cx(), reinterpret_cast<uintptr_t>(prevFP->wasmCaller())));
 #endif
-      act_->setWasmExitFP(prevFP, nullptr);
+      act_->setWasmExitFP(prevFP);
     }
 
     iter_.destroy();
@@ -373,11 +373,6 @@ FrameIter::FrameIter(JSContext* cx, DebuggerEvalOption debuggerEvalOption,
   }
 }
 
-FrameIter::FrameIter(const FrameIter& other)
-    : data_(other.data_),
-      ionInlineFrames_(other.data_.cx_,
-                       isIonScripted() ? &other.ionInlineFrames_ : nullptr) {}
-
 FrameIter::FrameIter(const Data& data)
     : data_(data),
       ionInlineFrames_(data.cx_, isIonScripted() ? &jsJitFrame() : nullptr) {
@@ -467,8 +462,8 @@ FrameIter& FrameIter::operator++() {
   return *this;
 }
 
-FrameIter::Data* FrameIter::copyData() const {
-  Data* data = data_.cx_->new_<Data>(data_);
+mozilla::UniquePtr<FrameIter::Data> FrameIter::copyData() const {
+  mozilla::UniquePtr<Data> data(data_.cx_->new_<FrameIter::Data>(data_));
   if (!data) {
     return nullptr;
   }

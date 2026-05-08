@@ -368,6 +368,12 @@ impl FontRelativeLength {
             metrics.ic_width_or_default(reference_font_size.used_size())
         }
 
+        if context.in_container_query {
+            context
+                .builder
+                .add_flags(ComputedValueFlags::DEPENDS_ON_FONT_METRICS_IN_CONTAINER_QUERY);
+        }
+
         let reference_font_size = base_size.resolve(context);
         match *self {
             // Local font-relative units
@@ -1474,7 +1480,6 @@ impl Zero for NoCalcLength {
 ///
 /// <https://drafts.csswg.org/css-values/#lengths>
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
-#[typed_value(derive_fields)]
 pub enum Length {
     /// The internal length type that cannot parse `calc`
     NoCalc(NoCalcLength),
@@ -1781,7 +1786,6 @@ impl NonNegativeLength {
 /// https://drafts.csswg.org/css-values-4/#typedef-length-percentage
 #[allow(missing_docs)]
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
-#[typed_value(derive_fields)]
 pub enum LengthPercentage {
     Length(NoCalcLength),
     Percentage(computed::Percentage),
@@ -1990,32 +1994,6 @@ impl LengthPercentage {
             allow_quirks,
             AllowAnchorPositioningFunctions::No,
         )
-    }
-
-    /// Returns self as specified::calc::CalcNode.
-    /// Note that this expect the clamping_mode is AllowedNumericType::All for Calc. The caller
-    /// should take care about it when using this function.
-    fn to_calc_node(self) -> CalcNode {
-        match self {
-            LengthPercentage::Length(l) => CalcNode::Leaf(calc::Leaf::Length(l)),
-            LengthPercentage::Percentage(p) => CalcNode::Leaf(calc::Leaf::Percentage(p.0)),
-            LengthPercentage::Calc(p) => p.node,
-        }
-    }
-
-    /// Construct the value representing `calc(100% - self)`.
-    pub fn hundred_percent_minus(self, clamping_mode: AllowedNumericType) -> Self {
-        let mut sum = smallvec::SmallVec::<[CalcNode; 2]>::new();
-        sum.push(CalcNode::Leaf(calc::Leaf::Percentage(1.0)));
-
-        let mut node = self.to_calc_node();
-        node.negate();
-        sum.push(node);
-
-        let calc = CalcNode::Sum(sum.into_boxed_slice().into());
-        LengthPercentage::Calc(Box::new(
-            calc.into_length_or_percentage(clamping_mode).unwrap(),
-        ))
     }
 }
 

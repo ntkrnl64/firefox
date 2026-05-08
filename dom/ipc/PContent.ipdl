@@ -65,6 +65,7 @@ include PrefsTypes;
 include NeckoChannelParams;
 include PSMIPCTypes;
 include LookAndFeelTypes;
+include ProfilerTypes;
 
 #if defined(MOZ_SANDBOX) && defined(MOZ_DEBUG) && defined(ENABLE_TESTS)
 include protocol PSandboxTesting;
@@ -128,6 +129,8 @@ using mozilla::Telemetry::ChildEventData from "mozilla/TelemetryComms.h";
 using mozilla::TimeStamp from "mozilla/TimeStamp.h";
 using mozilla::dom::geolocation::SystemGeolocationPermissionBehavior from "mozilla/dom/GeolocationIPCUtils.h";
 using mozilla::dom::geolocation::GeolocationPermissionStatus from "mozilla/dom/GeolocationIPCUtils.h";
+using mozilla::dom::PermissionName from "mozilla/dom/PermissionMessageUtils.h";
+using mozilla::dom::PermissionState from "mozilla/dom/PermissionMessageUtils.h";
 
 #if defined(XP_WIN)
 [MoveOnly] using mozilla::UntrustedModulesData from "mozilla/UntrustedModulesData.h";
@@ -299,7 +302,6 @@ union GetFilesResponseResult
 struct BlobURLRegistrationData
 {
   nsCString url;
-  IPCBlob blob;
   nsIPrincipal principal;
   nsCString partitionKey;
   bool revoked;
@@ -893,8 +895,9 @@ child:
 
     async GetFilesResponse(nsID aID, GetFilesResponseResult aResult);
 
-    async BlobURLRegistration(nsCString aURI, IPCBlob aBlob,
-                              nullable nsIPrincipal aPrincipal, nsCString aPartitionKey);
+    async BlobURLRegistration(nsCString aURI,
+                              nullable nsIPrincipal aPrincipal,
+                              nsCString aPartitionKey);
 
     async BlobURLUnregistration(nsCString[] aURIs);
 
@@ -1332,6 +1335,9 @@ parent:
      *   The principal of the top level page the request comes from.
      * @param tabId
      *   To identify which tab issues this request.
+     * @param aIgnoreAllowSitePermission
+     *   If true, ignore SitePermissions that indicate that this request
+     *   should be permitted.
      *
      * NOTE: The principal is untrusted in the parent process. Only
      *       principals that can live in the content process should
@@ -1342,17 +1348,18 @@ parent:
                                     nullable nsIPrincipal aTopLevelPrincipal,
                                     bool aIsHandlingUserInput,
                                     bool aMaybeUnsafePermissionDelegate,
-                                    TabId tabId);
+                                    TabId tabId,
+                                    bool aIgnoreAllowSitePermission);
 
     /**
      * If the profiler is running when the process shuts down, this sends the
-     * profile data collected so far.
+     * profile data collected so far, along with any additional information
+     * (shared libraries, JS source contents) gathered alongside it.
      *
-     * @param aProfile
-     *   This may contain an empty string (unknown issue), an error message
-     *   starting with '*', or a profile as a stringified JSON object.
+     * The profile string inside may be empty (unknown issue), an error message
+     * starting with '*', or a profile as a stringified JSON object.
      */
-    async ShutdownProfile(nsCString aProfile);
+    async ShutdownProfile(ProfileAndAdditionalInformation aProfileAndAdditionalInformation);
 
     /**
      * This sends any collected perf stats data on shutdown.
@@ -1939,6 +1946,10 @@ child:
     // Tells the child to flush any pending data. Used in tests and ping
     // assembly. Buffer contains bincoded Rust structs.
     async FlushFOGData() returns (ByteBuf buf);
+
+    // Notifies content processes when an OS-level permission changes,
+    // so that PermissionStatus objects can fire onchange events.
+    async SystemPermissionChanged(PermissionName aName, PermissionState aState);
 
 parent:
     async SetContainerFeaturePolicy(MaybeDiscardedBrowsingContext aContainerContext,

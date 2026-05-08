@@ -124,12 +124,12 @@ nsresult Http3Session::Init(const nsHttpConnectionInfo* aConnInfo,
   }
 
   // Create security control and info object for quic.
-  mSocketControl =
-      new QuicSocketControl(isOuterConnection ? aConnInfo->ProxyInfo()->Host()
-                                              : aConnInfo->GetOrigin(),
-                            isOuterConnection ? aConnInfo->ProxyInfo()->Port()
-                                              : aConnInfo->OriginPort(),
-                            aProviderFlags, this);
+  mSocketControl = new QuicSocketControl(
+      isOuterConnection ? aConnInfo->ProxyInfo()->Host()
+                        : aConnInfo->GetOrigin(),
+      isOuterConnection ? aConnInfo->ProxyInfo()->Port()
+                        : aConnInfo->OriginPort(),
+      aProviderFlags, aConnInfo->GetOriginAttributes(), this);
   const nsCString& alpn = isOuterConnection ? aConnInfo->GetProxyNPNToken()
                                             : aConnInfo->GetNPNToken();
 
@@ -576,6 +576,30 @@ nsresult Http3Session::ProcessEvents() {
 
         stream->SetResponseHeaders(data, event.header_ready.fin,
                                    event.header_ready.interim);
+
+        RefPtr<Http3Stream> http3Stream = stream->GetHttp3Stream();
+        MOZ_RELEASE_ASSERT(http3Stream, "This must be a Http3Stream");
+        RefPtr<nsAHttpTransaction> trans = http3Stream->Transaction();
+        nsHttpTransaction* httpTrans =
+            trans ? trans->QueryHttpTransaction() : nullptr;
+        if (httpTrans) {
+          if (event.header_ready.interim) {
+            if (httpTrans->GetFirstInterimResponseStart().IsNull()) {
+              auto now = TimeStamp::Now();
+              httpTrans->SetFirstInterimResponseStart(now, true);
+              httpTrans->SetResponseStart(now, false);
+            }
+          } else {
+            auto now = TimeStamp::Now();
+            httpTrans->SetFinalResponseHeadersStart(now, true);
+            TimeStamp firstInterim = httpTrans->GetFirstInterimResponseStart();
+            if (!firstInterim.IsNull()) {
+              httpTrans->SetResponseStart(firstInterim, false);
+            } else {
+              httpTrans->SetResponseStart(now, false);
+            }
+          }
+        }
 
         rv = ProcessTransactionRead(stream);
 
@@ -1417,6 +1441,28 @@ bool Http3Session::AddStream(nsAHttpTransaction* aHttpTransaction,
   StreamReadyToWrite(stream);
 
   return true;
+}
+
+void Http3Session::SwapTransaction(nsAHttpTransaction* aOld,
+                                   nsAHttpTransaction* aNew) {
+  MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+  MOZ_ASSERT(aOld && aNew);
+  RefPtr<Http3StreamBase> stream = mStreamTransactionHash.Get(aOld);
+  if (!stream) {
+    LOG3(("Http3Session::SwapTransaction %p aOld=%p not in hash", this, aOld));
+    return;
+  }
+  LOG3(("Http3Session::SwapTransaction %p aOld=%p -> aNew=%p stream=%p", this,
+        aOld, aNew, stream.get()));
+  stream->SetTransaction(aNew);
+  mStreamTransactionHash.Remove(aOld);
+  mStreamTransactionHash.InsertOrUpdate(aNew, std::move(stream));
+  // mFirstHttpTransaction is tracked by nsHttpTransaction pointer; if it
+  // was the shim, replace it with the real txn too.
+  if (mFirstHttpTransaction &&
+      mFirstHttpTransaction.get() == aOld->QueryHttpTransaction()) {
+    mFirstHttpTransaction = aNew->QueryHttpTransaction();
+  }
 }
 
 bool Http3Session::DeferIfNegotiating(ExtendedConnectKind aKind,

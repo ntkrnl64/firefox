@@ -7,6 +7,7 @@ package org.mozilla.fenix.experiments.prefhandling
 import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -33,12 +34,13 @@ private val logger = Logger("Nimbus/GeckoPrefHandler")
  *
  * @param engine The browser engine used to read and write preferences.
  * @param nimbusApi The Nimbus API that will orchestrate enrollment and unenrollment.
+ * @param geckoScope The scope that will be used for completing Gecko tasks.
  */
 class NimbusGeckoPrefHandler(
     private val engine: Lazy<Engine>,
     private val nimbusApi: Lazy<NimbusApi>,
+    private val geckoScope: CoroutineScope = MainScope() + CoroutineName("NimbusGeckoPrefHandler"),
 ) : GeckoPrefHandler, BrowserPrefObserverIntegration.Observer {
-    val geckoScope = MainScope() + CoroutineName("NimbusGeckoPrefHandler")
 
     val browserPrefObserverIntegration by lazy { BrowserPrefObserverIntegration(engine.value) }
 
@@ -61,11 +63,20 @@ class NimbusGeckoPrefHandler(
             }
         }
 
-    val preferenceList = nimbusGeckoPreferences.flatMap { featureEntry ->
+    // The list of preferences provided by Nimbus, that we are interested in for
+    // experiment purposes.
+    @VisibleForTesting
+    internal var preferenceList = nimbusGeckoPreferences.flatMap { featureEntry ->
         featureEntry.value.map { variablesEntry ->
             variablesEntry.value.prefString()
         }
     }
+
+    // Used to help prevent double queries for the same information.
+    // List<String> - The list of preferences being fetched.
+    // Deferred<Boolean> - The deferred query state.
+    @VisibleForTesting
+    internal var fetchingGeckoPrefState: Pair<List<String>, Deferred<Boolean>>? = null
 
     /**
      * Called when ready to begin observation.
@@ -96,6 +107,14 @@ class NimbusGeckoPrefHandler(
     fun getPreferenceStateFromGecko(): Deferred<Boolean> {
         val completable = CompletableDeferred<Boolean>()
         geckoScope.launch {
+            // Check for an existing fetch to optimize rapidly querying for the same information
+            val existingFetch = fetchingGeckoPrefState
+            if (existingFetch != null && existingFetch.first == preferenceList) {
+                completable.complete(existingFetch.second.await())
+                return@launch
+            }
+            fetchingGeckoPrefState = Pair(preferenceList, completable)
+
             try {
                 engine.value.getBrowserPrefs(
                     prefs = preferenceList,
@@ -110,12 +129,18 @@ class NimbusGeckoPrefHandler(
                             }.toString()
                             state.isUserSet = preference.hasUserChangedValue
                         }
+                        fetchingGeckoPrefState = null
                         completable.complete(true)
                     },
-                    onError = { completable.complete(false) },
+                    onError = { throwable ->
+                        logger.error("Error getting preference state from Gecko: ", throwable)
+                        fetchingGeckoPrefState = null
+                        completable.complete(false)
+                    },
                 )
             } catch (e: IllegalThreadStateException) {
-                logger.error("Error getting preference state from Gecko", e)
+                logger.error("Error getting preference state from Gecko: ", e)
+                fetchingGeckoPrefState = null
                 completable.complete(false)
             }
         }
@@ -192,12 +217,24 @@ class NimbusGeckoPrefHandler(
     @OptIn(ExperimentalAndroidComponentsApi::class)
     override fun setGeckoPrefsOriginalValues(originalGeckoPrefs: List<OriginalGeckoPref>) {
         geckoScope.launch {
+            // Clear the geckoValue in the shared records.
+            originalGeckoPrefs.forEach { pref ->
+                getPreferenceState(pref.pref)?.let { it.geckoValue = null }
+            }
+
             // We need type information to correctly revert
             if (preferenceTypes.isEmpty() || originalGeckoPrefs.any { it.pref !in preferenceTypes }) {
                 fetchPrefTypeInfo(originalGeckoPrefs.map { it.pref }).await()
             }
 
             val (prefsWithValues, prefsToReset) = originalGeckoPrefs.partition { it.value != null }
+
+            // Stop observing the preference we are about to restore.
+            browserPrefObserverIntegration.unregisterPrefsForObservation(
+                prefs = originalGeckoPrefs.map { it.pref },
+                onSuccess = {},
+                onError = { logger.error("Error unregistering preferences from observation", it) },
+            )
 
             // Set elements that we have values we can restore back to
             val setters = createSettersFromOriginalGeckoPrefs(prefsWithValues, preferenceTypes)
@@ -290,6 +327,15 @@ class NimbusGeckoPrefHandler(
             prefs = setters,
             onSuccess = { resultMap ->
 
+                // Determine new Nimbus enrollments from re-evaluations.
+                val newEnrollment = newPrefsState
+                    .filter {
+                        getPreferenceState(it.prefString())?.enrollmentValue?.experimentSlug !=
+                            it.enrollmentValue?.experimentSlug
+                    }
+                    .map { it.prefString() }
+                    .toSet()
+
                 // Ensures state and processes errors
                 val succeededPrefs = processSetResults(resultMap, newPrefsState)
 
@@ -305,10 +351,19 @@ class NimbusGeckoPrefHandler(
                         },
                     )
 
+                    // Exclude re-evaluations — their originals are already stored in Nimbus.
+                    // This prevents errantly writing prior experiment/rollout values
+                    // that modified the preference in-between.
+                    val statesToRegister = succeededPrefs
+                        .filter { it in newEnrollment }
+                        .mapNotNull { getPreferenceState(it) }
+
                     // Reports back the value for Nimbus to store
-                    nimbusApi.value.registerPreviousGeckoPrefStates(
-                        geckoPrefStates = succeededPrefs.mapNotNull { getPreferenceState(it) },
-                    )
+                    if (statesToRegister.isNotEmpty()) {
+                        nimbusApi.value.registerPreviousGeckoPrefStates(
+                            geckoPrefStates = statesToRegister,
+                        )
+                    }
                 }
 
                 handleErrors()

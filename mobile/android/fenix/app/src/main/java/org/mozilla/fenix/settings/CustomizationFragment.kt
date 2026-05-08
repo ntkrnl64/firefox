@@ -141,21 +141,17 @@ class CustomizationFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFrag
         val settings = requireContext().settings()
         val isExpandedToolbarEnabled = settings.shouldUseExpandedToolbar && isTallWindow() && !isWideWindow()
         val shouldShowShortcutCategory = settings.shouldShowToolbarCustomization &&
-                settings.shouldUseComposableToolbar &&
                 settings.toolbarRedesignEnabled
+        val isAnyShortcutSelectedForSimpleToolbar = settings.toolbarSimpleShortcutKey != ShortcutType.NONE.value
 
         category.isVisible = shouldShowShortcutCategory
         if (shouldShowShortcutCategory) {
             val shortcutPreference = if (isExpandedToolbarEnabled) {
-                ToolbarExpandedShortcutPreference(requireContext()).apply {
-                    key = getString(R.string.pref_key_toolbar_expanded_shortcut)
-                    layoutResource = R.layout.preference_toolbar_shortcut
-                }
+                buildExpandedToolbarCustomButtonSetting()
+            } else if (isAnyShortcutSelectedForSimpleToolbar) {
+                buildSimpleToolbarWithCustomButtonSelectedSetting()
             } else {
-                ToolbarSimpleShortcutPreference(requireContext()).apply {
-                    key = getString(R.string.pref_key_toolbar_simple_shortcut)
-                    layoutResource = R.layout.preference_toolbar_shortcut
-                }
+                buildSimpleToolbarWithNoCustomButtonSelectedSetting()
             }
             category.apply {
                 removeAll()
@@ -165,6 +161,34 @@ class CustomizationFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFrag
             }
         }
     }
+
+    private fun buildExpandedToolbarCustomButtonSetting() =
+        ToolbarExpandedShortcutPreference(requireContext()).apply {
+            key = getString(R.string.pref_key_toolbar_expanded_shortcut)
+            layoutResource = R.layout.preference_toolbar_shortcut
+        }
+
+    private fun buildSimpleToolbarWithCustomButtonSelectedSetting() =
+        ToolbarSimpleShortcutPreference(requireContext()).apply {
+            key = getString(R.string.pref_key_toolbar_simple_shortcut)
+            layoutResource = R.layout.preference_toolbar_shortcut
+            optionChangedListener = { newOption ->
+                if (newOption == null || newOption.key.value == ShortcutType.NONE.value) {
+                    updateToolbarShortcut()
+                }
+            }
+        }
+
+    private fun buildSimpleToolbarWithNoCustomButtonSelectedSetting() =
+        ToolbarSimpleNoShortcutPreference(requireContext()).apply {
+            key = getString(R.string.pref_key_toolbar_simple_no_shortcut)
+            layoutResource = R.layout.preference_toolbar_shortcut
+            optionChangedListener = { newOption ->
+                if (newOption == null || newOption.key.value != ShortcutType.NONE.value) {
+                    updateToolbarShortcut()
+                }
+            }
+        }
 
     private fun setupRadioGroups() {
         addToRadioGroup(
@@ -271,8 +295,7 @@ class CustomizationFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFrag
     private fun setupToolbarLayout() {
         val settings = requireContext().settings()
         (requirePreference(R.string.pref_key_customization_category_toolbar_layout) as PreferenceCategory).apply {
-            isVisible = settings.shouldUseComposableToolbar &&
-                    settings.toolbarRedesignEnabled && isTallWindow() && !isWideWindow()
+            isVisible = settings.toolbarRedesignEnabled && isTallWindow() && !isWideWindow()
         }
 
         val layoutToggle = requirePreference<ToggleRadioButtonPreference>(R.string.pref_key_toolbar_expanded)
@@ -309,6 +332,10 @@ class CustomizationFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFrag
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_swipe_toolbar_switch_tabs).apply {
             isChecked = context.settings().isSwipeToolbarToSwitchTabsEnabled
             isVisible = isSwipeToolbarToSwitchTabsVisible
+            onPreferenceChangeListener = SharedPreferenceUpdater()
+        }
+        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_swipe_toolbar_show_tabs).apply {
+            isChecked = context.settings().isSwipeToolbarToShowTabsEnabled
             onPreferenceChangeListener = SharedPreferenceUpdater()
         }
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_shake_gesture_enabled).apply {

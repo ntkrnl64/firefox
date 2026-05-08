@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const browser = window.docShell.chromeEventHandler;
-const { document: gDoc, XPCOMUtils } = browser.ownerGlobal;
+const { document: gDoc, XPCOMUtils } = browser.documentGlobal;
 
 ChromeUtils.defineESModuleGetters(this, {
   AboutWelcomeParent: "resource:///actors/AboutWelcomeParent.sys.mjs",
@@ -53,6 +53,7 @@ function renderMultistage(ready) {
     window.close();
   };
   window.AWWaitForMigrationClose = receive("WAIT_FOR_MIGRATION_CLOSE");
+  window.AWWaitForNimbus = receive("WAIT_FOR_NIMBUS");
   window.AWEvaluateScreenTargeting = receive("EVALUATE_SCREEN_TARGETING");
   window.AWEvaluateAttributeTargeting = receive("EVALUATE_ATTRIBUTE_TARGETING");
   window.AWPredictRemoteType = ({ browserEl, url }) => {
@@ -109,13 +110,13 @@ function renderMultistage(ready) {
         event.stopPropagation();
       }
     };
-    browser.ownerGlobal.addEventListener("keydown", preventEscape, {
+    browser.documentGlobal.addEventListener("keydown", preventEscape, {
       capture: true,
       mozSystemGroup: true,
     });
 
     addEventListener("pagehide", () => {
-      browser.ownerGlobal.removeEventListener("keydown", preventEscape, {
+      browser.documentGlobal.removeEventListener("keydown", preventEscape, {
         capture: true,
         mozSystemGroup: true,
       });

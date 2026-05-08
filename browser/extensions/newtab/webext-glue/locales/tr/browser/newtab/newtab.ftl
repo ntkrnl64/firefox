@@ -8,9 +8,13 @@
 newtab-page-title = Yeni Sekme
 newtab-settings-button =
     .title = Yeni Sekme sayfanızı özelleştirin
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button =
     .title = Bu sayfayı özelleştir
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button-label once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button-label = Özelleştir
+newtab-customize-panel-label =
+    .label = Özelleştir
 newtab-personalize-settings-icon-label =
     .title = Yeni sekmeyi kişiselleştir
     .aria-label = Ayarlar
@@ -67,7 +71,7 @@ newtab-topsites-title-input =
     .placeholder = Başlık yazın
 newtab-topsites-url-label = Adres
 newtab-topsites-url-input =
-    .placeholder = Adres yazın ve yapıştırın
+    .placeholder = Adres yazın veya yapıştırın
 newtab-topsites-url-validation = Geçerli bir adres gerekli
 newtab-topsites-image-url-label = Özel resim adresi
 newtab-topsites-use-image-link = Özel resim kullan…
@@ -144,6 +148,9 @@ newtab-menu-report = Raporla
 # Context menu option to personalize New Tab recommended stories by blocking a section of stories,
 # e.g. "Sports". "Block" is a verb here.
 newtab-menu-section-block = Engelle
+# "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
+# e.g. Following the travel section of stories.
+newtab-menu-section-unfollow-topic = Takibi bırak
 # "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
 # e.g. Following the travel section of stories.
 newtab-menu-section-unfollow = Konuyu takip etmeyi bırak
@@ -307,9 +314,23 @@ newtab-error-fallback-refresh-link = Yeniden denemek için sayfayı tazeleyin.
 
 newtab-custom-shortcuts-title = Kısayollar
 newtab-custom-shortcuts-subtitle = Kaydettiğiniz veya ziyaret ettiğiniz siteler
+#  (developer note): @nova-cleanup(remove-string): Remove old string once Nova lands. The newtab-custom-shortcuts-nova string will take over
 newtab-custom-shortcuts-toggle =
     .label = Kısayollar
     .description = Kaydettiğiniz veya ziyaret ettiğiniz siteler
+newtab-custom-shortcuts-nova =
+    .label = Kısayollar
+newtab-custom-row-description =
+    .description = Satır sayısı
+# Variables
+#   $num (number) - Number of rows to display
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be using "row"/"rows" anymore for the dropdown
+newtab-custom-row-selector2 =
+    .label =
+        { $num ->
+            [one] { $num } satır
+           *[other] { $num } satır
+        }
 # Variables
 #   $num (number) - Number of rows to display
 newtab-custom-row-selector =
@@ -320,9 +341,12 @@ newtab-custom-row-selector =
 newtab-custom-sponsored-sites = Sponsorlu kısayollar
 newtab-custom-pocket-title = { -pocket-brand-name } önerileri
 newtab-custom-pocket-subtitle = { -brand-product-name } ailesinin bir parçası olan { -pocket-brand-name }’ın seçtiği harika içerikler
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be having a description under "Recommended stories" anymore
 newtab-custom-stories-toggle =
     .label = Önerilen makaleler
     .description = { -brand-product-name } ailesinin seçtiği harika içerikler
+newtab-recommended-stories-toggle =
+    .label = Önerilen makaleler
 newtab-custom-stories-personalized-toggle =
     .label = Haberler
 newtab-custom-stories-personalized-checkbox-label = Etkinliğinize göre kişiselleştirilmiş haberler
@@ -339,6 +363,8 @@ newtab-custom-widget-lists-toggle =
     .label = Listeler
 newtab-custom-widget-timer-toggle =
     .label = Sayaç
+newtab-custom-widget-sports-toggle =
+    .label = Dünya Kupası
 newtab-custom-widget-section-title = Araçlar
 newtab-custom-widget-section-toggle =
     .label = Araçlar
@@ -356,8 +382,12 @@ newtab-custom-settings = Diğer ayarları yönet
 
 newtab-wallpaper-title = Duvar kâğıtları
 newtab-wallpaper-reset = Varsayılana sıfırla
+#  (developer note): @nova-cleanup(remove-string): Remove old "Upload an image" string once Nova lands. The new "Add an image"  string will take over
 newtab-wallpaper-upload-image = Resim yükle
+newtab-wallpaper-add-an-image = Resim ekle
 newtab-wallpaper-custom-color = Renk seç
+newtab-wallpaper-toggle-title =
+    .label = Duvar kâğıtları
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = Bu resim, izin verilen { $file_size } MB boyut sınırını aşıyor. Lütfen daha küçük bir dosya yüklemeyi deneyin.
@@ -380,7 +410,9 @@ newtab-wallpaper-light-fox-anniversary = Sisli bir dağ manzarasıyla çimenli b
 
 ## Solid Colors
 
+#  (developer note): @nova-cleanup(remove-string): Remove old "Solid colors" string once Nova lands. The simplified "Colors" string will take over
 newtab-wallpaper-category-title-colors = Düz renkler
+newtab-wallpaper-colors = Renkler
 newtab-wallpaper-blue = Mavi
 newtab-wallpaper-light-blue = Açık mavi
 newtab-wallpaper-light-purple = Açık mor
@@ -471,6 +503,9 @@ newtab-weather-menu-change-location = Konumu değiştir
 newtab-weather-change-location-search-input-placeholder =
     .placeholder = Konum ara
     .aria-label = Konum ara
+# "Current" refers to the user's physical/geographic location detected via geolocation.
+newtab-weather-change-location-search-use-current =
+    .label = Şu anki konumu kullan
 newtab-weather-menu-weather-display = Hava durumu göstergesi
 newtab-weather-todays-forecast = Bugünkü hava durumu
 newtab-weather-see-full-forecast = Tüm hava durumunu göster
@@ -486,7 +521,6 @@ newtab-weather-menu-temperature-option-fahrenheit = Fahrenhayt
 newtab-weather-menu-temperature-option-celsius = Celcius
 newtab-weather-menu-change-temperature-units-fahrenheit = Fahrenhayta geç
 newtab-weather-menu-change-temperature-units-celsius = Celsius’a geç
-newtab-weather-menu-hide-weather-v2 = Hava durumunu gizle
 newtab-weather-menu-hide-weather = Yeni sekmede hava durumunu gizle
 newtab-weather-menu-learn-more = Daha fazla bilgi al
 newtab-weather-menu-detect-my-location = Konumumu tespit et
@@ -497,8 +531,18 @@ newtab-weather-opt-in-not-now =
     .label = Şimdi değil
 newtab-weather-opt-in-yes =
     .label = Evet
+newtab-weather-opt-in-headline = Hava durumu tahmininizi görün
+newtab-weather-opt-in-use-location =
+    .label = Konumu kullan
+newtab-weather-opt-in-choose-location = Konum seç
 # We'll be showing static (fake) weather data if the user has not opted in to using their location
 newtab-weather-static-city = New York City
+# "Highest" here refers to the highest temperature of the day
+newtab-weather-high =
+    .aria-label = Yüksek
+# "Lowest" here refers to the lowest temperature of the day
+newtab-weather-low =
+    .aria-label = Düşük
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-see-forecast-description =
@@ -550,8 +594,16 @@ newtab-topic-selection-button-pick-interests = İlgi alanlarınızı seçin
 ## e.g. Following the travel section of stories.
 
 newtab-section-follow-button = Takip et
+# Variables:
+#   $topic (string) - Topic that the user can follow
+newtab-section-follow-button-label =
+    .aria-label = { $topic } konusunu takip et
 newtab-section-following-button = Takip ediliyor
 newtab-section-unfollow-button = Takibi bırak
+# Variables:
+#   $topic (string) - Topic that the user is following and can unfollow
+newtab-section-unfollow-button-label =
+    .aria-label = Takip ediliyor: { $topic } konusunu takip etmeyi bırak
 # A modal may appear next to the Follow button, directing users to try out the feature
 newtab-section-follow-highlight-title = Akışınıza ince ayar yapın
 newtab-section-follow-highlight-subtitle = Beğendiğiniz diğer içerikleri görmek için ilgi alanlarınızı takip edin.
@@ -563,6 +615,22 @@ newtab-section-follow-highlight-subtitle = Beğendiğiniz diğer içerikleri gö
 newtab-section-block-button = Engelle
 newtab-section-blocked-button = Engellendi
 newtab-section-unblock-button = Engeli kaldırın
+# Variables:
+#   $topic (string) - Name of topic that user is following
+newtab-section-follow-topic =
+    .aria-label = { $topic } konusunu takip et
+# Variables:
+#   $topic (string) - Name of topic that user is unfollowing
+newtab-section-unfollow-topic =
+    .aria-label = { $topic } konusunu takip etmeyi bırak
+# Variables:
+#   $topic (string) - Name of topic that user is blocking
+newtab-section-block-topic =
+    .aria-label = { $topic } konusunu engelle
+# Variables:
+#   $topic (string) - Name of topic that user is unblocking
+newtab-section-unblock-topic =
+    .aria-label = { $topic } konusunun engelini kaldır
 
 ## Confirmation modal for blocking a section
 
@@ -572,6 +640,7 @@ newtab-section-confirm-block-topic-p2 = Engellenen konular artık akışınızda
 # Variables:
 #   $topic (string) - Name of topic that user is blocking
 newtab-section-block-topic-button = { $topic } konusunu engelle
+newtab-section-block-cancel-button = Vazgeç
 
 ## Strings for custom wallpaper highlight
 
@@ -592,6 +661,12 @@ newtab-custom-wallpaper-cta = Deneyin
 newtab-new-user-custom-wallpaper-title = { -brand-product-name } tarayıcınızı kişiselleştirmek için bir duvar kâğıdı seçin
 newtab-new-user-custom-wallpaper-subtitle = Özel duvar kağıtları ve renklerle her yeni sekmede evinizdeymiş gibi hissedin.
 newtab-new-user-custom-wallpaper-cta = Hemen deneyin
+
+## Strings for Nova wallpaper feature highlight
+
+newtab-wallpaper-feature-highlight-title = Yepyeni duvar kâğıtları hazır
+newtab-wallpaper-feature-highlight-subtitle = En sevdiğiniz duvar kâğıdını seçin, her sekmede kendinizi evinizde hissedin.
+newtab-wallpaper-feature-highlight-cta = Duvar kâğıdı seç
 
 ## Strings for download mobile highlight
 
@@ -635,6 +710,18 @@ newtab-toast-thanks-for-reporting =
     .message = Raporunuz için teşekkür ederiz.
 newtab-toast-widgets-hidden =
     .message = Araçları istediğiniz zaman geri eklemek için kalem simgesine tıklayın.
+# Variables:
+#   $topic (string) - Topic that the user has followed
+newtab-section-toast-follow =
+    .message = { $topic } konusunu takip etmeye başladınız.
+# Variables:
+#   $topic (string) - Topic that the user has unfollowed
+newtab-section-toast-unfollow =
+    .message = { $topic } konusunu artık takip etmiyorsunuz.
+# Variables:
+#   $topic (string) - Topic that the user has blocked
+newtab-section-toast-block =
+    .message = Artık { $topic } konusuyla ilgili haberleri görmeyeceksiniz.
 
 ## Strings for task / to-do list productivity widget
 
@@ -649,13 +736,20 @@ newtab-widget-lists-label-beta =
 # Variables:
 #   $number (number) - Amount of list items marked complete
 newtab-widget-lists-completed-list = Tamamlandı ({ $number })
+newtab-widget-lists-celebration-headline = İyi iş
+newtab-widget-lists-celebration-subhead = Hepsi tamamlandı
 newtab-widget-task-list-menu-copy = Kopyala
 newtab-widget-lists-menu-edit = Liste adını düzenle
+newtab-widget-lists-menu-edit2 =
+    .aria-label = Liste adını düzenle
 newtab-widget-lists-menu-create = Yeni liste oluştur
 newtab-widget-lists-menu-delete = Bu listeyi sil
 newtab-widget-lists-menu-copy = Listeyi panoya kopyala
-newtab-widget-lists-menu-hide = Tüm listeleri gizle
 newtab-widget-lists-menu-learn-more = Daha fazla bilgi al
+newtab-widget-lists-button-add-item = Görev ekle
+newtab-widget-lists-input-add-an-item2 =
+    .placeholder = Görev ekle
+    .aria-label = Görev ekle
 newtab-widget-lists-input-add-an-item =
     .placeholder = Görev ekle
 newtab-widget-lists-input-error = Görev eklemek için lütfen metin yazın.
@@ -664,18 +758,35 @@ newtab-widget-lists-input-menu-move-up = Yukarı taşı
 newtab-widget-lists-input-menu-move-down = Aşağı taşı
 newtab-widget-lists-input-menu-delete = Sil
 newtab-widget-lists-input-menu-edit = Düzenle
+newtab-widget-lists-input-menu-edit2 =
+    .aria-label = Maddeyi düzenle
 # the + symbol emphasises the functionality of adding a new list
 newtab-widget-lists-dropdown-create =
     .label = + Yeni liste oluştur
 newtab-widget-lists-name-label-default =
     .label = Görev listesi
+newtab-widget-lists-name-label-checklist =
+    .label = Görev listesi
 newtab-widget-lists-name-placeholder-default =
+    .placeholder = Görev listesi
+newtab-widget-lists-name-placeholder-checklist2 =
+    .placeholder = Görev listesi
+    .aria-label = Liste adını düzenle
+# The placeholder value of the name field for a newly created list
+newtab-widget-lists-name-placeholder-new2 =
+    .placeholder = Yeni liste
+    .aria-label = Liste adını düzenle
+newtab-widget-lists-name-placeholder-checklist =
     .placeholder = Görev listesi
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Yeni liste
 newtab-widget-section-title = Araçlar
 newtab-widget-menu-hide = Aracı gizle
+newtab-widget-menu-change-size = Boyutu değiştir
+newtab-widget-size-small = Küçük
+newtab-widget-size-medium = Orta
+newtab-widget-size-large = Büyük
 # Tooltip for hide all widgets button
 newtab-widget-section-hide-all-button =
     .title = Araçları gizle
@@ -686,10 +797,15 @@ newtab-widget-section-maximize =
 newtab-widget-section-minimize =
     .title = Araçları küçült
     .aria-label = Tüm araçları kompakt boyuta küçült
+newtab-widget-section-menu-button =
+    .title = Araçlar menüsü
+    .aria-label = Araçlar menüsünü aç
+newtab-widget-section-menu-hide-all = Araçları gizle
+newtab-widget-section-menu-learn-more = Daha fazla bilgi al
 newtab-widget-section-feedback = Ne düşündüğünüzü bize anlatın
+newtab-widget-lists-name-default = Görev listesi
 
-## Strings for timer productivity widget
-## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+## Strings introduced by the Nova redesign of the Timer widget
 
 newtab-widget-timer-notification-title = Sayaç
 newtab-widget-timer-notification-focus = Odaklanma süresi bitti. İyi iş çıkardınız. Ara vermek ister misiniz?
@@ -707,7 +823,6 @@ newtab-widget-timer-reset =
     .title = Sıfırla
 newtab-widget-timer-menu-notifications = Bildirimleri kapat
 newtab-widget-timer-menu-notifications-on = Bildirimleri aç
-newtab-widget-timer-menu-hide = Sayacı gizle
 newtab-widget-timer-menu-learn-more = Daha fazla bilgi al
 # The title displays above a set of top news headlines.
 newtab-daily-briefing-card-title = Öne çıkan başlıklar
@@ -718,12 +833,59 @@ newtab-daily-briefing-card-timestamp = { $minutes } dk. önce güncellendi
 newtab-widget-message-title = Listeler ve sayaçla işinize daha iyi odaklanın
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Küçük anımsatıcılar ve günlük görev listeleriyle, odaklanma oturumları ve molalarla zamanınızı daha iyi yönetin.
+# "Make Firefox yours" refers to about:newtab. The call to action here ("Try it now")
+# is to customize the new tab page with a background image or color from
+# the built-in wallpaper collection or uploading your own image.
+newtab-promo-card-title-addons = { -brand-product-name } tarayıcınızı kişiselleştirin
+newtab-promo-card-body-addons = Koleksiyonumuzdan bir duvar kâğıdı seçin veya kendi duvar kâğıdınızı oluşturun.
+newtab-promo-card-cta-addons = Hemen deneyin
 newtab-promo-card-title = { -brand-product-name } tarayıcısını destekleyin
 newtab-promo-card-body = Sponsorlarımız daha iyi bir web inşa etme misyonumuzu destekliyor
 newtab-promo-card-cta = Daha fazla bilgi alın
 newtab-promo-card-dismiss-button =
     .title = Kapat
     .aria-label = Kapat
+
+## Sports widget
+
+newtab-sports-widget-menu-follow-teams = Takımları takip et
+newtab-sports-widget-menu-view-upcoming = Yaklaşanlara bak
+newtab-sports-widget-menu-view-results = Sonuçlara bak
+newtab-sports-widget-menu-learn-more = Daha fazla bilgi al
+newtab-sports-widget-countdown-title = Dünya Kupası’na geri sayım
+newtab-sports-widget-get-updates = Canlı maç haberlerini ve daha fazlasını alın.
+newtab-sports-widget-follow-teams =
+    .label = Takımları takip et
+newtab-sports-widget-choose-wallpaper =
+    .label = Duvar kâğıdı seç
+newtab-sports-widget-skip = Atla
+newtab-sports-widget-search-teams =
+    .placeholder = Takım ara
+    .aria-label = Takım ara
+newtab-sports-widget-done-button =
+    .label = Tamam
+newtab-sports-widget-group-stage = Grup maçı
+# The "LIVE" string is meant to be uppercase in English, but other languages and locales may vary in how they handle this.
+newtab-sports-widget-live = CANLI
+newtab-custom-widget-live-refresh =
+    .title = Skorları yenile
+    .aria-label = Skorları yenile
+newtab-sports-widget-upcoming = Yaklaşıyor
+newtab-sports-widget-results = Sonuçlar
+newtab-sports-widget-semi-finals = Yarı finaller
+newtab-sports-widget-bronze-finals = Üçüncülük maçı
+# Final is the final match for 1st place.
+newtab-sports-widget-final = Final
+newtab-sports-widget-delayed = Gecikmeli
+newtab-sports-widget-postponed = Ertelendi
+newtab-sports-widget-suspended = Askıya alındı
+newtab-sports-widget-cancelled = İptal edildi
+newtab-sports-widget-information = Maç bilgileri
+newtab-sports-widget-no-live-data = Canlı maç verileri şu anda güncellenmiyor
+newtab-sports-widget-view-results-link = Sonuçlara bak
+newtab-sports-widget-third-place = Üçüncü
+newtab-sports-widget-champions = Şampiyon
+newtab-sports-widget-world-cup-champions = 2026 Dünya Kupası Şampiyonu
 
 ## Strings for activation window message variants. In certain experiment configurations,
 ## the strings from these variants may be displayed in a message below the search input

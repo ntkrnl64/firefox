@@ -37,6 +37,10 @@ extern void DumpWeakMapLog(JSRuntime* rt);
 
 namespace gc {
 
+// Ensure a Symbol read out of a weak map is marked black in |zone|'s atom
+// marking bitmap before it can escape to script.
+void MarkSymbolForWeakMapReadBarrier(JS::Zone* zone, JS::Symbol* sym);
+
 #if defined(JS_GC_ZEAL) || defined(DEBUG)
 // Check whether a weak map entry is marked correctly.
 bool CheckWeakMapEntryMarking(const WeakMapBase* map, Cell* key, Cell* value);
@@ -127,7 +131,7 @@ class WeakMapBase : public SlimLinkedListElement<WeakMapBase> {
   using CellColor = js::gc::CellColor;
 
   WeakMapBase(JSObject* memOf, JS::Zone* zone);
-  virtual ~WeakMapBase() {}
+  virtual ~WeakMapBase() = default;
 
   JS::Zone* zone() const { return zone_; }
 
@@ -325,7 +329,7 @@ struct WeakMapKeyHasher<PreBarriered<JS::Value>> {
   static bool match(const Key& k, const Lookup& l) {
     return WeakMapKeyHasher<JS::Value>::match(k, l);
   }
-  static void rekey(Key& k, const Key& newKey) { k.unbarrieredSet(newKey); }
+  static void rekey(Key& k, const Lookup& newKey) { k.unbarrieredSet(newKey); }
 };
 
 template <class Key, class Value, class AllocPolicy>
@@ -520,8 +524,14 @@ class WeakMap : public WeakMapBase {
     return map().lookup(l);
   }
 
-  static void valueReadBarrier(const JS::Value& v) {
+  void valueReadBarrier(const JS::Value& v) const {
+    // js::jit::WeakMapValueReadBarrier is a specialized version of this
+    // function designed to be called from jitcode. If this code is changed, it
+    // should be kept in sync.
     JS::ExposeValueToActiveJS(v);
+    if (MOZ_UNLIKELY(v.isSymbol())) {
+      gc::MarkSymbolForWeakMapReadBarrier(zone(), v.toSymbol());
+    }
   }
   static void valueReadBarrier(JSObject* obj) {
     JS::ExposeObjectToActiveJS(obj);

@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.tabstray.ui.tabitems
 
-import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +39,7 @@ import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import mozilla.components.browser.state.state.TabSessionState
+import mozilla.components.compose.base.button.IconButton
 import mozilla.components.concept.engine.utils.ABOUT_HOME_URL
 import mozilla.components.support.base.utils.MAX_URI_LENGTH
 import org.mozilla.fenix.R
@@ -48,6 +47,7 @@ import org.mozilla.fenix.compose.SwipeToDismissBox2
 import org.mozilla.fenix.compose.SwipeToDismissState2
 import org.mozilla.fenix.compose.TabThumbnail
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
+import org.mozilla.fenix.tabstray.browser.compose.TabItemInteractionState
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
 import org.mozilla.fenix.tabstray.data.createTab
 import org.mozilla.fenix.theme.FirefoxTheme
@@ -70,6 +70,7 @@ private val TabHeaderFaviconSize = 12.dp
  * @param onCloseClick Invoked when the close button is clicked.
  * @param onClick Invoked when the item is clicked.
  * @param onLongClick Invoked when the item is long clicked.
+ * @param interactionState The tab item's interaction state (hover, drag, etc)
  */
 @Composable
 fun TabGridTabItem(
@@ -86,6 +87,7 @@ fun TabGridTabItem(
     onCloseClick: (TabsTrayItem.Tab) -> Unit,
     onClick: (TabsTrayItem) -> Unit,
     onLongClick: ((TabsTrayItem) -> Unit)? = null,
+    interactionState: TabItemInteractionState,
 ) {
     SwipeToDismissBox2(
         modifier = modifier,
@@ -105,6 +107,7 @@ fun TabGridTabItem(
                 onLongClick = onLongClick,
             ),
             onCloseTabClick = onCloseClick,
+            interactionState = interactionState,
         )
     }
 }
@@ -117,6 +120,7 @@ fun TabGridTabItem(
  * @param selectionState: The tab's selection state - active, multi-selection, etc.
  * @param clickHandler: The tab's click handler,
  * @param onCloseTabClick: Invoked when a tab is closed.
+ * @param interactionState The tab item's interaction state (hover, drag, etc)
  */
 @Composable
 private fun TabContent(
@@ -130,10 +134,12 @@ private fun TabContent(
     ),
     clickHandler: TabsTrayItemClickHandler,
     onCloseTabClick: ((TabsTrayItem.Tab) -> Unit),
+    interactionState: TabItemInteractionState,
 ) {
     Box(
         modifier = modifier
             .wrapContentSize()
+            .tabItemInteractionAnimation(interactionState)
             .testTag(TabsTrayTestTag.TAB_ITEM_ROOT),
     ) {
         Card(
@@ -281,19 +287,20 @@ private fun CloseButton(
     onCloseClick: (TabsTrayItem.Tab) -> Unit,
 ) {
     IconButton(
-        modifier = Modifier
-            .size(TabHeaderIconTouchTargetSize)
-            .testTag(TabsTrayTestTag.TAB_ITEM_CLOSE),
         onClick = {
             onCloseClick(tab)
         },
+        contentDescription = stringResource(
+            id = R.string.close_tab_title,
+            tab.title,
+        ),
+        modifier = Modifier
+            .size(TabHeaderIconTouchTargetSize)
+            .testTag(TabsTrayTestTag.TAB_ITEM_CLOSE),
     ) {
         Icon(
             painter = painterResource(id = iconsR.drawable.mozac_ic_cross_20),
-            contentDescription = stringResource(
-                id = R.string.close_tab_title,
-                tab.title,
-            ),
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -305,7 +312,6 @@ private fun CloseButton(
  * @param tab Tab, containing the thumbnail to be displayed.
  * @param size Size of the thumbnail.
  */
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun Thumbnail(
     tab: TabsTrayItem.Tab,
@@ -329,6 +335,7 @@ private data class TabGridItemPreviewState(
     val multiSelectionSelected: Boolean,
     val url: String = "www.mozilla.org",
     val title: String = "Mozilla Domain",
+    val interactionState: TabItemInteractionState = TabItemInteractionState(),
 )
 
 private val tabGridItemPreviewStateData: List<Pair<String, TabGridItemPreviewState>> = listOf(
@@ -390,6 +397,24 @@ private val tabGridItemPreviewStateData: List<Pair<String, TabGridItemPreviewSta
             title = "Super super super super super super super super long title",
         ),
     ),
+    Pair(
+        "Dragged tab item",
+        TabGridItemPreviewState(
+            isActive = false,
+            multiSelectionEnabled = false,
+            multiSelectionSelected = false,
+            interactionState = TabItemInteractionState(isDragged = true),
+        ),
+    ),
+    Pair(
+        "Hovered by item",
+        TabGridItemPreviewState(
+            isActive = false,
+            multiSelectionEnabled = false,
+            multiSelectionSelected = false,
+            interactionState = TabItemInteractionState(isHoveredByItem = true),
+        ),
+    ),
 )
 
 private class TabGridItemParameterProvider : ThemedValueProvider<TabGridItemPreviewState>(
@@ -416,6 +441,7 @@ private fun TabGridItemPreview(
             thumbnailSize = 108,
             clickHandler = TabsTrayItemClickHandler(onClick = {}, onCloseClick = {}),
             onCloseTabClick = {},
+            interactionState = tabGridItemState.value.interactionState,
         )
     }
 }

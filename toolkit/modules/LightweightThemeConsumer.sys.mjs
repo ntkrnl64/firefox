@@ -57,19 +57,19 @@ const toolkitVariableMap = [
     },
   ],
   [
-    "--arrowpanel-background",
+    "--panel-background-color",
     {
       lwtProperty: "popup",
     },
   ],
   [
-    "--arrowpanel-color",
+    "--panel-text-color",
     {
       lwtProperty: "popup_text",
     },
   ],
   [
-    "--arrowpanel-border-color",
+    "--panel-border-color",
     {
       lwtProperty: "popup_border",
     },
@@ -82,19 +82,19 @@ const toolkitVariableMap = [
     },
   ],
   [
-    "--toolbar-bgcolor",
+    "--toolbar-background-color",
     {
       lwtProperty: "toolbarColor",
     },
   ],
   [
-    "--toolbar-color",
+    "--toolbar-text-color",
     {
       lwtProperty: "toolbar_text",
     },
   ],
   [
-    "--toolbar-field-color",
+    "--toolbar-field-text-color",
     {
       lwtProperty: "toolbar_field_text",
       fallbackColor: "black",
@@ -108,7 +108,7 @@ const toolkitVariableMap = [
     },
   ],
   [
-    "--toolbar-field-focus-background-color",
+    "--toolbar-field-background-color-focus",
     {
       lwtProperty: "toolbar_field_focus",
       fallbackProperty: "toolbar_field",
@@ -132,7 +132,7 @@ const toolkitVariableMap = [
     },
   ],
   [
-    "--toolbar-field-focus-color",
+    "--toolbar-field-text-color-focus",
     {
       lwtProperty: "toolbar_field_text_focus",
       fallbackProperty: "toolbar_field_text",
@@ -140,7 +140,7 @@ const toolkitVariableMap = [
     },
   ],
   [
-    "--toolbar-field-focus-border-color",
+    "--toolbar-field-border-color-focus",
     {
       lwtProperty: "toolbar_field_border_focus",
     },
@@ -218,6 +218,10 @@ const toolkitVariableMap = [
     },
   ],
 ];
+
+LightweightThemeConsumer.init = function (window) {
+  new LightweightThemeConsumer(window.document);
+};
 
 export function LightweightThemeConsumer(aDocument) {
   this._doc = aDocument;

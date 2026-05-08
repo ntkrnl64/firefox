@@ -47,6 +47,10 @@ tags = "search-telemetry"
 ["browser_quicksuggest_realtime_yelp.js"]
 
 ["browser_quicksuggest_sports.js"]
+support-files = [
+  "moz.png",
+  "moz-flipped.png",
+]
 
 ["browser_quicksuggest_yelp.js"]
 
@@ -62,7 +66,3 @@ skip-if = [
 ]
 
 ["browser_weather.js"]
-skip-if = [
-  "os == 'win' && os_version == '11.26100'", # Bug 1885264
-  "os == 'win' && os_version == '11.26200'", # Bug 1885264
-]

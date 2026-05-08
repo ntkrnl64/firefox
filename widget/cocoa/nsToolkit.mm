@@ -4,7 +4,6 @@
 
 #include "nsToolkit.h"
 
-#include <ctype.h>
 #include <stdlib.h>
 
 #include <mach/mach_port.h>
@@ -24,7 +23,6 @@ extern "C" {
 #include "nsCocoaUtils.h"
 #include "nsObjCExceptions.h"
 
-#include "nsGkAtoms.h"
 #include "nsIRollupListener.h"
 #include "nsIWidget.h"
 #include "nsIWidget.h"

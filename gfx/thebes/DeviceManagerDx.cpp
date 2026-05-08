@@ -30,6 +30,11 @@
 #include <ddraw.h>
 #include <dxgi.h>
 
+// Magic constants to convert to fixed point.
+// https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_5/ns-dxgi1_5-dxgi_hdr_metadata_hdr10
+static constexpr int kPrimariesFixedPoint = 50000;
+static constexpr int kMinLuminanceFixedPoint = 10000;
+
 namespace mozilla {
 namespace gfx {
 
@@ -255,14 +260,43 @@ static bool ColorSpaceIsHDR(const DXGI_OUTPUT_DESC1& aDesc) {
   return isHDR;
 }
 
+/* static */
+DXGI_HDR_METADATA_HDR10 DeviceManagerDx::OutputDESC1ToDXGI(
+    const DXGI_OUTPUT_DESC1& aDesc) {
+  DXGI_HDR_METADATA_HDR10 metadata{};
+
+  auto& primaryR = aDesc.RedPrimary;
+  metadata.RedPrimary[0] = primaryR[0] * kPrimariesFixedPoint;
+  metadata.RedPrimary[1] = primaryR[1] * kPrimariesFixedPoint;
+  auto& primaryG = aDesc.GreenPrimary;
+  metadata.GreenPrimary[0] = primaryG[0] * kPrimariesFixedPoint;
+  metadata.GreenPrimary[1] = primaryG[1] * kPrimariesFixedPoint;
+  auto& primaryB = aDesc.BluePrimary;
+  metadata.BluePrimary[0] = primaryB[0] * kPrimariesFixedPoint;
+  metadata.BluePrimary[1] = primaryB[1] * kPrimariesFixedPoint;
+  auto& whitePoint = aDesc.WhitePoint;
+  metadata.WhitePoint[0] = whitePoint[0] * kPrimariesFixedPoint;
+  metadata.WhitePoint[1] = whitePoint[1] * kPrimariesFixedPoint;
+  metadata.MaxMasteringLuminance = aDesc.MaxLuminance;
+  metadata.MinMasteringLuminance = aDesc.MinLuminance * kMinLuminanceFixedPoint;
+  // It's unclear how to set these properly, so this is a guess.
+  // Also note that these are not fixed-point.
+  metadata.MaxContentLightLevel = aDesc.MaxFullFrameLuminance;
+  metadata.MaxFrameAverageLightLevel = aDesc.MaxFullFrameLuminance;
+
+  return metadata;
+}
+
 void DeviceManagerDx::UpdateMonitorInfo() {
   bool systemHdrEnabled = false;
   std::set<HMONITOR> hdrMonitors;
+  std::unordered_map<HMONITOR, DXGI_HDR_METADATA_HDR10> hdrMetadatas;
 
   for (const auto desc : EnumerateOutputs()) {
     if (ColorSpaceIsHDR(desc)) {
       systemHdrEnabled = true;
       hdrMonitors.emplace(desc.Monitor);
+      hdrMetadatas[desc.Monitor] = OutputDESC1ToDXGI(desc);
     }
   }
 
@@ -270,6 +304,7 @@ void DeviceManagerDx::UpdateMonitorInfo() {
     MutexAutoLock lock(mDeviceLock);
     mSystemHdrEnabled = Some(systemHdrEnabled);
     mHdrMonitors.swap(hdrMonitors);
+    mHdrMetadatas.swap(hdrMetadatas);
     mUpdateMonitorInfoRunnable = nullptr;
   }
 }
@@ -295,11 +330,7 @@ bool DeviceManagerDx::WindowHDREnabled(HWND aWindow) {
   return MonitorHDREnabled(monitor);
 }
 
-bool DeviceManagerDx::MonitorHDREnabled(HMONITOR aMonitor) {
-  if (!aMonitor) {
-    return false;
-  }
-
+void DeviceManagerDx::EnsureMonitorInfo() {
   bool needInit = false;
 
   {
@@ -312,6 +343,14 @@ bool DeviceManagerDx::MonitorHDREnabled(HMONITOR aMonitor) {
   if (needInit) {
     UpdateMonitorInfo();
   }
+}
+
+bool DeviceManagerDx::MonitorHDREnabled(HMONITOR aMonitor) {
+  if (!aMonitor) {
+    return false;
+  }
+
+  EnsureMonitorInfo();
 
   MutexAutoLock lock(mDeviceLock);
   MOZ_ASSERT(mSystemHdrEnabled.isSome());
@@ -322,6 +361,31 @@ bool DeviceManagerDx::MonitorHDREnabled(HMONITOR aMonitor) {
   }
 
   return true;
+}
+
+Maybe<DXGI_HDR_METADATA_HDR10> DeviceManagerDx::WindowHDRMetadata(
+    HWND aWindow) {
+  MOZ_ASSERT(aWindow);
+
+  HMONITOR monitor = ::MonitorFromWindow(aWindow, MONITOR_DEFAULTTONEAREST);
+  return MonitorHDRMetadata(monitor);
+}
+
+Maybe<DXGI_HDR_METADATA_HDR10> DeviceManagerDx::MonitorHDRMetadata(
+    HMONITOR aMonitor) {
+  if (!aMonitor) {
+    return Nothing();
+  }
+
+  EnsureMonitorInfo();
+
+  MutexAutoLock lock(mDeviceLock);
+
+  auto it = mHdrMetadatas.find(aMonitor);
+  if (it == mHdrMetadatas.end()) {
+    return Nothing();
+  }
+  return Some(it->second);
 }
 
 void DeviceManagerDx::CheckHardwareStretchingSupport(HwStretchingSupport& aRv) {
@@ -1120,25 +1184,49 @@ static HRESULT SetDebugName(T* d3d11Object, const char* debugString) {
 
 RefPtr<ID3D11Device> DeviceManagerDx::CreateMediaEngineDevice() {
   MutexAutoLock lock(mDeviceLock);
-  if (!LoadD3D11()) {
-    return nullptr;
+  // LoadD3D11() asserts D3D11_COMPOSITING is enabled, which may not hold in
+  // the utility process (headless mode). Load the DLL directly if needed.
+  if (!sD3D11CreateDeviceFn) {
+    nsModuleHandle module(LoadLibrarySystem32(L"d3d11.dll"));
+    if (!module) {
+      return nullptr;
+    }
+    sD3D11CreateDeviceFn = (decltype(D3D11CreateDevice)*)GetProcAddress(
+        module, "D3D11CreateDevice");
+    if (!sD3D11CreateDeviceFn) {
+      return nullptr;
+    }
+    mD3D11Module.steal(module);
   }
 
   HRESULT hr;
   RefPtr<ID3D11Device> device;
-  UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT |
-               D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
-  RefPtr<IDXGIAdapter1> adapter = GetDXGIAdapterLocked();
-  if (!adapter) {
-    return nullptr;
+  UINT baseFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT |
+                   D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
+  UINT flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT | baseFlags;
+  // When hardware video decoding is unavailable, DXGI swap chains used by
+  // the MF Media Engine may fail. Fall back to WARP so the engine can
+  // create its swap chain with a software adapter.
+  bool useWarp = !gfxVars::CanUseHardwareVideoDecoding();
+  if (!useWarp) {
+    if (!CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, flags, hr, device) ||
+        FAILED(hr) || !device || !D3D11Checks::DoesDeviceWork()) {
+      useWarp = true;
+    }
   }
-  if (!CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, flags, hr, device)) {
-    return nullptr;
+  if (useWarp) {
+    gfxWarning()
+        << "MFMediaEngine: hardware D3D11 device unavailable, using WARP";
+    device = nullptr;
+    // WARP does not support D3D11_CREATE_DEVICE_VIDEO_SUPPORT; use baseFlags
+    // only.
+    if (!CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, baseFlags, hr, device) ||
+        FAILED(hr) || !device) {
+      return nullptr;
+    }
   }
-  if (FAILED(hr) || !device || !D3D11Checks::DoesDeviceWork()) {
-    return nullptr;
-  }
-  (void)SetDebugName(device.get(), "MFMediaEngineDevice");
+  (void)SetDebugName(device.get(), useWarp ? "MFMediaEngineDevice(WARP)"
+                                           : "MFMediaEngineDevice");
 
   RefPtr<ID3D10Multithread> multi;
   device->QueryInterface(__uuidof(ID3D10Multithread), getter_AddRefs(multi));

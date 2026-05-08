@@ -19,10 +19,8 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import mozilla.components.browser.state.action.CustomTabListAction
 import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.action.RecentlyClosedAction
-import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.translate.ModelManagementOptions
@@ -39,6 +37,7 @@ import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.PermissionStorage
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.utils.Settings
+import kotlin.test.assertIs
 
 class DefaultDeleteBrowsingDataControllerTest {
 
@@ -93,10 +92,6 @@ class DefaultDeleteBrowsingDataControllerTest {
 
         coVerify(ordering = Ordering.ORDERED) {
             historyStorage.deleteEverything()
-
-            store.dispatch(TabListAction.RemoveAllNormalTabsAction)
-            store.dispatch(TabListAction.RemoveAllPrivateTabsAction)
-            store.dispatch(CustomTabListAction.RemoveAllCustomTabsAction)
             store.dispatch(EngineAction.PurgeHistoryAction)
             store.dispatch(RecentlyClosedAction.RemoveAllClosedTabAction)
         }
@@ -169,7 +164,8 @@ class DefaultDeleteBrowsingDataControllerTest {
 
     @Test
     fun `clearBrowsingDataOnQuit - when no data types are selected - completes immediately`() = runTest(testDispatcher) {
-        val onDeletionComplete: () -> Unit = mockk(relaxed = true)
+        var onDeletionCompleteCount = 0
+        val onDeletionComplete: () -> Unit = { onDeletionCompleteCount++ }
 
         every { settings.getDeleteDataOnQuit(any()) } returns false // No types are selected
 
@@ -178,12 +174,13 @@ class DefaultDeleteBrowsingDataControllerTest {
         coVerify(exactly = 0) { appStore.dispatch(any()) }
         coVerify(exactly = 0) { controller.deleteType(any()) }
 
-        verify { onDeletionComplete.invoke() }
+        assertEquals(1, onDeletionCompleteCount)
     }
 
     @Test
     fun `clearBrowsingDataOnQuit - when one data type is selected - deletes it and completes`() = runTest(testDispatcher) {
-        val onDeletionComplete: () -> Unit = mockk(relaxed = true)
+        var onDeletionCompleteCount = 0
+        val onDeletionComplete: () -> Unit = { onDeletionCompleteCount++ }
 
         val typeToDelete = DeleteBrowsingDataOnQuitType.TABS
 
@@ -198,12 +195,13 @@ class DefaultDeleteBrowsingDataControllerTest {
         }
 
         coVerify(exactly = 1) { controller.deleteType(any()) }
-        verify { onDeletionComplete.invoke() }
+        assertEquals(1, onDeletionCompleteCount)
     }
 
     @Test
     fun `clearBrowsingDataOnQuit - when multiple data types are selected - deletes all of them`() = runTest(testDispatcher) {
-        val onDeletionComplete: () -> Unit = mockk(relaxed = true)
+        var onDeletionCompleteCount = 0
+        val onDeletionComplete: () -> Unit = { onDeletionCompleteCount++ }
 
         val typesToDelete = listOf(
             DeleteBrowsingDataOnQuitType.HISTORY,
@@ -223,18 +221,19 @@ class DefaultDeleteBrowsingDataControllerTest {
         }
 
         coVerify(exactly = typesToDelete.size) { controller.deleteType(any()) }
-        verify { onDeletionComplete.invoke() }
+        assertEquals(1, onDeletionCompleteCount)
     }
 
     @Test
     fun `clearBrowsingDataOnQuit - onDeletionComplete is called even if one deletion throws an exception`() = runTest(testDispatcher) {
-        val onDeletionComplete: () -> Unit = mockk(relaxed = true)
+        var onDeletionCompleteCount = 0
+        val onDeletionComplete: () -> Unit = { onDeletionCompleteCount++ }
 
         val failingType = DeleteBrowsingDataOnQuitType.CACHE
         val succeedingType = DeleteBrowsingDataOnQuitType.TABS
 
         val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-            assertTrue(throwable is RuntimeException)
+            assertIs<RuntimeException>(throwable)
             assertEquals("Deletion failed!", throwable.message)
         }
 
@@ -251,6 +250,6 @@ class DefaultDeleteBrowsingDataControllerTest {
         coVerify { controller.deleteType(failingType) }
         coVerify { controller.deleteType(succeedingType) }
 
-        verify { onDeletionComplete.invoke() }
+        assertEquals(1, onDeletionCompleteCount)
     }
 }

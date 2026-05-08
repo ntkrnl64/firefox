@@ -29,6 +29,7 @@ import org.mockito.ArgumentMatchers.anyInt
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.robolectric.annotation.Config
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class AndroidPhotoPickerTest {
@@ -92,7 +93,7 @@ class AndroidPhotoPickerTest {
             callbackCaptor.capture(),
         )
 
-        assertTrue(contractCaptor.value is ActivityResultContracts.PickVisualMedia)
+        assertIs<ActivityResultContracts.PickVisualMedia>(contractCaptor.value)
         assertNotNull(callbackCaptor.value)
     }
 
@@ -108,7 +109,7 @@ class AndroidPhotoPickerTest {
             callbackCaptor.capture(),
         )
 
-        assertTrue(contractCaptor.value is ActivityResultContracts.PickMultipleVisualMedia)
+        assertIs<ActivityResultContracts.PickMultipleVisualMedia>(contractCaptor.value)
         assertNotNull(callbackCaptor.value)
     }
 

@@ -19,7 +19,7 @@ if (typeof Mozilla == "undefined") {
      *
      * For security/privacy reasons `Mozilla.UITour` will only work on a list of allowed
      * secure origins. The list of allowed origins can be found in
-     * https://searchfox.org/mozilla-central/source/browser/app/permissions.
+     * https://searchfox.org/firefox-main/source/browser/app/permissions.
      *
      * @since 29
      * @namespace
@@ -431,6 +431,8 @@ if (typeof Mozilla == "undefined") {
    *                                           starting from 0 for profiles reset less than seven
    *                                           days ago. If the profile has never been reset it
    *                                           returns null. Since Fx56.
+   * @property {boolean} needsPin - Whether Firefox still needs to be pinned to the taskbar (Windows)
+   *                                or Dock (macOS). Since Fx152.
    * @property {string} version - Version string e.g. "48.0a2"
    * @since 35
    */
@@ -716,6 +718,16 @@ if (typeof Mozilla == "undefined") {
     _sendEvent("setDefaultSearchEngine", {
       identifier,
     });
+  };
+
+  /**
+   * Pin Firefox to the taskbar (Windows) or Dock (macOS).
+   * `getConfiguration('appinfo')` should first be used to check `data.needsPin` before calling this.
+   *
+   * @since 152
+   */
+  Mozilla.UITour.pinToTaskbar = function () {
+    _sendEvent("pinToTaskbar");
   };
 
   /**

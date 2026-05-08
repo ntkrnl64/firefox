@@ -46,6 +46,7 @@ import mozilla.components.feature.top.sites.PinnedSiteStorage
 import mozilla.components.feature.top.sites.TopSitesUseCases
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.test.robolectric.testContext
+import mozilla.components.support.utils.INTENT_TYPE_PDF
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -699,7 +700,39 @@ class DefaultBrowserToolbarMenuControllerTest {
             browserStore.dispatch(
                 ShareResourceAction.AddShareAction(
                     tabId = "1",
-                    ShareResourceState.LocalResource("content://pdf.pdf"),
+                    ShareResourceState.LocalResource("content://pdf.pdf", INTENT_TYPE_PDF),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `GIVEN tab is a remote PDF WHEN share menu item is pressed THEN trigger ShareResourceAction`() = runTest {
+        val item = ToolbarMenu.Item.Share
+        val url = "https://mozilla.org/document"
+        val tab = createTab(url = url, id = "1").let {
+            it.copy(content = it.content.copy(isPdf = true))
+        }
+        browserStore = spyk(BrowserStore(BrowserState(tabs = listOf(tab), selectedTabId = "1")))
+        val controller = createController(scope = this, store = browserStore)
+        assertNull(Events.browserMenuAction.testGetValue())
+
+        controller.handleToolbarItemInteraction(item)
+
+        val snapshot = requireNotNull(Events.browserMenuAction.testGetValue()) { "Snapshot should'nt be null" }
+        assertEquals(1, snapshot.size)
+        assertEquals("share", snapshot.single().extra?.getValue("item"))
+
+        verify {
+            browserStore.dispatch(
+                ShareResourceAction.AddShareAction(
+                    tabId = "1",
+                    ShareResourceState.InternetResource(
+                        url = url,
+                        contentType = INTENT_TYPE_PDF,
+                        private = false,
+                        referrerUrl = url,
+                    ),
                 ),
             )
         }

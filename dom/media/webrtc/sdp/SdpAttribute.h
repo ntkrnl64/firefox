@@ -10,8 +10,9 @@
 #include <cstring>
 #include <iomanip>
 #include <ostream>
+#include <span>
 #include <sstream>
-#include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/EncodingConstraints.h"
@@ -344,7 +345,7 @@ class SdpExtmapAttributeList : public SdpAttribute {
                  const std::string& extensionattributes = "") {
     Extmap value = {entry, direction, direction_specified, extensionname,
                     extensionattributes};
-    mExtmaps.push_back(value);
+    mExtmaps.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -395,7 +396,7 @@ class SdpFingerprintAttributeList : public SdpAttribute {
   // For use by application programmers. Enforces that it's a known and
   // reasonable algorithm.
   void PushEntry(std::string algorithm_str,
-                 const std::vector<uint8_t>& fingerprint,
+                 std::span<const uint8_t> fingerprint,
                  bool enforcePlausible = true) {
     std::transform(algorithm_str.begin(), algorithm_str.end(),
                    algorithm_str.begin(), ::tolower);
@@ -431,10 +432,12 @@ class SdpFingerprintAttributeList : public SdpAttribute {
     PushEntry(algorithm, fingerprint);
   }
 
-  void PushEntry(HashAlgorithm hashFunc,
-                 const std::vector<uint8_t>& fingerprint) {
-    Fingerprint value = {hashFunc, fingerprint};
-    mFingerprints.push_back(value);
+  void PushEntry(HashAlgorithm hashFunc, std::span<const uint8_t> fingerprint) {
+    Fingerprint value = {
+        hashFunc,
+    };
+    value.fingerprint.assign(fingerprint.begin(), fingerprint.end());
+    mFingerprints.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -496,7 +499,7 @@ class SdpGroupAttributeList : public SdpAttribute {
 
   void PushEntry(Semantics semantics, const std::vector<std::string>& tags) {
     Group value = {semantics, tags};
-    mGroups.push_back(value);
+    mGroups.push_back(std::move(value));
   }
 
   void RemoveMid(const std::string& mid) {
@@ -779,7 +782,7 @@ class SdpMsidAttributeList : public SdpAttribute {
   void PushEntry(const std::string& identifier,
                  const std::string& appdata = "") {
     Msid value = {identifier, appdata};
-    mMsids.push_back(value);
+    mMsids.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -810,7 +813,7 @@ class SdpMsidSemanticAttributeList : public SdpAttribute {
   void PushEntry(const std::string& semantic,
                  const std::vector<std::string>& msids) {
     MsidSemantic value = {semantic, msids};
-    mMsidSemantics.push_back(value);
+    mMsidSemantics.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -1048,7 +1051,7 @@ class SdpRtcpFbAttributeList : public SdpAttribute {
                  const std::string& parameter = "",
                  const std::string& extra = "") {
     Feedback value = {pt, type, parameter, extra};
-    mFeedbacks.push_back(value);
+    mFeedbacks.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -1132,7 +1135,7 @@ class SdpRtpmapAttributeList : public SdpAttribute {
                  const std::string& name, uint32_t clock,
                  uint32_t channels = 0) {
     Rtpmap value = {pt, codec, name, clock, channels};
-    mRtpmaps.push_back(value);
+    mRtpmaps.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -1634,7 +1637,7 @@ class SdpSctpmapAttributeList : public SdpAttribute {
   void PushEntry(const std::string& pt, const std::string& name,
                  uint32_t streams = 0) {
     Sctpmap value = {pt, name, streams};
-    mSctpmaps.push_back(value);
+    mSctpmaps.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -1798,7 +1801,7 @@ class SdpSsrcAttributeList : public SdpAttribute {
 
   void PushEntry(uint32_t ssrc, const std::string& attribute) {
     Ssrc value = {ssrc, attribute};
-    mSsrcs.push_back(value);
+    mSsrcs.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -1837,7 +1840,7 @@ class SdpSsrcGroupAttributeList : public SdpAttribute {
 
   void PushEntry(Semantics semantics, const std::vector<uint32_t>& ssrcs) {
     SsrcGroup value = {semantics, ssrcs};
-    mSsrcGroups.push_back(value);
+    mSsrcGroups.push_back(std::move(value));
   }
 
   SdpAttribute* Clone() const override {
@@ -1897,7 +1900,7 @@ class SdpOptionsAttribute : public SdpAttribute {
  public:
   explicit SdpOptionsAttribute(AttributeType type) : SdpAttribute(type) {}
 
-  void PushEntry(const std::string& entry) { mValues.push_back(entry); }
+  void PushEntry(std::string&& entry) { mValues.push_back(std::move(entry)); }
 
   void Load(const std::string& value);
 
@@ -1923,7 +1926,7 @@ class SdpFlagAttribute : public SdpAttribute {
 // Used for any other kind of single-valued attribute not otherwise specialized
 class SdpStringAttribute : public SdpAttribute {
  public:
-  explicit SdpStringAttribute(AttributeType type, const std::string& value)
+  explicit SdpStringAttribute(AttributeType type, std::string_view value)
       : SdpAttribute(type), mValue(value) {}
 
   SdpAttribute* Clone() const override { return new SdpStringAttribute(*this); }

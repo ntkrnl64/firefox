@@ -12,6 +12,7 @@ import {
   constructRelevantMemoriesContextMessage,
   constructRealTimeInfoInjectionMessage,
   sanitizeUntrustedContent,
+  stripUnresolvedUrlTokens,
 } from "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs";
 
 import { getRoleLabel } from "./ChatUtils.sys.mjs";
@@ -50,6 +51,7 @@ ChromeUtils.defineLazyGetter(lazy, "console", function () {
 });
 
 const CHAT_ROLES = [MESSAGE_ROLE.USER, MESSAGE_ROLE.ASSISTANT];
+const TABLES_PREF = "browser.smartwindow.allowTables";
 
 /**
  * A conversation containing messages.
@@ -68,6 +70,51 @@ export class ChatConversation extends EventEmitter {
   #messages;
   #minNextOrdinal = 0;
   activeBranchTipMessageId;
+
+  /**
+   * A mapping of a URL to its unique URL token. URL tokens are used as shortened
+   * versions of URLs to help the model deal with very long URLs. Very long URLs are
+   * problematic since they are hard for a model to repeat back without making mistakes
+   * or hallucinating details about the URL. There is also additional cost for every
+   * additional token in the context. Long URLs can also contain prompt injections since
+   * they can be of an arbitrary size. URL Tokens help solve all of these issues.
+   *
+   * URL tokens are only generated while a message is "in flight" to and from the language
+   * model. When tool calls are handled, messages rendered, and messages stored they are
+   * all done with the URL tokens expanded into full URLs.
+   *
+   * There are no guarantees that a URL in this list isn't just hallucinated by the model.
+   * Any URL the language model invents can be present in this list. The only guarantee
+   * is that a token maps to some kind of arbitrary URL.
+   *
+   * Example mapping:
+   * https://github.com/mozilla/ -> GITHUB_COM_MOZILLA_1
+   *
+   * @type {Map<string, string>}
+   */
+  urlToToken = new Map();
+
+  /**
+   * The reverse mapping for a token back to its original URL.
+   *
+   * e.g. GITHUB_COM_MOZILLA_1 -> https://github.com/mozilla/
+   *
+   * @type {Map<string, string>}
+   */
+  tokenToUrl = new Map();
+
+  /**
+   * A mapping of the base URL token to how many counts there are for it. It's
+   * used to generate the final number on URL tokens.
+   *
+   * e.g.
+   *
+   * https://github.com/mozilla/                  -> GITHUB_COM_MOZILLA_1
+   * https://github.com/mozilla#not-part-of-token -> GITHUB_COM_MOZILLA_2
+   *
+   * @type {Map<string, number>}
+   */
+  #baseTokenCounts = new Map();
 
   /**
    * Language models can generate arbitrary URLs. If a conversation has been exposed
@@ -96,6 +143,7 @@ export class ChatConversation extends EventEmitter {
    * @param {number} [params.updatedDate]
    * @param {CONVERSATION_STATUS} [params.status]
    * @param {Array<ChatMessage>} [params.messages]
+   * @param {boolean|null} [params.memoriesToggled]
    */
   constructor(params) {
     const {
@@ -108,6 +156,7 @@ export class ChatConversation extends EventEmitter {
       updatedDate = Date.now(),
       messages = [],
       seenUrls,
+      memoriesToggled = null,
     } = params;
 
     super();
@@ -121,6 +170,16 @@ export class ChatConversation extends EventEmitter {
     this.updatedDate = updatedDate;
     this.#messages = messages;
     this.seenUrls = seenUrls ? new Set(seenUrls) : new Set();
+    this.memoriesToggled = memoriesToggled;
+
+    // transient: tracks the URL the current starter prompts were generated
+    // for. Not persisted only used while conversation is empty
+    this.transientStarterUrl = null;
+
+    // transient: caches the last set of starter prompts generated for this
+    // conversation so a tab switch-back can restore without re-fetching.
+    // Not persisted only meaningful while the conversation is empty.
+    this.transientStarters = null;
 
     // NOTE: Destructuring params.status causes a linter error
     this.status = params.status || CONVERSATION_STATUS.ACTIVE;
@@ -135,10 +194,98 @@ export class ChatConversation extends EventEmitter {
     }
   }
 
+  /**
+   * Converts a URL into a token. It first computes a base token from
+   * the hostname and path parts, then appends a monotonically increasing number on the
+   * end to make it unique. This token is cached to the conversation while
+   * the conversation is loaded in memory. This token is in-memory only and not
+   * serialized to storage.
+   *
+   * URL token analysis:
+   * https://docs.google.com/document/d/1kwf2PH1APyUR4wrvv6lJIhA12bkQoNVV5KFwAPtWubw/edit?tab=t.0#heading=h.yhx5pggnwgne
+   *
+   * @param {string} url - The full URL to register
+   * @returns {string} The short token for the URL (e.g. "GITHUB_COM_1")
+   */
+  convertUrlToToken(url) {
+    const seenToken = this.urlToToken.get(url);
+    if (seenToken) {
+      return seenToken;
+    }
+
+    let baseToken = "";
+
+    // Attempt to convert the URL into a base token.
+    const parsedUrl = URL.parse(url);
+    if (parsedUrl) {
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        // Go ahead and handle URL tokens for more complicated URLs that
+        // aren't probably supported in the chat interface, but would be useful
+        // to disambiguate from the HTTP(s) varieties.
+        baseToken +=
+          // e.g. "ftp:" -> "FTP"
+          parsedUrl.protocol.toUpperCase().replace(":", "");
+      }
+
+      // Convert the hostname into a token.
+      const hostToken = parsedUrl.hostname
+        .replace(/^www\./, "")
+        .toUpperCase()
+        .replace(/[.\-]/g, "_")
+        .substring(0, 100);
+
+      if (hostToken) {
+        baseToken = baseToken ? `${baseToken}_${hostToken}` : hostToken;
+      }
+
+      // Add on the parts of the URL to the token.
+      for (let part of parsedUrl.pathname.split("/")) {
+        if (!part) {
+          continue;
+        }
+        const partToken = part.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+
+        const nextToken = `${baseToken}_${partToken}`;
+        if (nextToken.length > 100) {
+          break;
+        }
+        baseToken = nextToken;
+      }
+    } else {
+      baseToken = "INVALID_URL";
+    }
+
+    let count = this.#baseTokenCounts.get(baseToken) ?? 0;
+    count += 1;
+    this.#baseTokenCounts.set(baseToken, count);
+
+    const tokenFinal = `${baseToken}_${count}`;
+
+    this.urlToToken.set(url, tokenFinal);
+    this.tokenToUrl.set(tokenFinal, url);
+
+    return tokenFinal;
+  }
+
+  /**
+   * @param {any} chunk
+   * @param {any} currentMessage
+   * @param {{
+   *     inToken: boolean,
+   *     tokenBuffer: string,
+   *     tokenCandidate: boolean,
+   *     pendingOpen: boolean
+   * }} parserState
+   */
   handleChunk(chunk, currentMessage, parserState) {
     let update = false;
 
-    const { plainText, tokens } = consumeStreamChunk(chunk, parserState);
+    const { plainText, tokens } = consumeStreamChunk(
+      chunk,
+      parserState,
+      this.tokenToUrl
+    );
+
     if (plainText) {
       currentMessage.content.body += plainText;
       update = true;
@@ -195,6 +342,16 @@ export class ChatConversation extends EventEmitter {
       delete currentMessage._pendingMemoryIds;
 
       this.emit("chat-conversation:message-update", currentMessage);
+    }
+
+    // Post-process the response text by expanding the URL tokens and removing
+    // any hallucinated URL tokens.
+    if (this.urlToToken.size && currentMessage?.content?.body) {
+      let body = stripUnresolvedUrlTokens(currentMessage.content.body);
+      if (body !== currentMessage.content.body) {
+        currentMessage.content.body = body;
+        this.emit("chat-conversation:message-update", currentMessage);
+      }
     }
 
     await lazy.ChatStore.updateConversation(this);
@@ -444,7 +601,20 @@ export class ChatConversation extends EventEmitter {
     this.removeSystemTimeMemoriesMessages();
 
     if (!this.messages.length) {
-      const systemPrompt = await engineInstance.loadPrompt(MODEL_FEATURES.CHAT);
+      const _systemPrompt = await engineInstance.loadPrompt(
+        MODEL_FEATURES.CHAT
+      );
+      let tableInstructions;
+      if (Services.prefs.getBoolPref(TABLES_PREF, false)) {
+        tableInstructions = await engineInstance.loadPrompt(
+          MODEL_FEATURES.ENABLE_TABLE_INSTRUCTIONS
+        );
+      } else {
+        tableInstructions = await engineInstance.loadPrompt(
+          MODEL_FEATURES.DISABLE_TABLE_INSTRUCTIONS
+        );
+      }
+      const systemPrompt = renderPrompt(_systemPrompt, { tableInstructions });
       this.addSystemMessage(SYSTEM_PROMPT_TYPE.TEXT, systemPrompt);
     }
 

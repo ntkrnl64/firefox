@@ -20,9 +20,9 @@ use crate::invalidation::element::restyle_hints::RestyleHint;
 use crate::properties::longhands::display::computed_value::T as Display;
 use crate::properties::ComputedValues;
 use crate::properties::PropertyDeclarationBlock;
-use crate::rule_tree::{CascadeLevel, CascadeOrigin, StrongRuleNode};
 #[cfg(feature = "servo")]
 use crate::rule_tree::RuleCascadeFlags;
+use crate::rule_tree::{CascadeLevel, CascadeOrigin, StrongRuleNode};
 use crate::selector_parser::{PseudoElement, RestyleDamage};
 use crate::shared_lock::Locked;
 use crate::style_resolver::StyleResolverForElement;
@@ -30,6 +30,8 @@ use crate::style_resolver::{PseudoElementResolution, ResolvedElementStyles};
 use crate::stylesheets::layer_rule::LayerOrder;
 use crate::stylist::RuleInclusion;
 use crate::traversal_flags::TraversalFlags;
+use crate::values::generics::animation::GenericAnimationTimeline;
+use crate::values::specified::animation::Scroller;
 use servo_arc::{Arc, ArcBorrow};
 
 /// Represents the result of comparing an element's old and new style.
@@ -37,7 +39,6 @@ use servo_arc::{Arc, ArcBorrow};
 pub struct StyleDifference {
     /// The resulting damage.
     pub damage: RestyleDamage,
-
     /// Whether any styles changed.
     pub change: StyleChange,
 }
@@ -49,9 +50,9 @@ pub enum StyleChange {
     Unchanged,
     /// The style has changed.
     Changed {
-        /// Whether only reset structs changed.
+        /// Whether only reset properties have changed.
         reset_only: bool,
-        /// Whether custom properties changed.
+        /// Whether custom properties have changed.
         custom_properties_changed: bool,
     },
 }
@@ -189,6 +190,35 @@ trait PrivateMatchMethods: TElement {
         false
     }
 
+    #[inline]
+    fn requires_animation_update_for_scroll_self(
+        old: &ComputedValues,
+        new: &ComputedValues,
+    ) -> bool {
+        // Need to specifically take care of `animation-timeline: scroll(self)` - unlike other values, it can become inactive.
+        // When we switch in and out of being scrollable, we should make sure to perform the animation update.
+        // Specifying scroll in any axis makes the other axis scrollable [1], so we need to update on either axis changing.
+        // This does not apply to `scroll(root)`, since the viewport scroller is always available, or `scroll(nearest)`,
+        // which will go up to root.
+        // [1]: https://drafts.csswg.org/css-overflow/#propdef-overflow
+        let scrollable_changed = old.clone_overflow_x().is_scrollable()
+            != new.clone_overflow_x().is_scrollable()
+            || old.clone_overflow_y().is_scrollable() != new.clone_overflow_y().is_scrollable();
+        if !scrollable_changed {
+            return false;
+        }
+        new.get_ui().animation_timeline_iter().any(|timeline| {
+            let scroll_function = match timeline {
+                GenericAnimationTimeline::Scroll(ref sf) => sf,
+                _ => return false,
+            };
+            if scroll_function.scroller != Scroller::SelfElement {
+                return false;
+            }
+            true
+        })
+    }
+
     /// If there is no transition rule in the ComputedValues, it returns None.
     fn after_change_style(
         &self,
@@ -281,6 +311,10 @@ trait PrivateMatchMethods: TElement {
         //
         // We may want to be more granular, but it's probably not worth it.
         if new_style.writing_mode != old_style.writing_mode {
+            return has_animations;
+        }
+
+        if Self::requires_animation_update_for_scroll_self(old_style, new_style) {
             return has_animations;
         }
 
@@ -775,104 +809,124 @@ trait PrivateMatchMethods: TElement {
 
         debug!(" > style difference: {:?}", difference);
 
-        // We need to cascade the children in order to ensure the correct
-        // propagation of inherited computed value flags.
+        let mut children_hint = RestyleHint::empty();
         if old_values.flags.maybe_inherited() != new_values.flags.maybe_inherited() {
+            // Even if the styles are otherwise equal, we need to cascade the children in order to
+            // ensure the correct propagation of inherited computed value flags.
             debug!(
                 " > flags changed: {:?} != {:?}",
                 old_values.flags, new_values.flags
             );
-            return RestyleHint::RECASCADE_SELF;
-        }
-
-        if old_values.effective_zoom != new_values.effective_zoom {
-            // Zoom changes need to get propagated to children.
+            children_hint |= RestyleHint::RECASCADE_SELF;
+        } else if old_values.effective_zoom != new_values.effective_zoom {
+            // Similarly, even if styles are equal, we need to propagate zoom changes.
             debug!(
                 " > zoom changed: {:?} != {:?}",
                 old_values.effective_zoom, new_values.effective_zoom
             );
-            return RestyleHint::RECASCADE_SELF;
+            children_hint |= RestyleHint::RECASCADE_SELF;
         }
 
-        match difference.change {
-            StyleChange::Unchanged => return RestyleHint::empty(),
-            StyleChange::Changed {
-                reset_only,
-                custom_properties_changed,
-            } => {
-                if custom_properties_changed {
-                    return RestyleHint::RECASCADE_SELF
-                        | RestyleHint::RESTYLE_IF_AFFECTED_BY_STYLE_QUERIES;
-                }
-                // If inherited properties changed, the best we can do is
-                // cascade the children.
-                if !reset_only {
-                    return RestyleHint::RECASCADE_SELF;
-                }
-            },
+        let StyleChange::Changed {
+            reset_only,
+            custom_properties_changed,
+        } = difference.change
+        else {
+            return children_hint;
+        };
+
+        let new_container_name = new_values.clone_container_name();
+        if new_container_name != old_values.clone_container_name() {
+            // If we're becoming or stopped to become a named container, we need to potentially
+            // restyle children.
+            children_hint |= RestyleHint::RESTYLE_IF_AFFECTED_BY_NAMED_STYLE_CONTAINER;
+        } else if custom_properties_changed {
+            // Custom property changes affect style queries. How specifically depends on whether
+            // we're a named container (more expensive, need to check the subtree) or not.
+            children_hint |= if !new_container_name.is_none() {
+                RestyleHint::RESTYLE_IF_AFFECTED_BY_NAMED_STYLE_CONTAINER
+            } else {
+                RestyleHint::RESTYLE_IF_AFFECTED_BY_STYLE_QUERIES
+            };
         }
 
-        let old_display = old_values.clone_display();
-        let new_display = new_values.clone_display();
-
-        if old_display != new_display {
-            // If we used to be a display: none element, and no longer are, our
-            // children need to be restyled because they're unstyled.
-            if old_display == Display::None {
-                return RestyleHint::RECASCADE_SELF;
-            }
-            // Blockification of children may depend on our display value,
-            // so we need to actually do the recascade. We could potentially
-            // do better, but it doesn't seem worth it.
-            if old_display.is_item_container() != new_display.is_item_container() {
-                return RestyleHint::RECASCADE_SELF;
-            }
-            // We may also need to blockify and un-blockify descendants if our
-            // display goes from / to display: contents, since the "layout
-            // parent style" changes.
-            if old_display.is_contents() || new_display.is_contents() {
-                return RestyleHint::RECASCADE_SELF;
-            }
-            // Line break suppression may also be affected if the display
-            // type changes from ruby to non-ruby.
-            #[cfg(feature = "gecko")]
-            {
-                if old_display.is_ruby_type() != new_display.is_ruby_type() {
-                    return RestyleHint::RECASCADE_SELF;
-                }
-            }
+        if reset_only {
+            // If only reset properties changed, we _might_ need to unconditionally restyle, but
+            // most likely we can get away with stopping the cascade at the next level, if our
+            // children don't inherit reset properties.
+            children_hint |=
+                if need_to_unconditionally_recascade_for_reset_change(old_values, new_values) {
+                    RestyleHint::RECASCADE_SELF
+                } else {
+                    RestyleHint::RECASCADE_SELF_IF_INHERIT_RESET_STYLE
+                };
+        } else {
+            // If inherited properties changed, we need to cascade our children.
+            children_hint |= RestyleHint::RECASCADE_SELF;
         }
 
-        // Children with justify-items: auto may depend on our
-        // justify-items property value.
-        //
-        // Similarly, we could potentially do better, but this really
-        // seems not common enough to care about.
-        #[cfg(feature = "gecko")]
-        {
-            use crate::values::specified::align::AlignFlags;
-
-            let old_justify_items = old_values.get_position().clone_justify_items();
-            let new_justify_items = new_values.get_position().clone_justify_items();
-
-            let was_legacy_justify_items = old_justify_items.computed.contains(AlignFlags::LEGACY);
-
-            let is_legacy_justify_items = new_justify_items.computed.contains(AlignFlags::LEGACY);
-
-            if is_legacy_justify_items != was_legacy_justify_items {
-                return RestyleHint::RECASCADE_SELF;
-            }
-
-            if was_legacy_justify_items && old_justify_items.computed != new_justify_items.computed
-            {
-                return RestyleHint::RECASCADE_SELF;
-            }
-        }
-
-        // We could prove that, if our children don't inherit reset
-        // properties, we can stop the cascade.
-        RestyleHint::RECASCADE_SELF_IF_INHERIT_RESET_STYLE
+        children_hint
     }
+}
+
+/// Whether we need to recascade children for a change in non-inherited properties.
+fn need_to_unconditionally_recascade_for_reset_change(
+    old_values: &ComputedValues,
+    new_values: &ComputedValues,
+) -> bool {
+    let old_display = old_values.clone_display();
+    let new_display = new_values.clone_display();
+
+    if old_display != new_display {
+        // If we used to be a display: none element, and no longer are, our
+        // children need to be restyled because they're unstyled.
+        if old_display == Display::None {
+            return true;
+        }
+        // Blockification of children may depend on our display value, so we need to actually do the
+        // recascade. We could potentially do better, but it doesn't seem worth it.
+        if old_display.is_item_container() != new_display.is_item_container() {
+            return true;
+        }
+        // We may also need to blockify and un-blockify descendants if our display goes from / to
+        // display: contents, since the "layout parent style" changes.
+        if old_display.is_contents() || new_display.is_contents() {
+            return true;
+        }
+        // Line break suppression may also be affected if the display
+        // type changes from ruby to non-ruby.
+        #[cfg(feature = "gecko")]
+        if old_display.is_ruby_type() != new_display.is_ruby_type() {
+            return true;
+        }
+    }
+
+    // Children with justify-items: auto may depend on our
+    // justify-items property value.
+    //
+    // Similarly, we could potentially do better, but this really
+    // seems not common enough to care about.
+    #[cfg(feature = "gecko")]
+    {
+        use crate::values::specified::align::AlignFlags;
+
+        let old_justify_items = old_values.get_position().clone_justify_items();
+        let new_justify_items = new_values.get_position().clone_justify_items();
+
+        let was_legacy_justify_items = old_justify_items.computed.contains(AlignFlags::LEGACY);
+
+        let is_legacy_justify_items = new_justify_items.computed.contains(AlignFlags::LEGACY);
+
+        if is_legacy_justify_items != was_legacy_justify_items {
+            return true;
+        }
+
+        if was_legacy_justify_items && old_justify_items.computed != new_justify_items.computed {
+            return true;
+        }
+    }
+
+    false
 }
 
 impl<E: TElement> PrivateMatchMethods for E {}
@@ -935,78 +989,67 @@ pub trait MatchMethods: TElement {
         let is_root = new_primary_style
             .flags
             .contains(ComputedValueFlags::IS_ROOT_ELEMENT_STYLE);
-        let is_container = !new_primary_style
-            .get_box()
-            .clone_container_type()
-            .is_normal();
-        if is_root || is_container {
-            let device = context.shared.stylist.device();
-            let old_style = old_styles.primary.as_ref();
-            let new_font_size = new_primary_style.get_font().clone_font_size();
-            let old_font_size = old_style.map(|s| s.get_font().clone_font_size());
 
-            // For line-height, we want the fully resolved value, as `normal` also depends on other
-            // font properties.
-            let new_line_height = device
-                .calc_line_height(
-                    &new_primary_style.get_font(),
-                    new_primary_style.writing_mode,
-                    None,
-                )
-                .0;
-            let old_line_height = old_style.map(|s| {
-                device
-                    .calc_line_height(&s.get_font(), s.writing_mode, None)
-                    .0
-            });
+        let old_style = old_styles.primary.as_ref();
+        let old_font_size = old_style.map(|s| s.get_font().clone_font_size());
+        let device = context.shared.stylist.device();
+        let new_font_size = new_primary_style.get_font().clone_font_size();
+        // For line-height, we want the fully resolved value, as `normal` also depends on other
+        // font properties.
+        let new_line_height = device
+            .calc_line_height(
+                &new_primary_style.get_font(),
+                new_primary_style.writing_mode,
+                None,
+            )
+            .0;
+        let old_line_height = old_style.map(|s| {
+            device
+                .calc_line_height(&s.get_font(), s.writing_mode, None)
+                .0
+        });
 
-            // Update root font-relative units. If any of these unit values changed
-            // since last time, ensure that we recascade the entire tree.
-            if is_root {
-                debug_assert!(self.owner_doc_matches_for_testing(device));
-                device.set_root_style(new_primary_style);
+        let font_size_changed = old_font_size != Some(new_font_size);
+        let line_height_changed = old_line_height != Some(new_line_height);
 
-                // Update root font size for rem units
-                if old_font_size != Some(new_font_size) {
-                    let size = new_font_size.computed_size();
-                    device.set_root_font_size(new_primary_style.effective_zoom.unzoom(size.px()));
-                    if device.used_root_font_size() {
-                        child_restyle_hint |= RestyleHint::recascade_subtree();
-                    }
-                }
+        // Update root font-relative units. If any of these unit values changed
+        // since last time, ensure that we recascade the entire tree.
+        if is_root {
+            debug_assert!(self.owner_doc_matches_for_testing(device));
+            device.set_root_style(new_primary_style);
 
-                // Update root line height for rlh units
-                if old_line_height != Some(new_line_height) {
-                    device.set_root_line_height(
-                        new_primary_style
-                            .effective_zoom
-                            .unzoom(new_line_height.px()),
-                    );
-                    if device.used_root_line_height() {
-                        child_restyle_hint |= RestyleHint::recascade_subtree();
-                    }
-                }
-
-                // Update root font metrics for rcap, rch, rex, ric units. Since querying
-                // font metrics can be an expensive call, they are only updated if these
-                // units are used in the document.
-                if device.used_root_font_metrics() && device.update_root_font_metrics() {
+            // Update root font size for rem units
+            if font_size_changed {
+                let size = new_font_size.computed_size();
+                device.set_root_font_size(new_primary_style.effective_zoom.unzoom(size.px()));
+                if device.used_root_font_size() {
                     child_restyle_hint |= RestyleHint::recascade_subtree();
                 }
             }
 
-            if is_container
-                && (old_font_size.is_some_and(|old| old != new_font_size)
-                    || old_line_height.is_some_and(|old| old != new_line_height))
-            {
-                // TODO(emilio): Maybe only do this if we were matched
-                // against relative font sizes?
-                // Also, maybe we should do this as well for font-family /
-                // etc changes (for ex/ch/ic units to work correctly)? We
-                // should probably do the optimization mentioned above if
-                // so.
-                child_restyle_hint |= RestyleHint::restyle_subtree();
+            // Update root line height for rlh units
+            if line_height_changed {
+                device.set_root_line_height(
+                    new_primary_style
+                        .effective_zoom
+                        .unzoom(new_line_height.px()),
+                );
+                if device.used_root_line_height() {
+                    child_restyle_hint |= RestyleHint::recascade_subtree();
+                }
             }
+
+            // Update root font metrics for rcap, rch, rex, ric units. Since querying
+            // font metrics can be an expensive call, they are only updated if these
+            // units are used in the document.
+            if device.used_root_font_metrics() && device.update_root_font_metrics() {
+                child_restyle_hint |= RestyleHint::recascade_subtree()
+                    | RestyleHint::RESTYLE_IF_AFFECTED_BY_ANCESTOR_FONT_METRICS;
+            }
+        }
+
+        if font_size_changed || line_height_changed {
+            child_restyle_hint |= RestyleHint::RESTYLE_IF_AFFECTED_BY_ANCESTOR_FONT_METRICS;
         }
 
         if context.shared.stylist.quirks_mode() == QuirksMode::Quirks {

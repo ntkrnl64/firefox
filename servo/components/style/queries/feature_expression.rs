@@ -701,7 +701,7 @@ impl QueryExpressionValue {
             QueryExpressionValue::Length(ref l) => l.to_css(dest),
             QueryExpressionValue::Integer(v) => v.to_css(dest),
             QueryExpressionValue::Float(v) => v.to_css(dest),
-            QueryExpressionValue::BoolInteger(v) => dest.write_str(if v { "1" } else { "0" }),
+            QueryExpressionValue::BoolInteger(v) => dest.write_char(if v { '1' } else { '0' }),
             QueryExpressionValue::NumberRatio(ratio) => ratio.to_css(dest),
             QueryExpressionValue::Resolution(ref r) => r.to_css(dest),
             QueryExpressionValue::Keyword(k) => k.to_css(dest),
@@ -850,7 +850,6 @@ impl ToCss for QueryStyleRange {
     where
         W: fmt::Write,
     {
-        dest.write_char('(')?;
         match self {
             Self::StyleRange2 {
                 ref value1,
@@ -861,7 +860,7 @@ impl ToCss for QueryStyleRange {
                 dest.write_char(' ')?;
                 op1.to_css(dest)?;
                 dest.write_char(' ')?;
-                value2.to_css(dest, None)?;
+                value2.to_css(dest, None)
             },
             Self::StyleRange3 {
                 ref value1,
@@ -878,10 +877,9 @@ impl ToCss for QueryStyleRange {
                 dest.write_char(' ')?;
                 op2.to_css(dest)?;
                 dest.write_char(' ')?;
-                value3.to_css(dest, None)?;
+                value3.to_css(dest, None)
             },
         }
-        dest.write_char(')')
     }
 }
 
@@ -1103,6 +1101,7 @@ impl QueryStyleRange {
             /* namespaces = */ Default::default(),
             /* error_reporter = */ None,
             /* use_counters = */ None,
+            /* attr_taint */ Default::default(),
         );
         let mut input = ParserInput::new(css_text);
         QueryExpressionValue::parse_for_style_range(&parser_context, &mut Parser::new(&mut input))

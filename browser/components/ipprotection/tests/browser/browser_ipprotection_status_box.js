@@ -19,8 +19,7 @@ const mockBandwidthUsage = {
 
 add_task(async function test_paused_content() {
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
+    isReady: true,
     canEnroll: true,
     proxyPass: {
       status: 200,
@@ -28,7 +27,7 @@ add_task(async function test_paused_content() {
       pass: makePass(),
     },
   });
-  await IPPEnrollAndEntitleManager.refetchEntitlement();
+  await IPPFxaAuthProvider.checkForUpgrade();
 
   let content = await openPanel({
     paused: true,
@@ -83,8 +82,7 @@ add_task(async function test_paused_content() {
 
 add_task(async function test_paused_content_upgraded() {
   setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
+    isReady: true,
     hasUpgraded: true,
     canEnroll: true,
     proxyPass: {
@@ -95,7 +93,6 @@ add_task(async function test_paused_content_upgraded() {
   });
 
   let content = await openPanel({
-    isSignedOut: false,
     paused: true,
     hasUpgraded: true,
     bandwidthUsage: mockBandwidthUsage,
@@ -126,7 +123,6 @@ add_task(async function test_paused_content_upgraded() {
  */
 add_task(async function test_generic_error() {
   let content = await openPanel({
-    isSignedOut: false,
     unauthenticated: false,
     error: ERRORS.GENERIC,
   });
@@ -159,7 +155,6 @@ add_task(async function test_generic_error() {
  */
 add_task(async function test_network_error() {
   let content = await openPanel({
-    isSignedOut: false,
     unauthenticated: false,
     error: ERRORS.NETWORK,
   });
@@ -180,8 +175,43 @@ add_task(async function test_network_error() {
   );
 
   // Check for the error icon in the network error case
-  let errorIcon = statusBox.querySelector('img[slot="icon"]');
-  Assert.ok(errorIcon, "Error icon should be present for network error");
+  let errorImage = statusBox.querySelector('img[slot="image"]');
+  Assert.ok(errorImage, "Error icon should be present for network error");
+
+  Assert.ok(!content.statusCardEl, "Status card should be hidden when error");
+
+  let footerButton = content.settingsButtonEl;
+  Assert.ok(footerButton, "Settings button should be present in footer");
+
+  await closePanel();
+});
+
+/**
+ * Tests the catastrophic error type in the status box component.
+ */
+add_task(async function test_catastrophic_error() {
+  let content = await openPanel({
+    unauthenticated: false,
+    error: ERRORS.CATASTROPHIC,
+  });
+
+  let statusBox = content.statusBoxEl;
+  Assert.ok(statusBox, "Status box should be shown when there is an error");
+
+  let errorTitle = statusBox.titleEl;
+  let errorDescription = statusBox.descriptionEl;
+
+  Assert.ok(errorTitle, "Error title should be present");
+  Assert.ok(errorDescription, "Error description should be present");
+
+  Assert.equal(
+    statusBox.type,
+    ERRORS.CATASTROPHIC,
+    "Status box type should be catastrophic-error"
+  );
+
+  let errorImage = statusBox.querySelector('img[slot="image"]');
+  Assert.ok(errorImage, "Error icon should be present for catastrophic error");
 
   Assert.ok(!content.statusCardEl, "Status card should be hidden when error");
 

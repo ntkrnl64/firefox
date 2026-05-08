@@ -24,7 +24,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.doReturn
@@ -35,6 +34,7 @@ import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.robolectric.Robolectric.buildActivity
 import org.robolectric.Shadows.shadowOf
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class GeckoEngineViewTest {
@@ -174,7 +174,7 @@ class GeckoEngineViewTest {
 
         engineView.render(engineSession)
 
-        assertTrue(engineView.currentSelection is GeckoSelectionActionDelegate)
+        assertIs<GeckoSelectionActionDelegate>(engineView.currentSelection)
     }
 
     @Test
@@ -196,8 +196,8 @@ class GeckoEngineViewTest {
         val captor = argumentCaptor<GeckoSession.SelectionActionDelegate>()
         verify(geckoSession).selectionActionDelegate = captor.capture()
 
-        assertTrue(captor.value is GeckoSelectionActionDelegate)
-        val capturedDelegate = captor.value as GeckoSelectionActionDelegate
+        val capturedDelegate = captor.value
+        assertIs<GeckoSelectionActionDelegate>(capturedDelegate)
 
         assertEquals(delegate, capturedDelegate.customDelegate)
 
@@ -227,8 +227,8 @@ class GeckoEngineViewTest {
         val captor = argumentCaptor<GeckoSession.SelectionActionDelegate>()
         verify(geckoSession).selectionActionDelegate = captor.capture()
 
-        assertTrue(captor.value is GeckoSelectionActionDelegate)
-        val capturedDelegate = captor.value as GeckoSelectionActionDelegate
+        val capturedDelegate = captor.value
+        assertIs<GeckoSelectionActionDelegate>(capturedDelegate)
 
         assertEquals(delegate, capturedDelegate.customDelegate)
 

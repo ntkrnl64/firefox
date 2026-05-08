@@ -219,11 +219,17 @@ export class BackupUIParent extends JSWindowActorParent {
          * TODO: (Bug 1905156) display a localized version of error in the restore dialog.
          */
       }
+    } else if (message.name == "FindBackupsInWellKnownLocations") {
+      let { source } = message.data;
+      await this.#bs.findBackupsInWellKnownLocations({
+        validateFile: true,
+        source,
+      });
     } else if (message.name == "RestoreFromBackupChooseFile") {
       const window = this.browsingContext.topChromeWindow;
       this.#bs.filePickerForRestore(window);
     } else if (message.name == "RestoreFromBackupFile") {
-      let { backupFile, backupPassword, restoreType } = message.data;
+      let { backupFile, backupPassword, restoreType, source } = message.data;
       try {
         await this.#bs.recoverFromBackupArchive(
           backupFile,
@@ -231,7 +237,8 @@ export class BackupUIParent extends JSWindowActorParent {
           true /* shouldLaunchOrQuit */,
           undefined,
           undefined,
-          restoreType === "replace" /* replaceCurrentProfile */
+          restoreType === "replace" /* replaceCurrentProfile */,
+          source
         );
       } catch (e) {
         lazy.logConsole.error(`Failed to restore file: ${backupFile}`, e);

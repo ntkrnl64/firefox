@@ -13,6 +13,7 @@ import base64
 import configparser
 import json
 import os
+import textwrap
 import time
 import webbrowser
 from dataclasses import (
@@ -20,6 +21,7 @@ from dataclasses import (
     field,
 )
 from pathlib import Path
+from random import random
 from typing import Union
 
 import requests
@@ -109,7 +111,6 @@ def get_stack_info(
     base64_patches = [
         convert_bytes_patch_to_base64(patch_bytes) for patch_bytes in patches
     ]
-    print("Patches gathered for submission.")
 
     return base_commit, base_commit_vcs, base64_patches
 
@@ -226,7 +227,6 @@ class Auth0Config:
                 options={"verify_signature": False},
             )
         )
-        print("Auth0 token validated.")
         return user_token
 
     def device_authorization_flow(self) -> dict:
@@ -271,7 +271,8 @@ class Auth0Config:
             response_data = response.json()
 
             if response.status_code == 200:
-                print("\nLogin successful.")
+                # Terminate the in-progress "Waiting......" line.
+                print()
                 return response_data
 
             if response_data["error"] not in ("authorization_pending", "slow_down"):
@@ -330,8 +331,12 @@ class LandoAPI:
         return f"https://{self.api_url}/try/patches"
 
     def lando_try_status_api_url(self, job_id: int) -> str:
-        """URL of the Lando Try Job Status endpoint."""
+        """URL of the Lando Try Job Status JSON endpoint."""
         return f"https://{self.api_url}/landing_jobs/{job_id}"
+
+    def lando_try_status_url(self, job_id: int) -> str:
+        """URL of the Lando Try Job Status HTML endpoint in new Lando."""
+        return f"https://{self.api_url}/landings/{job_id}"
 
     @property
     def api_headers(self) -> dict[str, str]:
@@ -414,16 +419,24 @@ class LandoAPI:
             "patches": patches,
         }
 
-        print("Submitting patches to Lando.")
         response_json = self.post(self.lando_try_api_url, request_json_body)
 
         return response_json
 
 
 def push_to_lando_try(
-    vcs: SupportedVcsRepository, commit_message: str, changed_files: dict, metrics
+    vcs: SupportedVcsRepository,
+    commit_message: str,
+    changed_files: dict,
+    metrics,
+    *,
+    force_old_lando: bool = False,
 ):
     """Push a set of patches to Lando's try endpoint."""
+
+    OLD_LANDO_ENTRY = "lando-prod"
+    NEW_LANDO_ENTRY = "lando-prod-new"
+
     metrics.mach_try.vcs_prep.start()
     # Map `Repository` subclasses to the `patch_format` value Lando expects.
     PATCH_FORMAT_STRING_MAPPING = {
@@ -438,7 +451,26 @@ def push_to_lando_try(
 
     # Use LANDO_TRY_CONFIG so select which configuration section from .lando.ini to use.
     # Default to using `lando-prod`.
-    lando_config_section = os.getenv("LANDO_TRY_CONFIG", "lando-prod")
+
+    default_lando_config_section = OLD_LANDO_ENTRY
+
+    # Bug 1979252: A/B test use of new lando for some pushes to try.
+    new_lando_probability = 1
+
+    if not force_old_lando and random() < new_lando_probability:
+        default_lando_config_section = NEW_LANDO_ENTRY
+
+    lando_config_section = os.getenv("LANDO_TRY_CONFIG", default_lando_config_section)
+
+    if lando_config_section == NEW_LANDO_ENTRY:
+        notification_message = textwrap.dedent(
+            """
+            This Try push uses the new Lando instance.
+            Please report any issue to https://matrix.to/#/#conduit:mozilla.org.
+            To use the old Lando instance, set the environment variable LANDO_TRY_CONFIG to `lando-prod` (section name from '.lando.ini')"
+            """
+        )
+        print(notification_message)
 
     # Load Auth0 config from `.lando.ini`.
     lando_ini_path = Path(vcs.path) / ".lando.ini"
@@ -486,17 +518,13 @@ def push_to_lando_try(
     duration = time.perf_counter() - push_start_time
 
     job_id = response_json["id"]
-    success_msg = f"Lando try submission success, took {duration:.1f} seconds. Landing job id: {job_id}."
-    print(success_msg)
-
-    lando_api_status_url = lando_api.lando_try_status_api_url(job_id)
-    print(f"Lando Job Status API: {lando_api_status_url}")
 
     # Send a notification only if the push took an unexpectedly long time
     if duration > 30:
-        build.notify(success_msg)
+        build.notify(f"try submission success in {duration:.1f}s")
 
     return {
         "lando_instance": lando_api.instance_id,
         "lando_job_id": job_id,
+        "duration": duration,
     }

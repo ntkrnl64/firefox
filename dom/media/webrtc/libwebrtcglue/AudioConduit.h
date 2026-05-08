@@ -126,6 +126,9 @@ class WebrtcAudioConduit : public AudioSessionConduit,
 
   virtual ~WebrtcAudioConduit();
 
+  WebrtcAudioConduit(const WebrtcAudioConduit& other) = delete;
+  void operator=(const WebrtcAudioConduit& other) = delete;
+
   // Call thread.
   void InitControl(AudioConduitControlInterface* aControl) override;
 
@@ -176,9 +179,6 @@ class WebrtcAudioConduit : public AudioSessionConduit,
   const std::vector<webrtc::RtpSource>& GetUpstreamRtpSources() const override;
 
  private:
-  WebrtcAudioConduit(const WebrtcAudioConduit& other) = delete;
-  void operator=(const WebrtcAudioConduit& other) = delete;
-
   // Generate block size in sample length for a given sampling frequency
   unsigned int GetNum10msSamplesForFrequency(int samplingFreqHz) const;
 

@@ -177,6 +177,10 @@ class nsHttpChannel final : public HttpBaseChannel,
   NS_IMETHOD GetConnectEnd(mozilla::TimeStamp* aConnectEnd) override;
   NS_IMETHOD GetRequestStart(mozilla::TimeStamp* aRequestStart) override;
   NS_IMETHOD GetResponseStart(mozilla::TimeStamp* aResponseStart) override;
+  NS_IMETHOD GetFirstInterimResponseStart(
+      mozilla::TimeStamp* aFirstInterimResponseStart) override;
+  NS_IMETHOD GetFinalResponseHeadersStart(
+      mozilla::TimeStamp* aFinalResponseHeadersStart) override;
   NS_IMETHOD GetResponseEnd(mozilla::TimeStamp* aResponseEnd) override;
 
   NS_IMETHOD GetTransactionPending(
@@ -276,15 +280,7 @@ class nsHttpChannel final : public HttpBaseChannel,
   already_AddRefed<WebTransportSessionEventListener>
   GetWebTransportSessionEventListener();
 
- private:  // used for alternate service validation
-  RefPtr<TransactionObserver> mTransactionObserver;
-
  public:
-  void SetTransactionObserver(TransactionObserver* arg) {
-    mTransactionObserver = arg;
-  }
-  TransactionObserver* GetTransactionObserver() { return mTransactionObserver; }
-
   CacheDisposition mCacheDisposition{kCacheUnresolved};
 
  protected:

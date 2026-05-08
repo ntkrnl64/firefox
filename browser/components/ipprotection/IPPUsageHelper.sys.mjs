@@ -5,6 +5,17 @@
 import { IPPProxyManager } from "moz-src:///toolkit/components/ipprotection/IPPProxyManager.sys.mjs";
 import { BANDWIDTH } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
+const BANDWIDTH_WARNING_DISMISSED_PREF =
+  "browser.ipProtection.bandwidthWarningDismissedThreshold";
+
+const lazy = {};
+ChromeUtils.defineESModuleGetters(lazy, {
+  IPProtectionService:
+    "moz-src:///toolkit/components/ipprotection/IPProtectionService.sys.mjs",
+  IPProtectionStates:
+    "moz-src:///toolkit/components/ipprotection/IPProtectionService.sys.mjs",
+});
+
 /**
  * @typedef {"none" | "warning-75-percent" | "warning-90-percent"} UsageState
  * An Object containing instances of UsageState.
@@ -51,6 +62,10 @@ class IPPUsageHelperSingleton extends EventTarget {
       "IPPProxyManager:UsageChanged",
       this.handleEvent
     );
+    lazy.IPProtectionService.addEventListener(
+      "IPProtectionService:StateChanged",
+      this.handleEvent
+    );
   }
 
   initOnStartupCompleted() {}
@@ -60,10 +75,21 @@ class IPPUsageHelperSingleton extends EventTarget {
       "IPPProxyManager:UsageChanged",
       this.handleEvent
     );
+    lazy.IPProtectionService.removeEventListener(
+      "IPProtectionService:StateChanged",
+      this.handleEvent
+    );
     this.#setState(UsageStates.NONE);
   }
 
   #handleEvent(event) {
+    if (event.type === "IPProtectionService:StateChanged") {
+      if (lazy.IPProtectionService.state !== lazy.IPProtectionStates.READY) {
+        this.#setState(UsageStates.NONE);
+      }
+      return;
+    }
+
     if (event.type !== "IPPProxyManager:UsageChanged") {
       return;
     }
@@ -86,6 +112,32 @@ class IPPUsageHelperSingleton extends EventTarget {
     }
 
     this.#setState(newState);
+  }
+
+  getDismissedThresholds() {
+    try {
+      const prefValue = Services.prefs.getStringPref(
+        BANDWIDTH_WARNING_DISMISSED_PREF,
+        ""
+      );
+      if (!prefValue) {
+        return { infobar: 0, panel: 0 };
+      }
+      const obj = JSON.parse(prefValue);
+      return {
+        infobar: typeof obj.infobar === "number" ? obj.infobar : 0,
+        panel: typeof obj.panel === "number" ? obj.panel : 0,
+      };
+    } catch {
+      return { infobar: 0, panel: 0 };
+    }
+  }
+
+  setDismissedThresholds(obj) {
+    Services.prefs.setStringPref(
+      BANDWIDTH_WARNING_DISMISSED_PREF,
+      JSON.stringify(obj)
+    );
   }
 
   #setState(state) {

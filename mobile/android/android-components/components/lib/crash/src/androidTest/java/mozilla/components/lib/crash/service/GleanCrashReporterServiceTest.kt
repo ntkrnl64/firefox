@@ -53,6 +53,19 @@ class GleanCrashReporterServiceTest {
         assertNotNull(getNativeCrashTools())
     }
 
+    /**
+     * This tests that the JNI path works without e.g. crashing. There's no
+     * convenient way to test whether Glean sends the pings at this point (e.g.
+     * the `testMetricsValuesBeforeNextSend` callback is still called).
+     */
+    @Test
+    fun nativeCrashToolsCanDisableTelemetry() {
+        getNativeCrashTools()?.run {
+            setPingCollectionEnabled(false)
+            setPingCollectionEnabled(true)
+        }
+    }
+
     @Test
     fun gleanCrashReporterServiceSendsCrashPings() {
         val service = GleanCrashReporterService(context)
@@ -268,7 +281,7 @@ class GleanCrashReporterServiceTest {
                 "AsyncShutdownTimeout": "{\"phase\":\"abcd\",\"conditions\":[{\"foo\":\"bar\"}],\"brokenAddBlockers\":[\"foo\"]}",
                 "CrashID": "d462c4b4-a9f8-4244-b526-7435fcdc4403",
                 "QuotaManagerShutdownTimeout": "line1\nline2\nline3",
-                "StackTraces": $stackTracesAnnotation,
+                "StackTraces": "${stackTracesAnnotation.replace("\"", "\\\"")}",
                 "JSLargeAllocationFailure": "reporting",
                 "JSOutOfMemory": "recovered"
             }

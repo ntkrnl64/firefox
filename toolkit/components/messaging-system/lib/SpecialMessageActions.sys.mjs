@@ -18,6 +18,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
   FxAccounts: "resource://gre/modules/FxAccounts.sys.mjs",
   GenAI: "resource:///modules/GenAI.sys.mjs",
+  IPProtection:
+    // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
+    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
   ON_SERVICE_ENABLED_NOTIFICATION:
     "resource://gre/modules/FxAccountsCommon.sys.mjs",
@@ -25,9 +28,11 @@ ChromeUtils.defineESModuleGetters(lazy, {
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
   PlacesUIUtils: "moz-src:///browser/components/places/PlacesUIUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
   SelectableProfileService:
     "resource:///modules/profiles/SelectableProfileService.sys.mjs",
+  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
   Spotlight: "resource:///modules/asrouter/Spotlight.sys.mjs",
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
@@ -256,6 +261,9 @@ export const SpecialMessageActions = {
       "browser.smartwindow.enabled",
       "browser.smartwindow.firstrun.hasCompleted",
       "browser.smartwindow.firstrun.modelChoice",
+      "browser.smartwindow.sidebar.openByDefault",
+      "browser.smartwindow.memories.generateFromConversation",
+      "browser.smartwindow.memories.generateFromHistory",
       "browser.crashReports.unsubmittedCheck.autoSubmit2",
       "browser.dataFeatureRecommendations.enabled",
       "browser.ipProtection.enabled",
@@ -364,7 +372,7 @@ export const SpecialMessageActions = {
       data?.extraParams || {}
     );
 
-    let window = browser.ownerGlobal;
+    let window = browser.documentGlobal;
 
     let fxaBrowser = await new Promise(resolve => {
       window.openLinkIn(url, data?.where || "tab", {
@@ -447,8 +455,7 @@ export const SpecialMessageActions = {
         { once: true, signal }
       );
 
-      let window = fxaTab.ownerGlobal;
-      window.addEventListener("unload", () => {
+      fxaTab.documentGlobal.addEventListener("unload", () => {
         // If the hosting window unload event was fired before the event handler
         // was removed, this means that the window was closed and sign-in was
         // not completed, which means we should resolve didSignIn to false.
@@ -651,7 +658,7 @@ export const SpecialMessageActions = {
    */
   /* eslint-disable-next-line complexity */
   async handleAction(action, browser) {
-    const window = browser.ownerGlobal;
+    const window = browser.documentGlobal;
     switch (action.type) {
       case "SHOW_MIGRATION_WIZARD":
         lazy.MigrationUtils.showMigrationWizard(window, {
@@ -759,6 +766,37 @@ export const SpecialMessageActions = {
           "resource://gre/modules/WindowsLaunchOnLogin.sys.mjs"
         );
         await WindowsLaunchOnLogin.createLaunchOnLogin();
+        break;
+      }
+      case "CREATE_GROUP_FROM_CURRENT_TAB": {
+        let tab =
+          window.gBrowser.getTabForBrowser(browser) ??
+          window.gBrowser.selectedTab;
+        if (tab.group) {
+          // Create a new tab after the current tab's group, add the new tab to
+          // a new tab group.
+          /** @type {Extract<nsIObserver, Function>} */
+          async function observer(aSubject) {
+            Services.obs.removeObserver(observer, "browser-open-newtab-start");
+            /** @type {nsIBrowser} */
+            let newBrowser = await aSubject.wrappedJSObject;
+            let newTab = window.gBrowser.getTabForBrowser(newBrowser);
+            window.gBrowser.addTabGroup([newTab], {
+              insertBefore: tab.group.nextElementSibling,
+              isUserTriggered: true,
+              telemetryUserCreateSource: "messaging",
+            });
+          }
+          Services.obs.addObserver(observer, "browser-open-newtab-start");
+          window.gBrowser.addAdjacentNewTab(tab);
+        } else {
+          // Add the current tab to a new tab group in place.
+          window.gBrowser.addTabGroup([tab], {
+            insertBefore: tab,
+            isUserTriggered: true,
+            telemetryUserCreateSource: "messaging",
+          });
+        }
         break;
       }
       case "PIN_CURRENT_TAB": {
@@ -903,6 +941,18 @@ export const SpecialMessageActions = {
         await lazy.TaskbarTabs.moveTabIntoTaskbarTab(currentTab);
         break;
       }
+      case "RESTORE_SESSION": {
+        if (
+          lazy.SessionStore.canRestoreLastSession &&
+          !lazy.PrivateBrowsingUtils.isWindowPrivate(window)
+        ) {
+          await lazy.SessionStore.restoreLastSession();
+        }
+        break;
+      }
+      case "IPPROTECTION_ENROLL":
+        await lazy.IPProtection.getPanel(window)?.enroll();
+        break;
     }
     return undefined;
   },

@@ -47,7 +47,7 @@ error: commit changes before continuing
 LARGE_PUSH_THRESHOLD = 1000
 LARGE_PUSH_WARNING = f"""
 Your push would schedule at least {{}} tasks. To avoid backlogs that cause delays for
-others, your tasks will be scheduled at a lower priority and may not run before
+others, your tasks will be scheduled at the lowest priority and may not run before
 their deadline. Consider selecting fewer than {LARGE_PUSH_THRESHOLD} tasks to save resources and
 get results faster.
 """
@@ -193,6 +193,7 @@ def push_to_try(
     files_to_change=None,
     allow_log_capture=False,
     push_to_vcs=False,
+    force_old_lando=False,
 ):
     metrics.mach_try.commit_prep.start()
     push = not stage_changes and not dry_run
@@ -253,13 +254,24 @@ def push_to_try(
                         MACH_TRY_REMOTE, ref=head, dest_branch=vcs.branch, force=True
                     )
         else:
-            push_data = push_to_lando_try(vcs, commit_message, changed_files, metrics)
+            push_data = push_to_lando_try(
+                vcs,
+                commit_message,
+                changed_files,
+                metrics,
+                force_old_lando=force_old_lando,
+            )
+            if not push_data:
+                sys.exit(1)
             lando_instance = push_data["lando_instance"]
             job_id = push_data["lando_job_id"]
             if lando_instance and job_id:
+                treeherder_url = TREEHERDER_LANDO_TRY_RUN_URL.format(
+                    lando_instance=lando_instance, job_id=job_id
+                )
                 print(
-                    f"Follow the progress of your build on Treeherder: "
-                    f"{TREEHERDER_LANDO_TRY_RUN_URL.format(lando_instance=lando_instance, job_id=job_id)}"
+                    f"try submission success in {push_data['duration']:.1f}s:\n"
+                    f" {treeherder_url}"
                 )
 
             return push_data

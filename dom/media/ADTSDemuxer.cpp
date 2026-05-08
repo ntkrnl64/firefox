@@ -110,7 +110,15 @@ bool ADTSTrackDemuxer::Init() {
   mInfo->mRate = mSamplesPerSecond;
   mInfo->mChannels = mChannels;
   mInfo->mBitDepth = 16;
-  mInfo->mDuration = Duration();
+  // If the resource length isn't known yet, Duration() returns Infinity. We
+  // don't want that latched into mInfo, because MediaFormatReader would then
+  // populate mInfo.mMetadataDuration with Infinity and the state machine's
+  // OnMetadataRead would clobber any finite duration BufferedRangeUpdated
+  // produces from buffered ranges. See bug 2035059.
+  if (auto duration = Duration();
+      duration.IsValid() && !duration.IsInfinite()) {
+    mInfo->mDuration = duration;
+  }
 
   // AAC Specific information
   mInfo->mMimeType = "audio/mp4a-latm";
@@ -310,7 +318,8 @@ TimeUnit ADTSTrackDemuxer::Duration(int64_t aNumFrames) const {
     return TimeUnit::Invalid();
   }
 
-  return TimeUnit(aNumFrames * mSamplesPerFrame, mSamplesPerSecond);
+  return TimeUnit(CheckedInt64(aNumFrames) * mSamplesPerFrame,
+                  mSamplesPerSecond);
 }
 
 const ADTS::Frame& ADTSTrackDemuxer::FindNextFrame(

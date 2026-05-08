@@ -553,6 +553,7 @@ BEGIN_TEST(testBufferAllocator_API) {
 
       CHECK(!IsBufferAllocMarkedBlack(zone, alloc));
 
+      gc::WaitForBackgroundTasks(cx);
       CHECK(cx->runtime()->gc.isPointerWithinBufferAlloc(alloc));
       void* ptr = reinterpret_cast<void*>(uintptr_t(alloc) + 8);
       CHECK(cx->runtime()->gc.isPointerWithinBufferAlloc(ptr));
@@ -1081,6 +1082,7 @@ bool testVector(bool allocInNursery, bool dieInNursery) {
   // Note internal pointers so we can check whether they get freed.
   void* oldVector = obj->getVector();
   void* oldBuffer = obj->getVector()->begin();
+  gc::WaitForBackgroundTasks(cx);
   CHECK(zone->bufferAllocator.isPointerWithinBuffer(oldVector));
   CHECK(zone->bufferAllocator.isPointerWithinBuffer(oldBuffer));
 
@@ -1240,6 +1242,7 @@ bool testSet(bool allocInNursery, bool dieInNursery) {
 
   // Note set pointer so we can check whether it gets freed.
   void* oldSet = obj->getSet();
+  gc::WaitForBackgroundTasks(cx);
   CHECK(zone->bufferAllocator.isPointerWithinBuffer(oldSet));
 
   obj = nullptr;

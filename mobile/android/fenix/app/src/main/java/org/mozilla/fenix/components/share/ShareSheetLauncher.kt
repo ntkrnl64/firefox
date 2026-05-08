@@ -19,13 +19,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import mozilla.components.browser.state.action.ShareResourceAction
-import mozilla.components.browser.state.state.content.ShareResourceState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.prompt.ShareData
 import mozilla.components.support.ktx.android.content.share
 import mozilla.components.support.ktx.android.content.shareWithChooserActions
-import mozilla.components.support.ktx.kotlin.isContentUrl
 import mozilla.components.support.ktx.kotlin.trimmed
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.menu.MenuDialogFragmentDirections
@@ -155,13 +152,9 @@ class ShareSheetLauncherImpl(
         title: String?,
         isCustomTab: Boolean,
     ) {
-        if (url?.isContentUrl() == true) {
-            browserStore.dispatch(
-                ShareResourceAction.AddShareAction(
-                    id ?: "",
-                    ShareResourceState.LocalResource(url),
-                ),
-            )
+        val shareAction = browserStore.createPdfShareAction(id, url)
+        if (shareAction != null) {
+            browserStore.dispatch(shareAction)
             onDismiss()
         } else {
             dismissMenu(title, url, id, isCustomTab)

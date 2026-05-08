@@ -1,5 +1,4 @@
-/* vim: se cin sw=2 ts=2 et filetype=javascript :
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -47,7 +46,7 @@ export class TaskbarTabsWindowManager {
    * @returns {Promise<DOMWindow>} The newly created Taskbar Tab window.
    */
   async replaceTabWithWindow(aTaskbarTab, aTab, aIcon) {
-    let originWindow = aTab.ownerGlobal;
+    let originWindow = aTab.documentGlobal;
 
     Glean.webApp.moveToTaskbar.record({});
 

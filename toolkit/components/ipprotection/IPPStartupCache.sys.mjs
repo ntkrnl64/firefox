@@ -7,8 +7,8 @@ const lazy = {};
 /**
  * Type Imports
  *
- * @typedef {import("./GuardianClient.sys.mjs").Entitlement} Entitlement
- * @typedef {import("./GuardianClient.sys.mjs").ProxyUsage} ProxyUsage
+ * @typedef {import("./GuardianTypes.sys.mjs").Entitlement} Entitlement
+ * @typedef {import("./GuardianTypes.sys.mjs").ProxyUsage} ProxyUsage
  */
 ChromeUtils.defineESModuleGetters(lazy, {
   IPProtectionService:
@@ -18,9 +18,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
   IPPProxyManager:
     "moz-src:///toolkit/components/ipprotection/IPPProxyManager.sys.mjs",
   Entitlement:
-    "moz-src:///toolkit/components/ipprotection/GuardianClient.sys.mjs",
+    "moz-src:///toolkit/components/ipprotection/GuardianTypes.sys.mjs",
   ProxyUsage:
-    "moz-src:///toolkit/components/ipprotection/GuardianClient.sys.mjs",
+    "moz-src:///toolkit/components/ipprotection/GuardianTypes.sys.mjs",
 });
 
 const STATE_CACHE_PREF = "browser.ipProtection.stateCache";
@@ -112,7 +112,11 @@ class IPPStartupCacheSingleton {
     this.#startupCompleted = true;
     this.#stateFromCache = null;
 
-    await lazy.IPProtectionService.initOnStartupCompleted();
+    if (
+      lazy.IPProtectionService.state !== lazy.IPProtectionStates.UNINITIALIZED
+    ) {
+      await lazy.IPProtectionService.initOnStartupCompleted();
+    }
     lazy.IPProtectionService.updateState();
   }
 

@@ -30,9 +30,15 @@ export const SYSTEM_COLORS = [
   "selecteditemtext",
   "visitedtext",
   // -moz- prefixed colors, used rarely but still valid
+  "-moz-buttonactivetext",
+  "-moz-buttonhovertext",
   "-moz-combobox",
   "-moz-dialog",
   "-moz-dialogtext",
+  "-moz-headerbar",
+  "-moz-headerbarinactive",
+  "-moz-headerbarinactivetext",
+  "-moz-headerbartext",
 ];
 
 /**

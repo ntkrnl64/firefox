@@ -19,6 +19,7 @@
 #include "mozilla/PresShell.h"
 #include "mozilla/PresShellInlines.h"
 #include "mozilla/ProfilerLabels.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/SVGIntegrationUtils.h"
 #include "mozilla/SVGObserverUtils.h"
 #include "mozilla/SVGTextFrame.h"
@@ -2950,16 +2951,6 @@ bool RestyleManager::ProcessPostTraversal(Element* aElement,
     // initial continuations; ::first-line fixes that up after the fact.
     for (nsIFrame* f = styleFrame; f; f = f->GetNextContinuation()) {
       f->SetComputedStyle(upToDateStyle);
-    }
-
-    if (!aElement->GetParent()) {
-      // This is the root.  Update styles on the viewport as needed.
-      ViewportFrame* viewport =
-          do_QueryFrame(mPresContext->PresShell()->GetRootFrame());
-      if (viewport) {
-        // NB: The root restyle state, not the one for our children!
-        viewport->UpdateStyle(aRestyleState);
-      }
     }
 
     // Some changes to animations don't affect the computed style and yet still

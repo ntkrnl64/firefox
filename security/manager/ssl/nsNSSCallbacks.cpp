@@ -6,7 +6,6 @@
 #include "nsNSSCallbacks.h"
 
 #include "NSSSocketControl.h"
-#include "PSMRunnable.h"
 #include "ScopedNSSTypes.h"
 #include "SharedCertVerifier.h"
 #include "mozilla/Assertions.h"
@@ -14,21 +13,27 @@
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/Services.h"
 #include "mozilla/Span.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/StaticPrefs_security.h"
+#include "mozilla/SyncRunnable.h"
+#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/glean/SecurityManagerSslMetrics.h"
-#include "mozilla/intl/Localization.h"
+#include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
 #include "nsIChannel.h"
 #include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
+#include "nsIObserverService.h"
 #include "nsIPrompt.h"
 #include "nsIProtocolProxyService.h"
 #include "nsISupportsPriority.h"
 #include "nsIStreamLoader.h"
 #include "nsIUploadChannel.h"
 #include "nsIWebProgressListener.h"
+#include "nsIWindowWatcher.h"
+#include "nsIWritablePropertyBag2.h"
 #include "nsNSSCertHelper.h"
 #include "nsNSSCertificate.h"
 #include "nsNSSComponent.h"
@@ -484,77 +489,180 @@ mozilla::pkix::Result DoOCSPRequest(
   return Success;
 }
 
-// Helper struct to simplify thread coordination in `ShowProtectedAuthPrompt`.
-struct BackgroundPromptStatus final {
-  explicit BackgroundPromptStatus(PK11SlotInfo* slot)
-      : mSlot(slot), mDone(false), mResult(SECFailure) {}
+namespace {
 
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(BackgroundPromptStatus)
+static Atomic<uint64_t> sProtectedAuthPromptCounter{0};
 
+// Heap-allocated state shared between ShowProtectedAuthPrompt, the
+// background C_Login task, and the cancel observer. Refcounted so the
+// background task can outlive the function (it does so when the user
+// clicks Cancel — we return SECFailure immediately and let C_Login finish
+// in the background, discarding its result). The slot is referenced here
+// so it stays alive for the duration of the background C_Login call.
+class ProtectedAuthState final {
+ public:
+  explicit ProtectedAuthState(PK11SlotInfo* slot)
+      : mSlot(PK11_ReferenceSlot(slot)) {}
   UniquePK11SlotInfo mSlot;
-  Atomic<bool> mDone;
-  SECStatus mResult;
+  Atomic<bool> done{false};
+  Atomic<bool> cancelled{false};
+  Atomic<SECStatus> result{SECFailure};
+
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ProtectedAuthState)
 
  private:
-  ~BackgroundPromptStatus() = default;
+  ~ProtectedAuthState() = default;
 };
 
-static char* ShowProtectedAuthPrompt(PK11SlotInfo* slot, nsIPrompt* prompt) {
+class ProtectedAuthCancelObserver final : public nsIObserver {
+ public:
+  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_DECL_NSIOBSERVER
+
+  ProtectedAuthCancelObserver(RefPtr<ProtectedAuthState> aState,
+                              const nsAString& aPromptId)
+      : mState(std::move(aState)), mPromptId(aPromptId) {}
+
+ private:
+  ~ProtectedAuthCancelObserver() = default;
+  RefPtr<ProtectedAuthState> mState;
+  nsString mPromptId;
+};
+
+NS_IMPL_ISUPPORTS(ProtectedAuthCancelObserver, nsIObserver)
+
+NS_IMETHODIMP
+ProtectedAuthCancelObserver::Observe(nsISupports*, const char*,
+                                     const char16_t* aData) {
+  // Only react to the cancel notification carrying our unique id; another
+  // protected-auth dialog open at the same time uses a different id.
+  if (aData && mPromptId.Equals(nsDependentString(aData))) {
+    mState->cancelled = true;
+  }
+  return NS_OK;
+}
+
+}  // namespace
+
+static char* ShowProtectedAuthPrompt(PK11SlotInfo* slot) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(slot);
-  MOZ_ASSERT(prompt);
-  if (!NS_IsMainThread() || !slot || !prompt) {
+  if (!NS_IsMainThread() || !slot) {
     return nullptr;
   }
 
-  // Dispatch a background task to (eventually) call C_Login. The call will
-  // block until the protected authentication succeeds or fails.
-  RefPtr<BackgroundPromptStatus> backgroundPromptStatus(
-      new BackgroundPromptStatus(PK11_ReferenceSlot(slot)));
+  RefPtr<ProtectedAuthState> state = MakeRefPtr<ProtectedAuthState>(slot);
+
+  // Unique id for this prompt, used to scope the observer notifications so a
+  // concurrent protected-auth dialog won't react to ours, or vice versa.
+  nsString promptId;
+  promptId.AppendInt(++sProtectedAuthPromptCounter);
+
+  // Dispatch a background task to call C_Login. The call will block until
+  // the protected authentication (e.g. card reader PIN entry) succeeds or
+  // fails. The task takes its own ref to `state` (and through it, the slot)
+  // so it can safely outlive this function in the cancel path.
   nsresult rv = NS_DispatchBackgroundTask(
-      NS_NewRunnableFunction(__func__, [backgroundPromptStatus]() mutable {
-        backgroundPromptStatus->mResult = PK11_CheckUserPassword(
-            backgroundPromptStatus->mSlot.get(), nullptr);
-        backgroundPromptStatus->mDone = true;
-      }));
+      NS_NewRunnableFunction(
+          __func__,
+          [state, promptId]() {
+            state->result = PK11_CheckUserPassword(state->mSlot.get(), nullptr);
+            state->done = true;
+            // Best-effort signal to close our dialog if it's still up. The
+            // id ensures unrelated dialogs ignore this notification.
+            NS_DispatchToMainThread(NS_NewRunnableFunction(
+                "pk11-protected-auth-done", [promptId]() {
+                  nsCOMPtr<nsIObserverService> obs =
+                      mozilla::services::GetObserverService();
+                  if (obs) {
+                    obs->NotifyObservers(nullptr,
+                                         "pk11-protected-auth-complete",
+                                         promptId.get());
+                  }
+                }));
+          }),
+      NS_DISPATCH_EVENT_MAY_BLOCK);
   if (NS_FAILED(rv)) {
     return nullptr;
   }
 
-  nsTArray<nsCString> resIds = {
-      "security/pippki/pippki.ftl"_ns,
-  };
-  RefPtr<mozilla::intl::Localization> l10n =
-      mozilla::intl::Localization::Create(resIds, true);
-  auto l10nId = "protected-auth-alert"_ns;
-  auto l10nArgs = mozilla::dom::Optional<intl::L10nArgs>();
-  l10nArgs.Construct();
-  auto dirArg = l10nArgs.Value().Entries().AppendElement();
-  dirArg->mKey = "tokenName"_ns;
-  dirArg->mValue.SetValue().SetAsUTF8String().Assign(PK11_GetTokenName(slot));
-  nsAutoCString promptString;
-  ErrorResult errorResult;
-  l10n->FormatValueSync(l10nId, l10nArgs, promptString, errorResult);
-  if (NS_FAILED(errorResult.StealNSResult())) {
+  // Wire the dialog's Cancel button: it fires "pk11-protected-auth-cancel"
+  // with our promptId as data; the observer flips state->cancelled only when
+  // the id matches, so SpinEventLoopUntil exits.
+  nsCOMPtr<nsIObserverService> obsService =
+      mozilla::services::GetObserverService();
+  if (!obsService) {
     return nullptr;
   }
-
-  // The idea here is to dispatch the background task before showing the
-  // (synchronous) alert, so that the browser is telling the user what to do
-  // while waiting for the protected authentication (if the alert were shown
-  // before dispatching the task, the user would have to dismiss it first).
-  rv = prompt->Alert(nullptr, NS_ConvertUTF8toUTF16(promptString).get());
+  RefPtr<ProtectedAuthCancelObserver> cancelObserver =
+      MakeRefPtr<ProtectedAuthCancelObserver>(state, promptId);
+  rv = obsService->AddObserver(cancelObserver, "pk11-protected-auth-cancel",
+                               false);
   if (NS_FAILED(rv)) {
     return nullptr;
   }
+  auto removeObserver = MakeScopeExit([&]() {
+    obsService->RemoveObserver(cancelObserver, "pk11-protected-auth-cancel");
+  });
 
-  // Spin the event loop until the background task has completed.
-  MOZ_ALWAYS_TRUE(SpinEventLoopUntil(
-      "ShowProtectedAuthPrompt"_ns, [backgroundPromptStatus]() {
-        return static_cast<bool>(backgroundPromptStatus->mDone);
-      }));
+  // Open the informational dialog only if there's an active window to host
+  // it. In headless contexts (xpcshell, very early startup) there's no
+  // WindowCreator registered and OpenWindow would assert/fail; the
+  // background C_Login still runs and SpinEventLoopUntil below waits on it.
+  nsCOMPtr<nsIWindowWatcher> ww =
+      do_GetService("@mozilla.org/embedcomp/window-watcher;1");
+  nsCOMPtr<mozIDOMWindowProxy> activeWindow;
+  if (ww) {
+    ww->GetActiveWindow(getter_AddRefs(activeWindow));
+  }
+  if (activeWindow) {
+    // Open a modal informational dialog that auto-closes when authentication
+    // completes. It has only a Cancel button — out-of-band PIN entry on the
+    // device itself is the sole confirmation mechanism.
+    nsCOMPtr<nsIWritablePropertyBag2> dialogArgs =
+        do_CreateInstance("@mozilla.org/hash-property-bag;1");
+    if (!dialogArgs) {
+      return nullptr;
+    }
+    rv = dialogArgs->SetPropertyAsAString(
+        u"tokenName"_ns, NS_ConvertUTF8toUTF16(PK11_GetTokenName(slot)));
+    if (NS_FAILED(rv)) {
+      return nullptr;
+    }
+    rv = dialogArgs->SetPropertyAsAString(u"promptId"_ns, promptId);
+    if (NS_FAILED(rv)) {
+      return nullptr;
+    }
+    // Inlined nsNSSDialogHelper::openDialog: the helper lives in
+    // security/manager/pki/, which is desktop-only, but this file builds on
+    // all platforms. Open the chrome XUL dialog directly via the window
+    // watcher and use AutoNoJSAPI so the new window's initial about:blank
+    // gets a system principal.
+    mozilla::dom::AutoNoJSAPI nojsapi;
+    nsCOMPtr<mozIDOMWindowProxy> newWindow;
+    rv = ww->OpenWindow(activeWindow,
+                        "chrome://pippki/content/protectedAuth.xhtml"_ns,
+                        "_blank"_ns, "centerscreen,chrome,modal,titlebar"_ns,
+                        dialogArgs, getter_AddRefs(newWindow));
+    if (NS_FAILED(rv)) {
+      return nullptr;
+    }
+  }
 
-  switch (backgroundPromptStatus->mResult) {
+  // Wait until C_Login returns, the user cancels, or shutdown.
+  MOZ_ALWAYS_TRUE(SpinEventLoopUntil("ShowProtectedAuthPrompt"_ns, [&state]() {
+    return static_cast<bool>(state->done) ||
+           static_cast<bool>(state->cancelled);
+  }));
+
+  // User-initiated cancel: return immediately as auth failure. The
+  // background C_Login keeps running until the token responds; its eventual
+  // result is dropped when the last RefPtr<ProtectedAuthState> is released.
+  if (state->cancelled && !state->done) {
+    return nullptr;
+  }
+
+  switch (state->result) {
     case SECSuccess:
       return ToNewCString(nsDependentCString(PK11_PW_AUTHENTICATED));
     case SECWouldBlock:
@@ -564,28 +672,36 @@ static char* ShowProtectedAuthPrompt(PK11SlotInfo* slot, nsIPrompt* prompt) {
   }
 }
 
-class PK11PasswordPromptRunnable : public SyncRunnableBase {
+class PK11PasswordPromptRunnable final : public nsIRunnable {
  public:
   PK11PasswordPromptRunnable(PK11SlotInfo* slot, nsIInterfaceRequestor* ir)
       : mResult(nullptr), mSlot(slot), mIR(ir) {}
-  virtual ~PK11PasswordPromptRunnable() = default;
+
+  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_DECL_NSIRUNNABLE
 
   char* mResult;  // out
-  virtual void RunOnTargetThread() override;
 
  private:
+  ~PK11PasswordPromptRunnable() = default;
+
+  // Accessed only on the main thread. True if any instance of
+  // PK11PasswordPromptRunnable is already running.
   static bool mRunning;
 
   PK11SlotInfo* mSlot;
   nsIInterfaceRequestor* mIR;
 };
 
+NS_IMPL_ISUPPORTS(PK11PasswordPromptRunnable, nsIRunnable)
+
 bool PK11PasswordPromptRunnable::mRunning = false;
 
-void PK11PasswordPromptRunnable::RunOnTargetThread() {
+NS_IMETHODIMP
+PK11PasswordPromptRunnable::Run() {
   MOZ_ASSERT(NS_IsMainThread());
   if (!NS_IsMainThread()) {
-    return;
+    return NS_ERROR_NOT_SAME_THREAD;
   }
 
   // If we've reentered due to the nested event loop implicit in using
@@ -595,17 +711,24 @@ void PK11PasswordPromptRunnable::RunOnTargetThread() {
   // to fail, but this is better than littering the screen with a bunch of
   // password prompts that the user will probably just cancel anyway.
   if (mRunning) {
-    return;
+    return NS_OK;
   }
   mRunning = true;
   auto setRunningToFalseOnExit = MakeScopeExit([&]() { mRunning = false; });
+
+  // Protected-auth tokens don't need an nsIPrompt — the dialog is opened
+  // directly via nsNSSDialogHelper.
+  if (PK11_ProtectedAuthenticationPath(mSlot)) {
+    mResult = ShowProtectedAuthPrompt(mSlot);
+    return NS_OK;
+  }
 
   nsresult rv;
   nsCOMPtr<nsIPrompt> prompt;
   if (!mIR) {
     rv = nsNSSComponent::GetNewPrompter(getter_AddRefs(prompt));
     if (NS_FAILED(rv)) {
-      return;
+      return rv;
     }
   } else {
     prompt = do_GetInterface(mIR);
@@ -613,12 +736,7 @@ void PK11PasswordPromptRunnable::RunOnTargetThread() {
   }
 
   if (!prompt) {
-    return;
-  }
-
-  if (PK11_ProtectedAuthenticationPath(mSlot)) {
-    mResult = ShowProtectedAuthPrompt(mSlot, prompt);
-    return;
+    return NS_ERROR_FAILURE;
   }
 
   nsAutoString promptString;
@@ -627,11 +745,11 @@ void PK11PasswordPromptRunnable::RunOnTargetThread() {
   } else {
     AutoTArray<nsString, 1> formatStrings = {
         NS_ConvertUTF8toUTF16(PK11_GetTokenName(mSlot))};
-    rv = PIPBundleFormatStringFromName("CertPasswordPrompt", formatStrings,
-                                       promptString);
+    rv = PIPBundleFormatStringFromName("CertSecurityDeviceAuthenticationPrompt",
+                                       formatStrings, promptString);
   }
   if (NS_FAILED(rv)) {
-    return;
+    return rv;
   }
 
   nsString password;
@@ -639,10 +757,11 @@ void PK11PasswordPromptRunnable::RunOnTargetThread() {
   rv = prompt->PromptPassword(nullptr, promptString.get(),
                               getter_Copies(password), &userClickedOK);
   if (NS_FAILED(rv) || !userClickedOK) {
-    return;
+    return rv;
   }
 
   mResult = ToNewUTF8String(password);
+  return NS_OK;
 }
 
 char* PK11PasswordPrompt(PK11SlotInfo* slot, PRBool /*retry*/, void* arg) {
@@ -651,7 +770,8 @@ char* PK11PasswordPrompt(PK11SlotInfo* slot, PRBool /*retry*/, void* arg) {
   }
   RefPtr<PK11PasswordPromptRunnable> runnable(new PK11PasswordPromptRunnable(
       slot, static_cast<nsIInterfaceRequestor*>(arg)));
-  runnable->DispatchToMainThreadAndWait();
+  MOZ_ALWAYS_SUCCEEDS(SyncRunnable::DispatchToThread(
+      GetMainThreadSerialEventTarget(), runnable));
   return runnable->mResult;
 }
 

@@ -205,7 +205,7 @@ static void ResetDirtyPageModifier() {
   moz_set_max_dirty_page_modifier(0);
 
   wr::RenderThread* renderThread = wr::RenderThread::Get();
-  if (renderThread) {
+  if (renderThread && !renderThread->HasShutdown()) {
     renderThread->NotifyIdle();
   }
 
@@ -322,21 +322,8 @@ class MOZ_STACK_CLASS AutoWebRenderBridgeParentAsyncMessageSender final {
     mWebRenderBridgeParent->SendPendingAsyncMessages();
     if (mActorsToDestroy) {
       // Destroy the actors after sending the async messages because the latter
-      // may contain references to some actors. De-duplicate the array to avoid
-      // destroying the same texture parent actor twice.
-      nsTHashSet<PTextureParent*> seenTextureParents;
-      for (const auto& op : *mActorsToDestroy) {
-        // Peek inside the op (as DestroyActor does) to see if we are about
-        // to destroy a PTextureParent.
-        if (op.type() == OpDestroy::TPTexture) {
-          PTextureParent* textureParent = op.get_PTexture().AsParent();
-          if (!seenTextureParents.EnsureInserted(textureParent)) {
-            // Already seen, so skip this one.
-            continue;
-          }
-        }
-        mWebRenderBridgeParent->DestroyActor(op);
-      }
+      // may contain references to some actors.
+      mWebRenderBridgeParent->DestroyActors(*mActorsToDestroy);
     }
   }
 
@@ -413,9 +400,9 @@ WebRenderBridgeParent::~WebRenderBridgeParent() {
 }
 
 /* static */
-WebRenderBridgeParent* WebRenderBridgeParent::CreateDestroyed(
+already_AddRefed<WebRenderBridgeParent> WebRenderBridgeParent::CreateDestroyed(
     const wr::PipelineId& aPipelineId, nsCString&& aError) {
-  return new WebRenderBridgeParent(aPipelineId, std::move(aError));
+  return MakeAndAddRef<WebRenderBridgeParent>(aPipelineId, std::move(aError));
 }
 
 bool WebRenderBridgeParent::EnsureInitialized() {
@@ -1386,9 +1373,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvSetDisplayList(
     const TimeStamp& aFwdTime, nsTArray<CompositionPayload>&& aPayloads,
     const bool& aRenderOffscreen) {
   if (!EnsureInitialized()) {
-    for (const auto& op : aToDestroy) {
-      DestroyActor(op);
-    }
+    DestroyActors(aToDestroy);
     wr::IpcResourceUpdateQueue::ReleaseShmems(this, aDisplayList.mSmallShmems);
     wr::IpcResourceUpdateQueue::ReleaseShmems(this, aDisplayList.mLargeShmems);
     return IPC_OK();
@@ -1523,9 +1508,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvEmptyTransaction(
     const TimeStamp& aTxnStartTime, const nsACString& aTxnURL,
     const TimeStamp& aFwdTime, nsTArray<CompositionPayload>&& aPayloads) {
   if (!EnsureInitialized()) {
-    for (const auto& op : aToDestroy) {
-      DestroyActor(op);
-    }
+    DestroyActors(aToDestroy);
     if (aTransactionData) {
       wr::IpcResourceUpdateQueue::ReleaseShmems(this,
                                                 aTransactionData->mSmallShmems);
@@ -1811,17 +1794,6 @@ void WebRenderBridgeParent::FlushFramePresentation() {
   mLateInit->mApi->WaitUntilPresentationFlushed();
 }
 
-void WebRenderBridgeParent::DisableNativeCompositor() {
-  // Make sure that SceneBuilder thread does not have a task.
-  mLateInit->mApi->FlushSceneBuilder();
-  // Disable WebRender's native compositor usage
-  mLateInit->mApi->EnableNativeCompositor(false);
-  // Ensure we generate and render a frame immediately.
-  ScheduleForcedGenerateFrame(wr::RenderReasons::CONFIG_CHANGE);
-
-  mDisablingNativeCompositor = true;
-}
-
 void WebRenderBridgeParent::UpdateQualitySettings() {
   if (mDestroyed) {
     return;
@@ -2052,6 +2024,12 @@ void WebRenderBridgeParent::AddPipelineIdForCompositable(
     return;
   }
 
+  if (aPipelineId == mPipelineId) {
+    gfxCriticalNote << "Content attempted AddPipelineIdForCompositable on "
+                       "root pipeline";
+    return;
+  }
+
   MOZ_ASSERT(mAsyncCompositables.find(wr::AsUint64(aPipelineId)) ==
              mAsyncCompositables.end());
 
@@ -2105,6 +2083,12 @@ void WebRenderBridgeParent::RemovePipelineIdForCompositable(
     const wr::PipelineId& aPipelineId, AsyncImagePipelineOps* aPendingOps,
     wr::TransactionBuilder& aTxn) {
   if (mDestroyed) {
+    return;
+  }
+
+  if (aPipelineId == mPipelineId) {
+    gfxCriticalNote << "Content attempted RemovePipelineIdForCompositable on "
+                       "root pipeline";
     return;
   }
 
@@ -2470,7 +2454,10 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvEndWheelTransaction(
   return IPC_OK();
 }
 
-void WebRenderBridgeParent::ActorDestroy(ActorDestroyReason aWhy) { Destroy(); }
+void WebRenderBridgeParent::ActorDestroy(ActorDestroyReason aWhy) {
+  Destroy();
+  CompositorBridgeParent::DisconnectWrBridge(this);
+}
 
 void WebRenderBridgeParent::ResetPreviousSampleTime() {
   if (RefPtr<OMTASampler> sampler = GetOMTASampler()) {
@@ -2680,16 +2667,6 @@ void WebRenderBridgeParent::MaybeGenerateFrame(VsyncId aId,
   mLateInit->mApi->SendTransaction(fastTxn);
 
   mMostRecentComposite = TimeStamp::Now();
-
-  // During disabling native compositor, webrender needs to render twice.
-  // Otherwise, browser flashes black.
-  // XXX better fix?
-  if (mDisablingNativeCompositor) {
-    mDisablingNativeCompositor = false;
-
-    // Ensure we generate and render a frame immediately.
-    ScheduleForcedGenerateFrame(aReasons);
-  }
 }
 
 void WebRenderBridgeParent::HoldPendingTransactionId(

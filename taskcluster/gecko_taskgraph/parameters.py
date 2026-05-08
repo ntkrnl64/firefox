@@ -18,6 +18,7 @@ gecko_parameters_schema = {
     Required("android_perftest_backstop"): bool,
     Required("app_version"): str,
     Required("backstop"): bool,
+    Required("dontbuild"): bool,
     Required("build_number"): int,
     Required("enable_always_target"): Any(bool, [str]),
     Required("files_changed"): [str],
@@ -50,6 +51,11 @@ gecko_parameters_schema = {
         Optional("gecko-profile-entries"): int,
         Optional("gecko-profile-features"): str,
         Optional("gecko-profile-threads"): str,
+        Optional(
+            "native-profiling",
+            description="Use OS-native profilers (Simpleperf for Android and xperf for Windows)"
+            "when running tests. Only available in raptor-browsertime tests at the moment.",
+        ): bool,
         Optional(
             "github",
             description="Github pull request triggering a code-review analysis",
@@ -129,6 +135,7 @@ def get_defaults(repo_root=None):
         "android_perftest_backstop": False,
         "app_version": get_app_version(),
         "backstop": False,
+        "dontbuild": False,
         "base_repository": "https://hg.mozilla.org/mozilla-unified",
         "build_number": 1,
         "enable_always_target": ["docker-image"],

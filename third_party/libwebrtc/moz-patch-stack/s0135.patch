@@ -1,37 +1,23 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Fri, 16 Jan 2026 16:48:00 -0600
-Subject: Bug 2010312 - (fix-dc65955c6d) fix base-toolchains build
+Date: Mon, 6 Apr 2026 18:41:00 -0500
+Subject: Bug 2029247 - (fix-4520c7897c) fix new usage of GetRealTimeClock in
+ bitrate_adjuster.h
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/6c3f917f52d45566db7b5916b74f792928456dff
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/a88b1959591bc4ddbf6deb88ff76dcc24fd8ae5d
 ---
- call/rtp_transport_controller_send.cc | 9 ++++-----
- 1 file changed, 4 insertions(+), 5 deletions(-)
+ common_video/include/bitrate_adjuster.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/call/rtp_transport_controller_send.cc b/call/rtp_transport_controller_send.cc
-index cd5fe0e9fc..6b0fbe131f 100644
---- a/call/rtp_transport_controller_send.cc
-+++ b/call/rtp_transport_controller_send.cc
-@@ -739,19 +739,18 @@ void RtpTransportControllerSend::ComputeStatsFromCongestionControlFeedback(
- 
-     if (packet_info.IsReceived()) {
-       switch (packet_info.ecn) {
--        using enum EcnMarking;
--        case kEct1:
-+        case EcnMarking::kEct1:
-           ++stats->num_packets_received_with_ect1;
-           break;
--        case kCe:
-+        case EcnMarking::kCe:
-           ++stats->num_packets_received_with_ce;
-           break;
--        case kNotEct:
-+        case EcnMarking::kNotEct:
-           if (packet_info.sent_with_ect1) {
-             ++stats->num_packets_with_bleached_ect1_marking;
-           }
-           break;
--        case kEct0:
-+        case EcnMarking::kEct0:
-           break;
-       }
-     }
+diff --git a/common_video/include/bitrate_adjuster.h b/common_video/include/bitrate_adjuster.h
+index 6cd92b7deb..d414fb7e25 100644
+--- a/common_video/include/bitrate_adjuster.h
++++ b/common_video/include/bitrate_adjuster.h
+@@ -40,7 +40,7 @@ class RTC_EXPORT BitrateAdjuster {
+   ABSL_DEPRECATE_AND_INLINE()
+   BitrateAdjuster(float min_adjusted_bitrate_pct,
+                   float max_adjusted_bitrate_pct)
+-      : BitrateAdjuster(Clock::GetRealTimeClock(),
++      : BitrateAdjuster(Clock::GetRealTimeClockRaw(),
+                         min_adjusted_bitrate_pct,
+                         max_adjusted_bitrate_pct) {}
+   virtual ~BitrateAdjuster() = default;

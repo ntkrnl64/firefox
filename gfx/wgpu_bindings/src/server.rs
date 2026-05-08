@@ -137,7 +137,9 @@ pub extern "C" fn wgpu_server_new(owner: WebGPUParentPtr) -> *mut Global {
         wgt::Backends::from_comma_list(&backends_pref)
     };
 
-    let mut instance_flags = wgt::InstanceFlags::from_build_config().with_env();
+    let mut instance_flags = (wgt::InstanceFlags::from_build_config()
+        | wgt::InstanceFlags::AUTOMATIC_TIMESTAMP_NORMALIZATION)
+        .with_env();
     if !static_prefs::pref!("dom.webgpu.hal-labels") {
         instance_flags.insert(wgt::InstanceFlags::DISCARD_HAL_LABELS);
     }
@@ -2309,7 +2311,7 @@ impl Global {
                 }
             }
             DeviceAction::CreateRenderBundle(id, encoder, desc) => {
-                let (_, error) = self.render_bundle_encoder_finish(encoder, &desc, Some(id));
+                let (_, error) = self.render_bundle_encoder_finish(Box::new(encoder), &desc, Some(id));
                 if let Some(err) = error {
                     error_buf.init(err, device_id);
                 }
@@ -3085,6 +3087,7 @@ pub struct SubmittedWorkDoneClosure {
 #[cfg(target_os = "linux")]
 pub struct VkSemaphoreHandle {
     pub semaphore: vk::Semaphore,
+    queue_id: id::QueueId,
 }
 
 #[no_mangle]
@@ -3115,7 +3118,10 @@ pub extern "C" fn wgpu_vksemaphore_create_signal_semaphore(
 
         hal_queue.add_signal_semaphore(semaphore, None);
 
-        VkSemaphoreHandle { semaphore }
+        VkSemaphoreHandle {
+            semaphore,
+            queue_id,
+        }
     };
 
     Box::into_raw(Box::new(semaphore_handle))
@@ -3164,6 +3170,14 @@ pub unsafe extern "C" fn wgpu_vksemaphore_destroy(
     handle: &VkSemaphoreHandle,
 ) {
     unsafe {
+        if let Some(hal_queue) = global.queue_as_hal::<wgc::api::Vulkan>(handle.queue_id) {
+            if !hal_queue.remove_signal_semaphore(handle.semaphore) {
+                let _ = hal_queue
+                    .raw_device()
+                    .queue_wait_idle(hal_queue.as_raw());
+            }
+        }
+
         let Some(hal_device) = global.device_as_hal::<wgc::api::Vulkan>(device_id) else {
             emit_critical_invalid_note("Vulkan device");
             return;

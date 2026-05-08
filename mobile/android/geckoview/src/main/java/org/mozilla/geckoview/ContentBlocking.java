@@ -416,6 +416,104 @@ public class ContentBlocking {
         getSettings().setAllowListConvenienceTrackingProtection(enabled);
         return this;
       }
+
+      /**
+       * Set whether the content blocking database is enabled. When enabled, Gecko persists tracking
+       * protection blocking events to a database that can be queried for aggregate statistics
+       * (e.g., total trackers blocked, events by date range).
+       *
+       * @param enabled A boolean indicating whether to enable the content blocking database.
+       * @return The Builder instance.
+       */
+      public @NonNull Builder contentBlockingDatabase(final boolean enabled) {
+        getSettings().setContentBlockingDatabaseStatus(enabled);
+        return this;
+      }
+
+      /**
+       * When set to true, the SafeBrowsing Global Cache is enabled.
+       *
+       * @param enabled A boolean indicating whether to enable the global cache.
+       * @return The Builder instance.
+       */
+      public @NonNull Builder safeBrowsingGlobalCacheEnabled(final boolean enabled) {
+        getSettings().setSafeBrowsingGlobalCacheEnabled(enabled);
+        return this;
+      }
+
+      /**
+       * When set to true, the SafeBrowsing real-time mode is enabled.
+       *
+       * @param enabled A boolean indicating whether to enable the real-time mode.
+       * @return The Builder instance.
+       */
+      public @NonNull Builder safeBrowsingRealTimeEnabled(final boolean enabled) {
+        getSettings().setSafeBrowsingRealTimeEnabled(enabled);
+        return this;
+      }
+
+      /**
+       * When set to true, the SafeBrowsing real-time simulation is enabled.
+       *
+       * @param enabled A boolean indicating whether to enable the real-time simulation.
+       * @return The Builder instance.
+       */
+      @ExperimentalGeckoViewApi
+      public @NonNull Builder safeBrowsingRealTimeSimulationEnabled(final boolean enabled) {
+        getSettings().setSafeBrowsingRealTimeSimulationEnabled(enabled);
+        return this;
+      }
+
+      /**
+       * Set the hit probability for SafeBrowsing real-time simulation.
+       *
+       * @param hitProbability The hit probability value.
+       * @return The Builder instance.
+       */
+      @ExperimentalGeckoViewApi
+      public @NonNull Builder safeBrowsingRealTimeSimulationHitProbability(
+          final int hitProbability) {
+        getSettings().setSafeBrowsingRealTimeSimulationHitProbability(hitProbability);
+        return this;
+      }
+
+      /**
+       * Set the cache TTL in seconds for SafeBrowsing real-time simulation.
+       *
+       * @param cacheTTLSec The cache TTL in seconds.
+       * @return The Builder instance.
+       */
+      @ExperimentalGeckoViewApi
+      public @NonNull Builder safeBrowsingRealTimeSimulationCacheTTLSec(final int cacheTTLSec) {
+        getSettings().setSafeBrowsingRealTimeSimulationCacheTTLSec(cacheTTLSec);
+        return this;
+      }
+
+      /**
+       * When set to true, the negative cache for SafeBrowsing real-time simulation is enabled.
+       *
+       * @param enabled A boolean indicating whether to enable the negative cache.
+       * @return The Builder instance.
+       */
+      @ExperimentalGeckoViewApi
+      public @NonNull Builder safeBrowsingRealTimeSimulationNegativeCacheEnabled(
+          final boolean enabled) {
+        getSettings().setSafeBrowsingRealTimeSimulationNegativeCacheEnabled(enabled);
+        return this;
+      }
+
+      /**
+       * Set the negative cache TTL in seconds for SafeBrowsing real-time simulation.
+       *
+       * @param negativeCacheTTLSec The negative cache TTL in seconds.
+       * @return The Builder instance.
+       */
+      @ExperimentalGeckoViewApi
+      public @NonNull Builder safeBrowsingRealTimeSimulationNegativeCacheTTLSec(
+          final int negativeCacheTTLSec) {
+        getSettings().setSafeBrowsingRealTimeSimulationNegativeCacheTTLSec(negativeCacheTTLSec);
+        return this;
+      }
     }
 
     /* package */ final Pref<String> mAt =
@@ -479,6 +577,9 @@ public class ContentBlocking {
 
     /* package */ final Pref<String> mEtpCategory =
         new Pref<String>("browser.contentblocking.category", "standard");
+
+    /* package */ final Pref<Boolean> mContentBlockingDatabase =
+        new Pref<Boolean>("browser.contentblocking.database.enabled", false);
 
     /* package */ final Pref<Boolean> mAllowListBaselineTrackingProtection =
         new Pref<Boolean>("privacy.trackingprotection.allow_list.baseline.enabled", true);
@@ -1374,6 +1475,27 @@ public class ContentBlocking {
      */
     public @NonNull Settings setAllowListConvenienceTrackingProtection(final boolean enabled) {
       mAllowListConvenienceTrackingProtection.commit(enabled);
+      return this;
+    }
+
+    /**
+     * Get whether the content blocking database is enabled.
+     *
+     * @return A boolean indicating whether the content blocking database is enabled.
+     */
+    public boolean getContentBlockingDatabaseStatus() {
+      return mContentBlockingDatabase.get();
+    }
+
+    /**
+     * Enable or disable the content blocking database. When enabled, Gecko persists tracking
+     * protection blocking events to a database that can be queried for aggregate statistics.
+     *
+     * @param enabled A boolean indicating whether to enable the content blocking database.
+     * @return This Settings instance.
+     */
+    public @NonNull Settings setContentBlockingDatabaseStatus(final boolean enabled) {
+      mContentBlockingDatabase.commit(enabled);
       return this;
     }
   }

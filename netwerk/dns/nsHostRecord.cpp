@@ -8,7 +8,6 @@
 #include "DNSLogging.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/glean/NetwerkDnsMetrics.h"
-#include "mozilla/ThreadSafety.h"
 #include "TRRService.h"
 #include "mozilla/ProfilerMarkers.h"
 
@@ -245,13 +244,15 @@ size_t AddrHostRecord::SizeOfIncludingThis(MallocSizeOf mallocSizeOf) const {
 
   n += nsHostKey::SizeOfExcludingThis(mallocSizeOf);
   n += SizeOfResolveHostCallbackListExcludingHead(mCallbacks, mallocSizeOf);
-
-  n += addr_info ? addr_info->SizeOfIncludingThis(mallocSizeOf) : 0;
   n += mallocSizeOf(addr.get());
 
-  n += mUnusableItems.ShallowSizeOfExcludingThis(mallocSizeOf);
-  for (size_t i = 0; i < mUnusableItems.Length(); i++) {
-    n += mUnusableItems[i].SizeOfExcludingThisIfUnshared(mallocSizeOf);
+  {
+    MutexAutoLock lock(addr_info_lock);
+    n += addr_info ? addr_info->SizeOfIncludingThis(mallocSizeOf) : 0;
+    n += mUnusableItems.ShallowSizeOfExcludingThis(mallocSizeOf);
+    for (size_t i = 0; i < mUnusableItems.Length(); i++) {
+      n += mUnusableItems[i].SizeOfExcludingThisIfUnshared(mallocSizeOf);
+    }
   }
   return n;
 }
@@ -271,6 +272,7 @@ bool AddrHostRecord::HasUsableResultInternal(
     return true;
   }
 
+  MutexAutoLock lock(addr_info_lock);
   return addr_info || addr;
 }
 
@@ -506,10 +508,8 @@ bool TypeHostRecord::HasUsableResultInternal(
     return true;
   }
 
-  MOZ_PUSH_IGNORE_THREAD_SAFETY
-  // To avoid locking in a const method
+  MutexAutoLock lock(mResultsLock);
   return !mResults.is<Nothing>();
-  MOZ_POP_THREAD_SAFETY
 }
 
 bool TypeHostRecord::RefreshForNegativeResponse() const { return false; }

@@ -7,6 +7,7 @@
 #include "builtin/Promise.h"  // js::PromiseHandler, js::CreatePromiseObjectForAsyncGenerator, js::AsyncFromSyncIteratorMethod, js::ResolvePromiseInternal, js::RejectPromiseInternal, js::InternalAsyncGeneratorAwait
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/PropertySpec.h"
+#include "vm/AsyncFunction.h"  // js::AutoAsyncResumeDepth
 #include "vm/CompletionKind.h"
 #include "vm/FunctionFlags.h"  // js::FunctionFlags
 #include "vm/GeneratorObject.h"
@@ -1230,6 +1231,8 @@ bool js::AsyncGeneratorThrow(JSContext* cx, unsigned argc, Value* vp) {
 [[nodiscard]] static bool AsyncGeneratorResume(
     JSContext* cx, Handle<AsyncGeneratorObject*> generator,
     CompletionKind completionKind, HandleValue argument) {
+  AutoAsyncResumeDepth autoDepth(cx);
+
   // Given that yield can resume again, we implement it as a loop.
   JS::Rooted<JS::Value> resumeArgument(cx, argument);
   while (true) {
@@ -1287,6 +1290,10 @@ bool js::AsyncGeneratorThrow(JSContext* cx, unsigned argc, Value* vp) {
 
     if (generator->isAfterAwait()) {
       if (!AsyncGeneratorAwait(cx, generator, thisOrRval)) {
+        // Not much we can do about uncatchable exceptions, so just bail.
+        if (!cx->isExceptionPending()) {
+          return false;
+        }
         // This can happen if PromiseResolve inside Await fails.
         //
         // Per spec, that happens without suspending the generator.
@@ -1308,6 +1315,10 @@ bool js::AsyncGeneratorThrow(JSContext* cx, unsigned argc, Value* vp) {
       bool resumeAgain = false;
       if (!AsyncGeneratorYield(cx, generator, thisOrRval, &resumeAgain,
                                &completionKind, &resumeArgument)) {
+        // Not much we can do about uncatchable exceptions, so just bail.
+        if (!cx->isExceptionPending()) {
+          return false;
+        }
         // This can also happen if PromiseResolve inside Await fails
         // during AsyncGeneratorUnwrapYieldResumption.
         // AsyncGeneratorUnwrapYieldResumption is performed only if the

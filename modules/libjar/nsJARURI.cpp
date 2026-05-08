@@ -315,7 +315,7 @@ nsresult nsJARURI::SetSpecWithBase(const nsACString& aSpec, nsIURI* aBaseURL) {
   if (NS_FAILED(rv)) return rv;
 
   // skip over any extra '/' chars
-  while (*delim_end == '/') ++delim_end;
+  while (delim_end != end && *delim_end == '/') ++delim_end;
 
   aSpec.EndReading(end);  // set to the original 'end'
   return SetJAREntry(Substring(delim_end, end));
@@ -637,7 +637,7 @@ nsJARURI::GetRelativeSpec(nsIURI* uriToCompare, nsACString& relativeSpec) {
 
   if (!StringBeginsWith(relativeEntrySpec, NS_BOGUS_ENTRY_SCHEME)) {
     // An actual relative spec!
-    relativeSpec = relativeEntrySpec;
+    relativeSpec = std::move(relativeEntrySpec);
   }
   return rv;
 }

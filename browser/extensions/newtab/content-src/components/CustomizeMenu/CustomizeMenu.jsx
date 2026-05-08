@@ -16,8 +16,10 @@ export class _CustomizeMenu extends React.PureComponent {
     this.onEntered = this.onEntered.bind(this);
     this.onExited = this.onExited.bind(this);
     this.onSubpanelToggle = this.onSubpanelToggle.bind(this);
+    this.onCancel = this.onCancel.bind(this);
+    this.onDialogClick = this.onDialogClick.bind(this);
     this.personalizeButtonRef = React.createRef();
-    this.customizeMenuRef = React.createRef();
+    this.dialogRef = React.createRef();
     this.closeButtonRef = React.createRef();
     this.state = {
       exitEventFired: false,
@@ -29,6 +31,25 @@ export class _CustomizeMenu extends React.PureComponent {
     this.setState({ subpanelOpen: isOpen });
   }
 
+  componentDidUpdate(prevProps) {
+    if (this.props.showing && !prevProps.showing) {
+      if (!this.dialogRef.current?.open) {
+        this.dialogRef.current?.showModal();
+      }
+    }
+  }
+
+  onCancel(e) {
+    e.preventDefault();
+    this.props.onClose();
+  }
+
+  onDialogClick(e) {
+    if (e.target === this.dialogRef.current) {
+      this.props.onClose();
+    }
+  }
+
   onEntered() {
     this.setState({ exitEventFired: false });
     if (this.closeButtonRef.current) {
@@ -37,6 +58,9 @@ export class _CustomizeMenu extends React.PureComponent {
   }
 
   onExited() {
+    if (this.dialogRef.current?.open) {
+      this.dialogRef.current.close();
+    }
     this.setState({ exitEventFired: true });
     if (this.personalizeButtonRef.current) {
       this.personalizeButtonRef.current.focus();
@@ -62,29 +86,42 @@ export class _CustomizeMenu extends React.PureComponent {
           in={!this.props.showing}
           appear={true}
         >
-          <button
-            ref={this.personalizeButtonRef}
-            className={`${activationWindowClass} personalize-button`}
-            data-l10n-id="newtab-customize-panel-icon-button"
-            aria-haspopup="dialog"
-            onClick={() => this.props.onOpen()}
-            onKeyDown={e => {
-              if (e.key === "Enter") {
-                this.props.onOpen();
-              }
-            }}
-          >
-            <label data-l10n-id="newtab-customize-panel-icon-button-label" />
-            <div>
-              <img
-                role="presentation"
-                src="chrome://global/skin/icons/edit-outline.svg"
-              />
-            </div>
-          </button>
+          {
+            // @nova-cleanup(remove-conditional): replace with moz-button only
+            novaEnabled ? (
+              <moz-button
+                ref={this.personalizeButtonRef}
+                className={`open-customization-button${activationWindowClass ? ` ${activationWindowClass}` : ""}`}
+                data-l10n-id="newtab-customize-panel-label"
+                aria-haspopup="dialog"
+                aria-expanded={this.props.showing ? "true" : "false"}
+                onClick={() => this.props.onOpen()}
+                iconsrc="chrome://global/skin/icons/edit-outline.svg"
+                iconposition="end"
+                type="default"
+              ></moz-button>
+            ) : (
+              <button
+                ref={this.personalizeButtonRef}
+                className={`${activationWindowClass} personalize-button`}
+                data-l10n-id="newtab-customize-panel-icon-button"
+                aria-haspopup="dialog"
+                aria-expanded={this.props.showing}
+                onClick={() => this.props.onOpen()}
+              >
+                <label data-l10n-id="newtab-customize-panel-icon-button-label" />
+                <div>
+                  <img
+                    role="presentation"
+                    src="chrome://global/skin/icons/edit-outline.svg"
+                  />
+                </div>
+              </button>
+            )
+          }
         </CSSTransition>
         <CSSTransition
-          nodeRef={this.customizeMenuRef}
+          nodeRef={this.dialogRef}
           timeout={250}
           classNames="customize-animate"
           in={this.props.showing}
@@ -92,17 +129,16 @@ export class _CustomizeMenu extends React.PureComponent {
           onExited={this.onExited}
           appear={true}
         >
-          <div
-            ref={this.customizeMenuRef}
-            className="customize-menu-animate-wrapper"
+          <dialog
+            ref={this.dialogRef}
+            // @nova-cleanup(remove-conditional): Remove nova-enabled class
+            className={`customize-menu ${novaEnabled ? "nova-enabled" : ""}`}
+            data-l10n-id="newtab-settings-dialog-label"
+            onCancel={this.onCancel}
+            onClick={this.onDialogClick}
           >
             <div
-              // @nova-cleanup(remove-conditional): Remove nova-enabled class
-              className={`customize-menu ${
-                this.state.subpanelOpen ? "subpanel-open" : ""
-              } ${novaEnabled ? "nova-enabled" : ""}`}
-              role="dialog"
-              data-l10n-id="newtab-settings-dialog-label"
+              className={`customize-menu-content${this.state.subpanelOpen ? " subpanel-open" : ""}`}
             >
               <div className="close-button-wrapper">
                 <moz-button
@@ -120,6 +156,7 @@ export class _CustomizeMenu extends React.PureComponent {
                 enabledSections={this.props.enabledSections}
                 enabledWidgets={this.props.enabledWidgets}
                 wallpapersEnabled={this.props.wallpapersEnabled}
+                wallpapersUserEnabled={this.props.wallpapersUserEnabled}
                 activeWallpaper={this.props.activeWallpaper}
                 pocketRegion={this.props.pocketRegion}
                 mayHaveTopicSections={this.props.mayHaveTopicSections}
@@ -132,6 +169,8 @@ export class _CustomizeMenu extends React.PureComponent {
                 weatherDisplay={this.props.weatherDisplay}
                 mayHaveTimerWidget={this.props.mayHaveTimerWidget}
                 mayHaveListsWidget={this.props.mayHaveListsWidget}
+                mayHaveSportsWidget={this.props.mayHaveSportsWidget}
+                mayHaveClocksWidget={this.props.mayHaveClocksWidget}
                 dispatch={this.props.dispatch}
                 exitEventFired={this.state.exitEventFired}
                 onSubpanelToggle={this.onSubpanelToggle}
@@ -147,7 +186,7 @@ export class _CustomizeMenu extends React.PureComponent {
                 widgetsEnabled={this.props.widgetsEnabled}
               />
             </div>
-          </div>
+          </dialog>
         </CSSTransition>
       </span>
     );

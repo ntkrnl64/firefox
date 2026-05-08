@@ -61,6 +61,7 @@ import java.security.InvalidParameterException
 import java.util.Calendar
 import java.util.Calendar.YEAR
 import java.util.Date
+import kotlin.test.assertIs
 
 typealias GeckoChoice = GeckoSession.PromptDelegate.ChoicePrompt.Choice
 typealias GECKO_AUTH_LEVEL = GeckoSession.PromptDelegate.AuthPrompt.AuthOptions.Level
@@ -113,8 +114,8 @@ class GeckoPromptDelegateTest {
             confirmWasCalled = true
         }
 
-        assertTrue(promptRequestSingleChoice is SingleChoice)
-        val request = promptRequestSingleChoice as SingleChoice
+        val request = promptRequestSingleChoice
+        assertIs<SingleChoice>(request)
 
         request.onConfirm(request.choices.first())
         shadowOf(getMainLooper()).idle()
@@ -155,15 +156,16 @@ class GeckoPromptDelegateTest {
             confirmWasCalled = true
         }
 
-        assertTrue(promptRequestSingleChoice is MultipleChoice)
+        val request = promptRequestSingleChoice
+        assertIs<MultipleChoice>(request)
 
-        (promptRequestSingleChoice as MultipleChoice).onConfirm(arrayOf())
+        request.onConfirm(arrayOf())
         shadowOf(getMainLooper()).idle()
         assertTrue(confirmWasCalled)
         whenever(geckoPrompt.isComplete).thenReturn(true)
 
         confirmWasCalled = false
-        (promptRequestSingleChoice as MultipleChoice).onConfirm(arrayOf())
+        request.onConfirm(arrayOf())
         shadowOf(getMainLooper()).idle()
         assertFalse(confirmWasCalled)
     }
@@ -195,8 +197,8 @@ class GeckoPromptDelegateTest {
             confirmWasCalled = true
         }
 
-        assertTrue(promptRequestSingleChoice is PromptRequest.MenuChoice)
-        val request = promptRequestSingleChoice as PromptRequest.MenuChoice
+        val request = promptRequestSingleChoice
+        assertIs<PromptRequest.MenuChoice>(request)
 
         request.onConfirm(request.choices.first())
         shadowOf(getMainLooper()).idle()
@@ -241,14 +243,15 @@ class GeckoPromptDelegateTest {
         geckoResult.accept {
             dismissWasCalled = true
         }
-        assertTrue(alertRequest is PromptRequest.Alert)
+        val request = alertRequest
+        assertIs<PromptRequest.Alert>(request)
 
-        (alertRequest as PromptRequest.Alert).onDismiss()
+        request.onDismiss()
         shadowOf(getMainLooper()).idle()
         assertTrue(dismissWasCalled)
 
-        assertEquals((alertRequest as PromptRequest.Alert).title, "title")
-        assertEquals((alertRequest as PromptRequest.Alert).message, "message")
+        assertEquals(request.title, "title")
+        assertEquals(request.message, "message")
     }
 
     @Test
@@ -277,11 +280,12 @@ class GeckoPromptDelegateTest {
 
         promptDelegate.onDateTimePrompt(mock(), geckoPrompt)
 
-        assertTrue(dateRequest is PromptRequest.TimeSelection)
+        val request = dateRequest
+        assertIs<PromptRequest.TimeSelection>(request)
         val date = Date()
-        (dateRequest as PromptRequest.TimeSelection).onConfirm(date)
+        request.onConfirm(date)
         verify(geckoPrompt, times(1)).confirm(eq(date.toString("yyyy-MM-dd")))
-        assertEquals((dateRequest as PromptRequest.TimeSelection).title, "title")
+        assertEquals(request.title, "title")
 
         geckoPrompt = geckoDateTimePrompt("title", DATE, "", "", "")
         promptDelegate.onDateTimePrompt(mock(), geckoPrompt)
@@ -351,12 +355,13 @@ class GeckoPromptDelegateTest {
 
         shadowOf(getMainLooper()).idle()
 
-        assertTrue(dateRequest is PromptRequest.TimeSelection)
-        (dateRequest as PromptRequest.TimeSelection).onConfirm(Date())
+        val request = dateRequest
+        assertIs<PromptRequest.TimeSelection>(request)
+        request.onConfirm(Date())
         shadowOf(getMainLooper()).idle()
 
         assertTrue(confirmCalled)
-        assertEquals((dateRequest as PromptRequest.TimeSelection).title, "title")
+        assertEquals(request.title, "title")
     }
 
     @Test
@@ -417,11 +422,12 @@ class GeckoPromptDelegateTest {
 
         shadowOf(getMainLooper()).idle()
 
-        assertTrue(dateRequest is PromptRequest.TimeSelection)
-        (dateRequest as PromptRequest.TimeSelection).onConfirm(Date())
+        val request = dateRequest
+        assertIs<PromptRequest.TimeSelection>(request)
+        request.onConfirm(Date())
         shadowOf(getMainLooper()).idle()
         assertTrue(confirmCalled)
-        assertEquals((dateRequest as PromptRequest.TimeSelection).title, "title")
+        assertEquals(request.title, "title")
     }
 
     @Test
@@ -481,11 +487,12 @@ class GeckoPromptDelegateTest {
             confirmCalled = true
         }
 
-        assertTrue(dateRequest is PromptRequest.TimeSelection)
-        (dateRequest as PromptRequest.TimeSelection).onConfirm(Date())
+        val request = dateRequest
+        assertIs<PromptRequest.TimeSelection>(request)
+        request.onConfirm(Date())
         shadowOf(getMainLooper()).idle()
         assertTrue(confirmCalled)
-        assertEquals((dateRequest as PromptRequest.TimeSelection).title, "title")
+        assertEquals(request.title, "title")
     }
 
     @Test
@@ -625,12 +632,13 @@ class GeckoPromptDelegateTest {
             confirmCalled = true
         }
 
-        assertTrue(dateRequest is PromptRequest.TimeSelection)
-        (dateRequest as PromptRequest.TimeSelection).onConfirm(Date())
+        val request = dateRequest
+        assertIs<PromptRequest.TimeSelection>(request)
+        request.onConfirm(Date())
         shadowOf(getMainLooper()).idle()
 
         assertTrue(confirmCalled)
-        assertEquals((dateRequest as PromptRequest.TimeSelection).title, "title")
+        assertEquals(request.title, "title")
     }
 
     @Test

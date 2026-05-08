@@ -206,7 +206,7 @@ export var RecentlyClosedTabsAndWindowsMenuUtils = {
    *        The command event when the user clicks the restore all menu item
    */
   onRestoreAllTabsCommand(aEvent) {
-    const currentWindow = aEvent.target.ownerGlobal;
+    const currentWindow = aEvent.target.documentGlobal;
     const browserWindows = lazy.closedTabsFromAllWindowsEnabled
       ? lazy.SessionStore.getWindows(currentWindow)
       : [currentWindow];
@@ -481,7 +481,7 @@ function createTabGroupSubpanel(
   panelview.appendChild(reopenTabGroupItem);
 
   element.addEventListener("command", () => {
-    aDocument.ownerGlobal.PanelUI.showSubView(panelview.id, element);
+    aDocument.documentGlobal.PanelUI.showSubView(panelview.id, element);
   });
 
   aFragment.appendChild(panelview);
@@ -556,7 +556,7 @@ function createEntry(
     element.setAttribute("source-window-id", sourceWindowId);
     element.addEventListener("command", event =>
       lazy.SessionWindowUI.undoCloseTab(
-        event.target.ownerGlobal,
+        event.target.documentGlobal,
         aIndex,
         sourceWindowId
       )

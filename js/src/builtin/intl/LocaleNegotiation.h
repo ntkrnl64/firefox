@@ -8,7 +8,6 @@
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/EnumSet.h"
 #include "mozilla/EnumTypeTraits.h"
-#include "mozilla/Maybe.h"
 
 #include <stdint.h>
 
@@ -28,6 +27,7 @@ enum class UnicodeExtensionKey : uint8_t {
   Collation /* co */,
   CollationCaseFirst /* kf */,
   CollationNumeric /* kn */,
+  FirstDayOfWeek /* fw */,
   HourCycle /* hc */,
   NumberingSystem /* nu */,
 };
@@ -63,15 +63,16 @@ ArrayObject* CanonicalizeLocaleList(JSContext* cx,
                                     JS::Handle<JS::Value> locales);
 
 /**
- * Compares a BCP 47 language tag against the locales in availableLocales and
- * returns the best available match -- or |nullptr| if no match was found.
- * Uses the fallback mechanism of RFC 4647, section 3.4.
- *
- * Spec: ECMAScript Internationalization API Specification, 9.2.2.
- * Spec: RFC 4647, section 3.4.
+ * Parse the BCP-47 locale as a language identifier.
  */
-bool BestAvailableLocale(JSContext* cx, AvailableLocaleKind availableLocales,
-                         LanguageId locale, mozilla::Maybe<LanguageId>* result);
+mozilla::Maybe<LanguageId> ToLanguageId(JSContext* cx,
+                                        const JSLinearString* locale);
+
+/**
+ * LookupMatchingLocaleByPrefix ( availableLocales, requestedLocales )
+ */
+bool LookupMatcher(JSContext* cx, AvailableLocaleKind availableLocales,
+                   LanguageId locale, mozilla::Maybe<LanguageId>* result);
 
 /**
  * Locale data selection for ResolveLocale.
@@ -197,6 +198,27 @@ bool ResolveLocale(JSContext* cx, AvailableLocaleKind availableLocales,
                    mozilla::EnumSet<UnicodeExtensionKey> relevantExtensionKeys,
                    LocaleData localeData,
                    JS::MutableHandle<ResolvedLocale> result);
+
+/**
+ * Return the default locale.
+ */
+bool DefaultLocale(JSContext* cx, LanguageId* result);
+
+/**
+ * Return the default calendar of a locale.
+ */
+JSLinearString* DefaultCalendar(JSContext* cx, const JSLinearString* locale);
+
+/**
+ * Return the default numbering system of a locale.
+ */
+JSLinearString* DefaultNumberingSystem(JSContext* cx, LanguageId locale);
+
+/**
+ * Return the default numbering system of a locale.
+ */
+JSLinearString* DefaultNumberingSystem(JSContext* cx,
+                                       const JSLinearString* locale);
 
 /**
  * Return the supported locales in |locales| which are supported according to

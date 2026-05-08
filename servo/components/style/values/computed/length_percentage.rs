@@ -34,7 +34,9 @@ use crate::values::animated::{
 };
 use crate::values::computed::position::TryTacticAdjustment;
 use crate::values::distance::{ComputeSquaredDistance, SquaredDistance};
-use crate::values::generics::calc::{CalcUnits, PositivePercentageBasis};
+use crate::values::generics::calc::{
+    CalcUnits, GenericAnchorFunctionFallback, PositivePercentageBasis,
+};
 #[cfg(feature = "gecko")]
 use crate::values::generics::length::AnchorResolutionResult;
 use crate::values::generics::position::GenericAnchorSide;
@@ -220,7 +222,6 @@ impl EqualsPercentage for LengthPercentage {
 
 /// An unpacked `<length-percentage>` that borrows the `calc()` variant.
 #[derive(Clone, Debug, PartialEq, ToCss, ToTyped)]
-#[typed_value(derive_fields)]
 pub enum Unpacked<'a> {
     /// A `calc()` value
     Calc(&'a CalcLengthPercentage),
@@ -727,7 +728,6 @@ impl<'de> Deserialize<'de> for LengthPercentage {
 )]
 #[allow(missing_docs)]
 #[repr(u8)]
-#[typed_value(derive_fields)]
 pub enum CalcLengthPercentageLeaf {
     Length(Length),
     Percentage(Percentage),
@@ -939,7 +939,6 @@ pub type CalcNode = calc::GenericCalcNode<CalcLengthPercentageLeaf>;
     ToTyped,
 )]
 #[repr(C)]
-#[typed_value(derive_fields)]
 pub struct CalcLengthPercentage {
     #[animation(constant)]
     #[css(skip)]
@@ -1038,7 +1037,10 @@ impl CalcLengthPercentage {
         };
 
         fn resolve_anchor_function<'a>(
-            f: &'a GenericAnchorFunction<Box<CalcNode>, Box<CalcNode>>,
+            f: &'a GenericAnchorFunction<
+                Box<CalcNode>,
+                Box<GenericAnchorFunctionFallback<CalcLengthPercentageLeaf>>,
+            >,
             side: PhysicalSide,
             params: &AnchorPosOffsetResolutionParams,
         ) -> AnchorResolutionResult<'a, Box<CalcNode>> {
@@ -1054,7 +1056,7 @@ impl CalcLengthPercentage {
                     let Some(fb) = f.fallback.as_ref() else {
                         return AnchorResolutionResult::Invalid;
                     };
-                    let mut node = fb.clone();
+                    let mut node = Box::new(fb.node.clone());
                     let result = node.map_node(|node| {
                         resolve_anchor_functions(
                             node,
@@ -1076,7 +1078,9 @@ impl CalcLengthPercentage {
         }
 
         fn resolve_anchor_size_function<'a>(
-            f: &'a GenericAnchorSizeFunction<Box<CalcNode>>,
+            f: &'a GenericAnchorSizeFunction<
+                Box<GenericAnchorFunctionFallback<CalcLengthPercentageLeaf>>,
+            >,
             allowed: AllowAnchorPosResolutionInCalcPercentage,
             params: &AnchorPosOffsetResolutionParams,
         ) -> AnchorResolutionResult<'a, Box<CalcNode>> {
@@ -1092,7 +1096,7 @@ impl CalcLengthPercentage {
                     let Some(fb) = f.fallback.as_ref() else {
                         return AnchorResolutionResult::Invalid;
                     };
-                    let mut node = fb.clone();
+                    let mut node = Box::new(fb.node.clone());
                     let result =
                         node.map_node(|node| resolve_anchor_functions(node, allowed, params));
                     if result.is_err() {
@@ -1342,6 +1346,12 @@ impl TryTacticAdjustment for LengthPercentage {
             },
             UnpackedMut::Length(..) => {},
         }
+    }
+}
+
+impl TryTacticAdjustment for GenericAnchorFunctionFallback<CalcLengthPercentageLeaf> {
+    fn try_tactic_adjustment(&mut self, old_side: PhysicalSide, new_side: PhysicalSide) {
+        self.node.try_tactic_adjustment(old_side, new_side)
     }
 }
 

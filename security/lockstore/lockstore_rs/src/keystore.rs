@@ -4,10 +4,12 @@
 
 use crate::crypto::{self, CipherSuite, DEFAULT_CIPHER_SUITE};
 use crate::utils;
-use crate::{LockstoreError, SecurityLevel};
+use crate::{LockstoreError, SecurityLevel, KEK_REF_PREFIX};
 
-use kvstore::skv::store::{Store, StorePath};
-use kvstore::skv::{Database, GetOptions, Key};
+use kvstore::{Database, GetOptions, Key, Store, StorePath};
+use nss_rs::aead::Aead;
+use nss_rs::p11;
+use nss_rs::SymKey;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,7 +41,7 @@ pub struct LockstoreKeystore {
 impl LockstoreKeystore {
     pub fn new(path: PathBuf) -> Result<Self, LockstoreError> {
         let store = Arc::new(Store::new(StorePath::OnDisk(path)));
-        nss_gk_api::init();
+        nss_rs::init().map_err(|e| LockstoreError::NssInitialization(e.to_string()))?;
         Ok(Self {
             store,
             in_memory: false,
@@ -48,7 +50,7 @@ impl LockstoreKeystore {
 
     pub fn new_in_memory() -> Result<Self, LockstoreError> {
         let store = Arc::new(Store::new(StorePath::for_in_memory()));
-        nss_gk_api::init();
+        nss_rs::init().map_err(|e| LockstoreError::NssInitialization(e.to_string()))?;
         Ok(Self {
             store,
             in_memory: true,
@@ -58,24 +60,21 @@ impl LockstoreKeystore {
     pub fn create_dek(
         &self,
         collection_name: &str,
-        security_level: SecurityLevel,
+        kek_ref: &str,
         extractable: bool,
     ) -> Result<(), LockstoreError> {
-        self.create_dek_with_cipher(
-            collection_name,
-            security_level,
-            extractable,
-            DEFAULT_CIPHER_SUITE,
-        )
+        self.create_dek_with_cipher(collection_name, kek_ref, extractable, DEFAULT_CIPHER_SUITE)
     }
 
     pub fn create_dek_with_cipher(
         &self,
         collection_name: &str,
-        security_level: SecurityLevel,
+        kek_ref: &str,
         extractable: bool,
         cipher_suite: CipherSuite,
     ) -> Result<(), LockstoreError> {
+        let security_level = SecurityLevel::from_kek_ref(kek_ref)?;
+
         let dek_key = format!("{}{}", DEK_PREFIX, collection_name);
         let db = Database::new(&self.store, DB_NAME);
         let key = Key::from(dek_key.as_str());
@@ -89,13 +88,13 @@ impl LockstoreKeystore {
         }
 
         let new_dek = crypto::generate_random_key(cipher_suite);
-        let kek = self.get_kek_for(cipher_suite, security_level)?;
-        let wrapped = crypto::encrypt_with_key(&new_dek, &kek, cipher_suite)?;
+        let kek = self.get_kek_symkey(cipher_suite, kek_ref)?;
+        let wrapped = crypto::encrypt_with_symkey(&new_dek, &kek, cipher_suite)?;
 
         let metadata = DekMetadata {
             wrapped_deks: vec![WrappedDek {
                 security_level,
-                kek_ref: security_level.storage_key().to_string(),
+                kek_ref: kek_ref.to_string(),
                 wrapped_dek: wrapped,
             }],
             cipher_suite,
@@ -108,24 +107,23 @@ impl LockstoreKeystore {
     pub(crate) fn get_dek_internal(
         &self,
         collection_name: &str,
-        security_level: SecurityLevel,
+        kek_ref: &str,
     ) -> Result<(Vec<u8>, CipherSuite, bool), LockstoreError> {
         let metadata = self.load_metadata(collection_name)?;
 
         let entry = metadata
             .wrapped_deks
             .iter()
-            .find(|w| w.security_level == security_level)
+            .find(|w| w.kek_ref == kek_ref)
             .ok_or_else(|| {
                 LockstoreError::NotFound(format!(
-                    "No DEK for collection '{}' at security level '{}'",
-                    collection_name,
-                    security_level.as_str()
+                    "No DEK for collection '{}' with kek_ref '{}'",
+                    collection_name, kek_ref
                 ))
             })?;
 
-        let kek = self.get_kek_for(metadata.cipher_suite, security_level)?;
-        let dek = crypto::decrypt_with_key(&entry.wrapped_dek, &kek)?;
+        let kek = self.get_kek_symkey(metadata.cipher_suite, kek_ref)?;
+        let dek = crypto::decrypt_with_symkey(&entry.wrapped_dek, &kek)?;
 
         Ok((dek, metadata.cipher_suite, metadata.extractable))
     }
@@ -138,7 +136,7 @@ impl LockstoreKeystore {
     pub fn get_dek(
         &self,
         collection_name: &str,
-        security_level: SecurityLevel,
+        kek_ref: &str,
     ) -> Result<(Vec<u8>, CipherSuite), LockstoreError> {
         if !self.is_dek_extractable(collection_name)? {
             return Err(LockstoreError::NotExtractable(format!(
@@ -147,72 +145,62 @@ impl LockstoreKeystore {
             )));
         }
 
-        let (dek, cipher_suite, _) = self.get_dek_internal(collection_name, security_level)?;
+        let (dek, cipher_suite, _) = self.get_dek_internal(collection_name, kek_ref)?;
         Ok((dek, cipher_suite))
     }
 
-    /// Adds a wrapped copy of an existing DEK under a new security level.
-    /// The caller must authenticate via `source_security_level` to unwrap the DEK first.
-    pub fn add_security_level(
+    pub fn add_kek(
         &self,
         collection_name: &str,
-        source_security_level: SecurityLevel,
-        new_security_level: SecurityLevel,
+        source_kek_ref: &str,
+        new_kek_ref: &str,
     ) -> Result<(), LockstoreError> {
+        let new_security_level = SecurityLevel::from_kek_ref(new_kek_ref)?;
         let mut metadata = self.load_metadata(collection_name)?;
 
         if metadata
             .wrapped_deks
             .iter()
-            .any(|w| w.security_level == new_security_level)
+            .any(|w| w.kek_ref == new_kek_ref)
         {
             return Err(LockstoreError::InvalidConfiguration(format!(
-                "Security level '{}' already exists for collection '{}'",
-                new_security_level.as_str(),
-                collection_name
+                "kek_ref '{}' already exists for collection '{}'",
+                new_kek_ref, collection_name
             )));
         }
 
         let source_entry = metadata
             .wrapped_deks
             .iter()
-            .find(|w| w.security_level == source_security_level)
+            .find(|w| w.kek_ref == source_kek_ref)
             .ok_or_else(|| {
                 LockstoreError::NotFound(format!(
-                    "No DEK for collection '{}' at security level '{}'",
-                    collection_name,
-                    source_security_level.as_str()
+                    "No DEK for collection '{}' with kek_ref '{}'",
+                    collection_name, source_kek_ref
                 ))
             })?;
 
-        let source_kek = self.get_kek_for(metadata.cipher_suite, source_security_level)?;
-        let dek = crypto::decrypt_with_key(&source_entry.wrapped_dek, &source_kek)?;
+        let source_kek = self.get_kek_symkey(metadata.cipher_suite, source_kek_ref)?;
+        let dek = crypto::decrypt_with_symkey(&source_entry.wrapped_dek, &source_kek)?;
 
-        let new_kek = self.get_kek_for(metadata.cipher_suite, new_security_level)?;
-        let new_wrapped = crypto::encrypt_with_key(&dek, &new_kek, metadata.cipher_suite)?;
+        let new_kek = self.get_kek_symkey(metadata.cipher_suite, new_kek_ref)?;
+        let new_wrapped = crypto::encrypt_with_symkey(&dek, &new_kek, metadata.cipher_suite)?;
 
         metadata.wrapped_deks.push(WrappedDek {
             security_level: new_security_level,
-            kek_ref: new_security_level.storage_key().to_string(),
+            kek_ref: new_kek_ref.to_string(),
             wrapped_dek: new_wrapped,
         });
 
         self.save_metadata(collection_name, &metadata)
     }
 
-    /// Removes the wrapped DEK entry for `security_level`.
-    /// The entry is first decrypted to authenticate the caller's access to that level.
-    /// Fails if it is the last remaining entry.
-    pub fn remove_security_level(
-        &self,
-        collection_name: &str,
-        security_level: SecurityLevel,
-    ) -> Result<(), LockstoreError> {
+    pub fn remove_kek(&self, collection_name: &str, kek_ref: &str) -> Result<(), LockstoreError> {
         let mut metadata = self.load_metadata(collection_name)?;
 
         if metadata.wrapped_deks.len() <= 1 {
             return Err(LockstoreError::InvalidConfiguration(format!(
-                "Cannot remove the last security level from collection '{}'",
+                "Cannot remove the last KEK from collection '{}'",
                 collection_name
             )));
         }
@@ -220,21 +208,18 @@ impl LockstoreKeystore {
         let entry = metadata
             .wrapped_deks
             .iter()
-            .find(|w| w.security_level == security_level)
+            .find(|w| w.kek_ref == kek_ref)
             .ok_or_else(|| {
                 LockstoreError::NotFound(format!(
-                    "No DEK for collection '{}' at security level '{}'",
-                    collection_name,
-                    security_level.as_str()
+                    "No DEK for collection '{}' with kek_ref '{}'",
+                    collection_name, kek_ref
                 ))
             })?;
 
-        let kek = self.get_kek_for(metadata.cipher_suite, security_level)?;
-        crypto::decrypt_with_key(&entry.wrapped_dek, &kek)?;
+        let kek = self.get_kek_symkey(metadata.cipher_suite, kek_ref)?;
+        crypto::decrypt_with_symkey(&entry.wrapped_dek, &kek)?;
 
-        metadata
-            .wrapped_deks
-            .retain(|w| w.security_level != security_level);
+        metadata.wrapped_deks.retain(|w| w.kek_ref != kek_ref);
 
         self.save_metadata(collection_name, &metadata)
     }
@@ -255,7 +240,7 @@ impl LockstoreKeystore {
     }
 
     pub fn list_collections(&self) -> Result<Vec<String>, LockstoreError> {
-        use kvstore::skv::DatabaseError;
+        use kvstore::DatabaseError;
 
         let reader = self.store.reader()?;
         let db_name = DB_NAME.to_string();
@@ -290,11 +275,115 @@ impl LockstoreKeystore {
 
     pub fn close(self) {
         if self.in_memory {
-            let kek_name = SecurityLevel::LocalKey.storage_key();
-            let _ = crypto::zeroize(&self.store, DB_NAME, kek_name);
+            let _ = crypto::zeroize(&self.store, DB_NAME, "lockstore::kek::local");
         }
         self.store.close();
     }
+
+    // ========================================================================
+    // KEK retrieval
+    // ========================================================================
+
+    fn get_kek_symkey(
+        &self,
+        cipher_suite: CipherSuite,
+        kek_ref: &str,
+    ) -> Result<SymKey, LockstoreError> {
+        let security_level = SecurityLevel::from_kek_ref(kek_ref)?;
+        match security_level {
+            SecurityLevel::LocalKey => {
+                let kek_bytes = self.get_kek_local(cipher_suite, kek_ref)?;
+                Aead::import_key(cipher_suite.to_nss_algorithm(), &kek_bytes)
+                    .map_err(|e| LockstoreError::Encryption(e.to_string()))
+            }
+            SecurityLevel::Pkcs11Token => self.get_kek_from_token(cipher_suite, kek_ref),
+            #[cfg(test)]
+            SecurityLevel::TestLevel => {
+                let kek_bytes = self.get_kek_local(cipher_suite, kek_ref)?;
+                Aead::import_key(cipher_suite.to_nss_algorithm(), &kek_bytes)
+                    .map_err(|e| LockstoreError::Encryption(e.to_string()))
+            }
+        }
+    }
+
+    fn get_kek_local(
+        &self,
+        cipher_suite: CipherSuite,
+        kek_ref: &str,
+    ) -> Result<Vec<u8>, LockstoreError> {
+        let db = Database::new(&self.store, DB_NAME);
+        let key = Key::from(kek_ref);
+
+        let existing_kek = db.get(&key, &GetOptions::default())?;
+
+        if let Some(value) = existing_kek {
+            utils::value_to_bytes(&value)
+        } else {
+            let new_kek = crypto::generate_random_key(cipher_suite);
+            let value = utils::bytes_to_value(&new_kek)?;
+            db.put(&[(key, Some(value))])?;
+            Ok(new_kek)
+        }
+    }
+
+    fn get_kek_from_token(
+        &self,
+        cipher_suite: CipherSuite,
+        kek_ref: &str,
+    ) -> Result<SymKey, LockstoreError> {
+        let pkcs11_uri_str = kek_ref.strip_prefix(KEK_REF_PREFIX).ok_or_else(|| {
+            LockstoreError::InvalidKekRef(format!("Invalid kek_ref format: {}", kek_ref))
+        })?;
+        let uri = nss_rs::pk11_utils::parse(pkcs11_uri_str).map_err(|_| {
+            LockstoreError::InvalidKekRef(format!("Invalid PKCS#11 URI: {}", kek_ref))
+        })?;
+        let slot = self.resolve_pkcs11_slot(&uri)?;
+
+        slot.authenticate()
+            .map_err(|_| LockstoreError::AuthenticationCancelled)?;
+
+        if let Some(existing) = slot.find_key_by_nickname(kek_ref) {
+            return Ok(existing);
+        }
+
+        slot.generate_token_key(
+            p11::CKM_AES_KEY_GEN.into(),
+            cipher_suite.key_size(),
+            kek_ref,
+        )
+        .map_err(|e| LockstoreError::TokenError(format!("Failed to generate key: {}", e)))
+    }
+
+    fn resolve_pkcs11_slot(
+        &self,
+        uri: &nss_rs::pk11_utils::Pkcs11Uri,
+    ) -> Result<p11::Slot, LockstoreError> {
+        let token_name = uri.token.as_deref().ok_or_else(|| {
+            LockstoreError::InvalidKekRef("PKCS#11 URI missing token attribute".into())
+        })?;
+
+        let internal_slot = p11::Slot::internal_key_slot()
+            .map_err(|e| LockstoreError::TokenError(format!("Failed to get key slot: {}", e)))?;
+        if internal_slot.token_name() == token_name {
+            return Ok(internal_slot);
+        }
+
+        let slots = p11::all_token_slots(p11::CKM_AES_KEY_GEN.into());
+        for slot in slots {
+            if slot.token_name() == token_name {
+                return Ok(slot);
+            }
+        }
+
+        Err(LockstoreError::TokenError(format!(
+            "Token not found: {}",
+            token_name
+        )))
+    }
+
+    // ========================================================================
+    // Metadata persistence
+    // ========================================================================
 
     fn load_metadata(&self, collection_name: &str) -> Result<DekMetadata, LockstoreError> {
         let dek_key = format!("{}{}", DEK_PREFIX, collection_name);
@@ -321,26 +410,5 @@ impl LockstoreKeystore {
         let value = utils::bytes_to_value(&metadata_bytes)?;
         db.put(&[(key, Some(value))])?;
         Ok(())
-    }
-
-    fn get_kek_for(
-        &self,
-        cipher_suite: CipherSuite,
-        security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, LockstoreError> {
-        let storage_key = security_level.storage_key();
-        let db = Database::new(&self.store, DB_NAME);
-        let key = Key::from(storage_key);
-
-        let existing_kek = db.get(&key, &GetOptions::default())?;
-
-        if let Some(value) = existing_kek {
-            utils::value_to_bytes(&value)
-        } else {
-            let new_kek = crypto::generate_random_key(cipher_suite);
-            let value = utils::bytes_to_value(&new_kek)?;
-            db.put(&[(key, Some(value))])?;
-            Ok(new_kek)
-        }
     }
 }

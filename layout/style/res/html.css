@@ -705,10 +705,13 @@ iframe {
   border: 2px inset;
 }
 
-/* https://html.spec.whatwg.org/#images-3 */
-img:is([sizes="auto" i], [sizes^="auto," i]) {
-  contain: size !important;
-  contain-intrinsic-size: 300px 150px;
+/* stylelint-disable-next-line media-query-no-invalid */
+@media -moz-pref("dom.image.sizes_auto.enabled") {
+  /* https://html.spec.whatwg.org/#images-3 */
+  img:is([sizes="auto" i], [sizes^="auto," i]) {
+    contain: size !important;
+    contain-intrinsic-size: 300px 150px;
+  }
 }
 
 spacer {
@@ -982,7 +985,6 @@ dialog:popover-open {
 
 [popover] {
   position: fixed;
-  position-anchor: auto;
   inset: 0;
   width: fit-content;
   height: fit-content;

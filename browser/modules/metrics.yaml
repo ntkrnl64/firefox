@@ -586,30 +586,6 @@ installation.first_seen:
     expires: never
     telemetry_mirror: INSTALLATION_FIRSTSEEN_DEFAULT_PATH
 
-performance.interaction:
-  tab_switch_composite:
-    type: timing_distribution
-    time_unit: millisecond
-    telemetry_mirror: FX_TAB_SWITCH_COMPOSITE_E10S_MS
-    description: >
-      Time between tab selection and first composite of the tab content onto the
-      screen.
-      (Migrated from the geckoview metric of the same name.)
-    metadata:
-      tags:
-        - 'Firefox :: Tabbed Browser'
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1481704
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1580077
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1877842
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1580077#c10
-    notification_emails:
-      - mconley@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
 browser.usage:
   interaction:
     type: event
@@ -1069,9 +1045,13 @@ browser.ui.interaction:
     bugs:
       - https://bugzil.la/1620358
       - https://bugzil.la/2020865
+      - https://bugzil.la/2032598
+      - https://bugzil.la/2032602
     data_reviews:
       - https://bugzil.la/1620358
       - https://bugzil.la/2020865
+      - https://bugzil.la/2032598
+      - https://bugzil.la/2032602
     notification_emails:
       - shong@mozilla.com
       - dtownsend@mozilla.com
@@ -1343,6 +1323,108 @@ browser.ui.interaction:
     notification_emails:
       - mstriemer@mozilla.com
       - sopsal@mozilla.com
+    expires: never
+
+  preferences_pane_about:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the About Firefox section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/1990885
+    data_reviews:
+      - https://bugzil.la/1990885
+    notification_emails:
+      - mstriemer@mozilla.com
+      - akulyk@mozilla.com
+    expires: never
+
+  preferences_pane_downloads:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the Downloads section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/2001154
+    data_reviews:
+      - https://bugzil.la/2001154
+    notification_emails:
+      - mstriemer@mozilla.com
+      - mkennedy@mozilla.com
+    expires: never
+
+  preferences_pane_accessibility:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the Accessibility section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/1968116
+    data_reviews:
+      - https://bugzil.la/1968116
+    notification_emails:
+      - mstriemer@mozilla.com
+      - tgiles@mozilla.com
+    expires: never
+
+  preferences_pane_appearance:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the Appearance section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/1968113
+    data_reviews:
+      - https://bugzil.la/1968113
+    notification_emails:
+      - mstriemer@mozilla.com
+      - tgiles@mozilla.com
+    expires: never
+
+  preferences_pane_languages:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the Languages section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/1972081
+    data_reviews:
+      - https://bugzil.la/1972081
+    notification_emails:
+      - mstriemer@mozilla.com
+    expires: never
+
+  preferences_pane_tabs_browsing:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the Tabs and browsing section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/1968114
+    data_reviews:
+      - https://bugzil.la/1968114
+    notification_emails:
+      - hjones@mozilla.com
+    expires: never
+
+  preferences_pane_permissions_data:
+    type: labeled_counter
+    description: >
+      Records the items interacted with in the Permissions and data section
+      of preferences. See
+      https://firefox-source-docs.mozilla.org/browser/BrowserUsageTelemetry.html
+    bugs:
+      - https://bugzil.la/1968118
+    data_reviews:
+      - https://bugzil.la/1968118
+    notification_emails:
+      - hjones@mozilla.com
     expires: never
 
   preferences_pane_experimental:

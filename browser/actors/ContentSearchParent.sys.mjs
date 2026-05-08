@@ -216,7 +216,7 @@ export let ContentSearch = {
     ]);
     let engine = lazy.SearchService.getEngineByName(data.engineName);
     let submission = engine.getSubmission(data.searchString, "");
-    let win = browser.ownerGlobal;
+    let win = browser.documentGlobal;
     if (!win) {
       // The browser may have been closed between the time its content sent the
       // message and the time we handle it.
@@ -458,7 +458,7 @@ export let ContentSearch = {
   },
 
   _onMessageManageEngines({ browser }) {
-    browser.ownerGlobal.openPreferences("paneSearch");
+    browser.documentGlobal.openPreferences("paneSearch");
   },
 
   async _onMessageGetSuggestions({ actor, browser, data }) {
@@ -500,7 +500,7 @@ export let ContentSearch = {
   },
 
   _onMessageSearchHandoff({ browser, data, actor }) {
-    let win = browser.ownerGlobal;
+    let win = browser.documentGlobal;
     let text = data.text;
     let urlBar = win.gURLBar;
     let inPrivateBrowsing = lazy.PrivateBrowsingUtils.isBrowserPrivate(browser);
@@ -565,20 +565,23 @@ export let ContentSearch = {
       const forceSuppressFocusBorder = ev?.type === "mousedown";
       urlBar.removeHiddenFocus(forceSuppressFocusBorder);
 
-      urlBar.removeEventListener("keydown", onKeydown);
-      urlBar.removeEventListener("mousedown", onDone);
-      urlBar.removeEventListener("blur", onDone);
-      urlBar.removeEventListener("compositionstart", checkFirstChange);
-      urlBar.removeEventListener("paste", checkFirstChange);
+      urlBar.inputField.removeEventListener("keydown", onKeydown);
+      urlBar.inputField.removeEventListener("mousedown", onDone);
+      urlBar.inputField.removeEventListener("blur", onDone);
+      urlBar.inputField.removeEventListener(
+        "compositionstart",
+        checkFirstChange
+      );
+      urlBar.inputField.removeEventListener("paste", checkFirstChange);
 
       actor.sendAsyncMessage("ShowSearch");
     };
 
-    urlBar.addEventListener("keydown", onKeydown);
-    urlBar.addEventListener("mousedown", onDone);
-    urlBar.addEventListener("blur", onDone);
-    urlBar.addEventListener("compositionstart", checkFirstChange);
-    urlBar.addEventListener("paste", checkFirstChange);
+    urlBar.inputField.addEventListener("keydown", onKeydown);
+    urlBar.inputField.addEventListener("mousedown", onDone);
+    urlBar.inputField.addEventListener("blur", onDone);
+    urlBar.inputField.addEventListener("compositionstart", checkFirstChange);
+    urlBar.inputField.addEventListener("paste", checkFirstChange);
   },
 
   async _onObserve(eventItem) {

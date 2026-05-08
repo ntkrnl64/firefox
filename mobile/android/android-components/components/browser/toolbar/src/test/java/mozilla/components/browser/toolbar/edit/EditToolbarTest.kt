@@ -26,6 +26,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class EditToolbarTest {
@@ -59,7 +60,7 @@ class EditToolbarTest {
         latch.await()
 
         assertEquals("Hello", invokedWithParams!![0])
-        assertTrue(invokedWithParams[1] is AutocompleteDelegate)
+        assertIs<AutocompleteDelegate>(invokedWithParams[1])
     }
 
     @Test
@@ -82,7 +83,7 @@ class EditToolbarTest {
         // Serialize here for the sake of tests.
         latch.await()
         assertEquals("Test", invokedWithParams!![0])
-        assertTrue(invokedWithParams[1] is AutocompleteDelegate)
+        assertIs<AutocompleteDelegate>(invokedWithParams[1])
     }
 
     @Test
@@ -148,7 +149,7 @@ class EditToolbarTest {
             assertNotNull(metadata!!)
             assertEquals(1, metadata.size)
             assertTrue(metadata.contains("autocomplete"))
-            assertTrue(metadata["autocomplete"] is Boolean)
+            assertIs<Boolean>(metadata["autocomplete"])
             assertFalse(metadata["autocomplete"] as Boolean)
         }
     }
@@ -199,7 +200,7 @@ class EditToolbarTest {
             assertEquals(2, metadata.size)
 
             assertTrue(metadata.contains("autocomplete"))
-            assertTrue(metadata["autocomplete"] is Boolean)
+            assertIs<Boolean>(metadata["autocomplete"])
             assertTrue(metadata["autocomplete"] as Boolean)
 
             assertTrue(metadata.contains("source"))

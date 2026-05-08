@@ -1,4 +1,3 @@
-// -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at https://mozilla.org/MPL/2.0/. */
@@ -171,23 +170,23 @@ export class UserCharacteristicsPageService {
       [this.initWindowInfoActor, []],
       [
         this.populateWebGlInfo,
-        [browser.ownerGlobal, browser.ownerDocument, 1, false],
+        [browser.documentGlobal, browser.ownerDocument, 1, false],
       ],
       [
         this.populateWebGlInfo,
-        [browser.ownerGlobal, browser.ownerDocument, 1, true],
+        [browser.documentGlobal, browser.ownerDocument, 1, true],
       ],
       [
         this.populateWebGlInfo,
-        [browser.ownerGlobal, browser.ownerDocument, 2, false],
+        [browser.documentGlobal, browser.ownerDocument, 2, false],
       ],
       [
         this.populateWebGlInfo,
-        [browser.ownerGlobal, browser.ownerDocument, 2, true],
+        [browser.documentGlobal, browser.ownerDocument, 2, true],
       ],
       [this.populateCanvasData, []],
-      [this.populateWebGPUProperties, [browser.ownerGlobal]],
-      [this.populateUserAgent, [browser.ownerGlobal]],
+      [this.populateWebGPUProperties, [browser.documentGlobal]],
+      [this.populateUserAgent, [browser.documentGlobal]],
     ];
     // Bind them to the class and run them in parallel.
     // Timeout if any of them takes too long (5 minutes).

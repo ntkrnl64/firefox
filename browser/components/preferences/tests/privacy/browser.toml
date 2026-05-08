@@ -1,4 +1,7 @@
 [DEFAULT]
+prefs = [
+  "browser.settings-redesign.enabled=false",
+]
 support-files = [
   "head.js",
   "../head.js",
@@ -18,8 +21,6 @@ skip-if = [
 ["browser_privacy_allowListPreference_reload.js"]
 
 ["browser_privacy_allowListPreference_telemetry.js"]
-
-["browser_privacy_cookieBannerHandling.js"]
 
 ["browser_privacy_dnsoverhttps.js"]
 skip-if = [

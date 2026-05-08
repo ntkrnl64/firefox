@@ -271,7 +271,6 @@ xorigin:
         mozharness:
             extra-options:
                 - "--enable-xorigin-tests"
-                - "--setpref=privacy.partition.always_partition_third_party_non_cookie_storage=false"
 
 conditioned_profile:
     description: "{description} with conditioned profile"
@@ -303,8 +302,6 @@ conditioned_profile:
         mozharness:
             extra-options:
                 - "--conditioned-profile"
-    replace:
-        chunks: 8
 
 socketprocess:
     description: "{description} with socket process enabled"
@@ -512,11 +509,15 @@ msix:
                         || "debug" in task["test-platform"]
                     ) && !(
                         "asan" in task["test-platform"]
+                        || "artifact" in task["test-platform"]
                         || "ccov" in task["test-platform"]
                         || "devedition" in task["test-platform"]
                     )
                 '
     replace:
+        target:
+            by-test-platform:
+                windows11-64.*: target.installer.msix
         mozharness:
             extra-options:
                 - "--variant=msix"
@@ -614,7 +615,7 @@ vertical-tabs:
 inc-origin-init:
     description: "{description} limited to tests identified as being applicable to also run with incremental origin initialization enabled"
     component: "Core::Storage: Quota Manager"
-    expiration: "2026-05-01"
+    expiration: "2026-12-31"
     suffix: "ioi"
     mozinfo: "inc_origin_init"
     replace:
@@ -644,7 +645,7 @@ privatebrowsing:
 privatebrowsing-inc-origin-init:
     description: "{description} limited to tests identified as being applicable to also run in private browsing mode and with incremental origin initialization enabled"
     component: "Core::Storage: Quota Manager"
-    expiration: "2026-05-01"
+    expiration: "2026-12-31"
     suffix: "pb-ioi"
     replace:
         tier: 3

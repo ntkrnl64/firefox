@@ -31,6 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -94,8 +99,6 @@ private fun AddToTabGroupContent(
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(
-                start = FirefoxTheme.layout.space.dynamic200,
-                end = FirefoxTheme.layout.space.dynamic200,
                 bottom = 12.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static200),
@@ -126,9 +129,17 @@ private fun NewTabGroupContent(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val newTabGroupContentDescription = stringResource(
+        id = R.string.add_to_new_tab_group_content_description,
+    )
     Row(
         modifier = modifier
             .defaultMinSize(minHeight = NEW_TAB_GROUP_COMPONENT_HEIGHT)
+            .padding(horizontal = FirefoxTheme.layout.space.dynamic200)
+            .semantics(mergeDescendants = true) {
+                contentDescription = newTabGroupContentDescription
+                role = Role.Button
+            }
             .combinedClickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static200),
@@ -149,7 +160,9 @@ private fun NewTabGroupContent(
 
         Text(
             text = stringResource(R.string.add_to_new_tab_group_title),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .clearAndSetSemantics { },
             style = FirefoxTheme.typography.body1,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

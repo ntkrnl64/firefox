@@ -503,7 +503,7 @@ void MacroAssemblerCompat::handleFailureWithHandlerTail(
 
   // Found a wasm catch handler, restore state and jump to it.
   bind(&wasmCatch);
-  wasm::GenerateJumpToCatchHandler(asMasm(), PseudoStackPointer, r0, r1);
+  wasm::GenerateJumpToCatchHandler(asMasm(), PseudoStackPointer, r0, r1, r2);
 
   MOZ_ASSERT(GetStackPointer64().Is(PseudoStackPointer64));
 }
@@ -3797,10 +3797,10 @@ void MacroAssembler::shiftIndex32AndAdd(Register indexTemp32, int shift,
 
 void MacroAssembler::wasmMarkCallAsSlow() {
   // Use mov() instead of Mov() to ensure this no-op move isn't elided.
-  vixl::MacroAssembler::mov(x28, x28);
+  vixl::MacroAssembler::mov(x20, x20);
 }
 
-const int32_t SlowCallMarker = 0xaa1c03fc;
+const int32_t SlowCallMarker = 0xaa1403f4;  // mov x20, x20
 
 void MacroAssembler::wasmCheckSlowCallsite(Register ra, Label* notSlow,
                                            Register temp1, Register temp2) {

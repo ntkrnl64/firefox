@@ -76,7 +76,7 @@ A Feature Callout displaying a user feedback survey
 
 ### Via local provider:
 
-You can also test Feature Callouts by adding them to the [local provider](https://searchfox.org/mozilla-central/source/browser/components/asrouter/modules/FeatureCalloutMessages.sys.mjs). While slower than using the devtools, this is useful when you want to test the trigger or targeting, or when your callout's anchor is an element that is not visible while on `about:asrouter` (such as a urlbar button).
+You can also test Feature Callouts by adding them to the [local provider](https://searchfox.org/firefox-main/source/browser/components/asrouter/modules/FeatureCalloutMessages.sys.mjs). While slower than using the devtools, this is useful when you want to test the trigger or targeting, or when your callout's anchor is an element that is not visible while on `about:asrouter` (such as a urlbar button).
 
 ### Via Experiments:
 
@@ -300,8 +300,10 @@ interface FeatureCallout {
           // "hasActiveMultiSelect" to disable the button until the user
           // selects something. If your screen has a textarea tile, you can use
           // "hasTextInput" to disable the button while the textarea is empty or
-          // exceeds the character limit.
-          disabled?: boolean | "hasActiveMultiSelect" | "hasTextInput";
+          // exceeds the character limit. If your screen uses a "single-select"
+          // tile, you can use "hasActiveSingleSelect" to disable the primary
+          // button until the user selects an option.
+          disabled?: boolean | "hasActiveMultiSelect" | "hasActiveSingleSelect" | "hasTextInput";
           // Primary buttons can have a "primary" or "secondary" style. This
           // is useful because you can't change the order of the buttons, but
           // you can swap the primary and secondary buttons' styles.

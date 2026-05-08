@@ -8,9 +8,13 @@
 newtab-page-title = Nowy rejtarik
 newtab-settings-button =
     .title = Bok wašogo nowego rejtarika pśiměriś
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button =
     .title = Toś ten bok pśiměriś
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button-label once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button-label = Pśiměriś
+newtab-customize-panel-label =
+    .label = Pśiměriś
 newtab-personalize-settings-icon-label =
     .title = Nowy rejtarik personalizěrowaś
     .aria-label = Nastajenja
@@ -144,6 +148,9 @@ newtab-menu-report = K wěsći daś
 # Context menu option to personalize New Tab recommended stories by blocking a section of stories,
 # e.g. "Sports". "Block" is a verb here.
 newtab-menu-section-block = Blokěrowaś
+# "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
+# e.g. Following the travel section of stories.
+newtab-menu-section-unfollow-topic = Wěcej njeslědowaś
 # "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
 # e.g. Following the travel section of stories.
 newtab-menu-section-unfollow = Temje wěcej njeslědowaś
@@ -311,9 +318,25 @@ newtab-error-fallback-refresh-link = Aktualizěrujśo bok, aby hyšći raz wopyt
 
 newtab-custom-shortcuts-title = Zwězanja
 newtab-custom-shortcuts-subtitle = Sedła, kótarež składujośo abo ku kótarymž se woglědujośo
+#  (developer note): @nova-cleanup(remove-string): Remove old string once Nova lands. The newtab-custom-shortcuts-nova string will take over
 newtab-custom-shortcuts-toggle =
     .label = Zwězanja
     .description = Sedła, kótarež składujośo abo ku kótarymž se woglědujośo
+newtab-custom-shortcuts-nova =
+    .label = Zwězanja
+newtab-custom-row-description =
+    .description = Licba smužkow
+# Variables
+#   $num (number) - Number of rows to display
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be using "row"/"rows" anymore for the dropdown
+newtab-custom-row-selector2 =
+    .label =
+        { $num ->
+            [one] { $num } smužka
+            [two] { $num } smužce
+            [few] { $num } smužki
+           *[other] { $num } smužkow
+        }
 # Variables
 #   $num (number) - Number of rows to display
 newtab-custom-row-selector =
@@ -326,9 +349,12 @@ newtab-custom-row-selector =
 newtab-custom-sponsored-sites = Sponserowane zwězanja
 newtab-custom-pocket-title = Wót { -pocket-brand-name } dopórucone
 newtab-custom-pocket-subtitle = Wósebne wopśimjeśe, wubrane pśez { -pocket-brand-name }, źěla swójźby { -brand-product-name }
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be having a description under "Recommended stories" anymore
 newtab-custom-stories-toggle =
     .label = Dopórucone tšojeńka
     .description = Wuwześowe wopśimjeśe, kótarež se pśez swójźbu { -brand-product-name } wótwardujo
+newtab-recommended-stories-toggle =
+    .label = Dopórucone tšojeńka
 newtab-custom-stories-personalized-toggle =
     .label = Tšojenja
 newtab-custom-stories-personalized-checkbox-label = Personalizěrowane tšojenja na zakłaźe wašeje aktiwity
@@ -345,6 +371,8 @@ newtab-custom-widget-lists-toggle =
     .label = Lisćiny
 newtab-custom-widget-timer-toggle =
     .label = Měritko casa
+newtab-custom-widget-sports-toggle =
+    .label = Swětowe mejstaŕstwo
 newtab-custom-widget-section-title = Asistenty
 newtab-custom-widget-section-toggle =
     .label = Asistenty
@@ -362,8 +390,12 @@ newtab-custom-settings = Dalšne nastajenja zastojaś
 
 newtab-wallpaper-title = Slězynowe wobraze
 newtab-wallpaper-reset = Na standard slědk stajiś
+#  (developer note): @nova-cleanup(remove-string): Remove old "Upload an image" string once Nova lands. The new "Add an image"  string will take over
 newtab-wallpaper-upload-image = Wobraz nagraś
+newtab-wallpaper-add-an-image = Wobraz pśidaś
 newtab-wallpaper-custom-color = Barwu wubraś
+newtab-wallpaper-toggle-title =
+    .label = Slězynowe wobraze
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = Wobraz jo pśekšocył limit datajoweje wjelikosći { $file_size }. Nagrajśo pšosym mjeńšu dataju.
@@ -386,7 +418,9 @@ newtab-wallpaper-light-fox-anniversary = Liška w tšawowem pólu z kurjawkateju
 
 ## Solid Colors
 
+#  (developer note): @nova-cleanup(remove-string): Remove old "Solid colors" string once Nova lands. The simplified "Colors" string will take over
 newtab-wallpaper-category-title-colors = Jadnotne barwy
+newtab-wallpaper-colors = Barwy
 newtab-wallpaper-blue = Módry
 newtab-wallpaper-light-blue = Swětłomódry
 newtab-wallpaper-light-purple = Swětłowioletny
@@ -477,6 +511,9 @@ newtab-weather-menu-change-location = Městno změniś
 newtab-weather-change-location-search-input-placeholder =
     .placeholder = Městno pytaś
     .aria-label = Městno pytaś
+# "Current" refers to the user's physical/geographic location detected via geolocation.
+newtab-weather-change-location-search-use-current =
+    .label = Aktualne stojnišćo wužywaś
 newtab-weather-menu-weather-display = Wjedrowe pokazanje
 newtab-weather-todays-forecast = Źinsajšna pśedpowěsć
 newtab-weather-see-full-forecast = Dopołnu pśedpowěsć se woglědaś
@@ -492,7 +529,6 @@ newtab-weather-menu-temperature-option-fahrenheit = Fahrenheit
 newtab-weather-menu-temperature-option-celsius = Celsius
 newtab-weather-menu-change-temperature-units-fahrenheit = Fahrenheit wužywaś
 newtab-weather-menu-change-temperature-units-celsius = Celsius wužywaś
-newtab-weather-menu-hide-weather-v2 = Wjedro schowaś
 newtab-weather-menu-hide-weather = Wjedro na nowem rejtariku schowaś
 newtab-weather-menu-learn-more = Dalšne informacije
 newtab-weather-menu-detect-my-location = Mójo stojnišćo namakaś
@@ -503,8 +539,18 @@ newtab-weather-opt-in-not-now =
     .label = Nic něnto
 newtab-weather-opt-in-yes =
     .label = Jo
+newtab-weather-opt-in-headline = Dostańśo swóju lokalnu wjedrowu pśedpowěsć
+newtab-weather-opt-in-use-location =
+    .label = Stojnišćo wužywaś
+newtab-weather-opt-in-choose-location = Stojnišćo wubraś
 # We'll be showing static (fake) weather data if the user has not opted in to using their location
 newtab-weather-static-city = New York City
+# "Highest" here refers to the highest temperature of the day
+newtab-weather-high =
+    .aria-label = Wusoka
+# "Lowest" here refers to the lowest temperature of the day
+newtab-weather-low =
+    .aria-label = Niska
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-see-forecast-description =
@@ -556,8 +602,16 @@ newtab-topic-selection-button-pick-interests = Wubjeŕśo swóje zajmy
 ## e.g. Following the travel section of stories.
 
 newtab-section-follow-button = Slědowaś
+# Variables:
+#   $topic (string) - Topic that the user can follow
+newtab-section-follow-button-label =
+    .aria-label = { $topic } slědowaś
 newtab-section-following-button = Slědujucy
 newtab-section-unfollow-button = Wěcej njeslědowaś
+# Variables:
+#   $topic (string) - Topic that the user is following and can unfollow
+newtab-section-unfollow-button-label =
+    .aria-label = Slědowanje: { $topic } wěcej njeslědowaś
 # A modal may appear next to the Follow button, directing users to try out the feature
 newtab-section-follow-highlight-title = Zgłosujśo swój kanal nadrobno
 newtab-section-follow-highlight-subtitle = Slědujśo swójim zajmam, aby wěcej wó tom wiźeł, což se wam spódoba.
@@ -569,6 +623,22 @@ newtab-section-follow-highlight-subtitle = Slědujśo swójim zajmam, aby wěcej
 newtab-section-block-button = Blokěrowaś
 newtab-section-blocked-button = Blokěrowany
 newtab-section-unblock-button = Wěcej njeblokěrowaś
+# Variables:
+#   $topic (string) - Name of topic that user is following
+newtab-section-follow-topic =
+    .aria-label = { $topic } slědowaś
+# Variables:
+#   $topic (string) - Name of topic that user is unfollowing
+newtab-section-unfollow-topic =
+    .aria-label = { $topic } wěcej njeslědowaś
+# Variables:
+#   $topic (string) - Name of topic that user is blocking
+newtab-section-block-topic =
+    .aria-label = { $topic } blokěrowaś
+# Variables:
+#   $topic (string) - Name of topic that user is unblocking
+newtab-section-unblock-topic =
+    .aria-label = { $topic } wěcej njeblokěrowaś
 
 ## Confirmation modal for blocking a section
 
@@ -578,6 +648,7 @@ newtab-section-confirm-block-topic-p2 = Blokěrowane temy se wěcej we wašom ka
 # Variables:
 #   $topic (string) - Name of topic that user is blocking
 newtab-section-block-topic-button = { $topic } blokěrowaś
+newtab-section-block-cancel-button = Pśetergnuś
 
 ## Strings for custom wallpaper highlight
 
@@ -598,6 +669,12 @@ newtab-custom-wallpaper-cta = Wopytajśo jen
 newtab-new-user-custom-wallpaper-title = Wubjeŕśo slězynowy wobraz, aby se { -brand-product-name } pśiswójł
 newtab-new-user-custom-wallpaper-subtitle = Cujśo se na kuždem nowem rejtariku ako doma ze swójskimi slězynowymi wobrazami a barwami.
 newtab-new-user-custom-wallpaper-cta = Wopytajśo něnto
+
+## Strings for Nova wallpaper feature highlight
+
+newtab-wallpaper-feature-highlight-title = Nowe slězynowe wobraze su rowno dojšli
+newtab-wallpaper-feature-highlight-subtitle = Wubjeŕśo swój faworit a dajśo kuždemu nowemu rejtarikoju zacuśe, se ako doma cuś.
+newtab-wallpaper-feature-highlight-cta = Slězynowy wobraz wubraś
 
 ## Strings for download mobile highlight
 
@@ -641,6 +718,18 @@ newtab-toast-thanks-for-reporting =
     .message = Wjeliki źěk, až sćo dał to k wěsći.
 newtab-toast-widgets-hidden =
     .message = Wubjeŕśo symbol pisaka, aby kuždy cas zasej asistenty pśidał.
+# Variables:
+#   $topic (string) - Topic that the user has followed
+newtab-section-toast-follow =
+    .message = Slědujośo něnto { $topic }.
+# Variables:
+#   $topic (string) - Topic that the user has unfollowed
+newtab-section-toast-unfollow =
+    .message = Njeslědujośo wěcej { $topic }.
+# Variables:
+#   $topic (string) - Topic that the user has blocked
+newtab-section-toast-block =
+    .message = Njewiźiśo wěcej tšojeńki wó { $topic }.
 
 ## Strings for task / to-do list productivity widget
 
@@ -655,13 +744,20 @@ newtab-widget-lists-label-beta =
 # Variables:
 #   $number (number) - Amount of list items marked complete
 newtab-widget-lists-completed-list = Dokóńcony ({ $number })
+newtab-widget-lists-celebration-headline = Dobre źěło
+newtab-widget-lists-celebration-subhead = Wšykno wótbyte
 newtab-widget-task-list-menu-copy = Kopěrowaś
 newtab-widget-lists-menu-edit = Mě lisćiny wobźěłaś
+newtab-widget-lists-menu-edit2 =
+    .aria-label = Mě lisćiny wobźěłaś
 newtab-widget-lists-menu-create = Nowu lisćinu napóraś
 newtab-widget-lists-menu-delete = Toś tu lisćinu lašowaś
 newtab-widget-lists-menu-copy = Lisćinu do mjazywótkłada kopěrowaś
-newtab-widget-lists-menu-hide = Wšykne lisćiny schowaś
 newtab-widget-lists-menu-learn-more = Dalšne informacije
+newtab-widget-lists-button-add-item = Zapisk pśidaś
+newtab-widget-lists-input-add-an-item2 =
+    .placeholder = Zapisk pśidaś
+    .aria-label = Zapisk pśidaś
 newtab-widget-lists-input-add-an-item =
     .placeholder = Zapisk pśidaś
 newtab-widget-lists-input-error = Pšosym zapśimujśo tekst, aby zapisk pśidał.
@@ -670,18 +766,35 @@ newtab-widget-lists-input-menu-move-up = Górjej
 newtab-widget-lists-input-menu-move-down = Dołoj
 newtab-widget-lists-input-menu-delete = Lašowaś
 newtab-widget-lists-input-menu-edit = Wobźěłaś
+newtab-widget-lists-input-menu-edit2 =
+    .aria-label = Zapisk wobźěłaś
 # the + symbol emphasises the functionality of adding a new list
 newtab-widget-lists-dropdown-create =
     .label = + Nowu lisćinu napóraś
 newtab-widget-lists-name-label-default =
     .label = Lisćiny nadawkow
+newtab-widget-lists-name-label-checklist =
+    .label = Kontrolna lisćina
 newtab-widget-lists-name-placeholder-default =
     .placeholder = Lisćiny nadawkow
+newtab-widget-lists-name-placeholder-checklist2 =
+    .placeholder = Kontrolna lisćina
+    .aria-label = Mě lisćiny wobźěłaś
+# The placeholder value of the name field for a newly created list
+newtab-widget-lists-name-placeholder-new2 =
+    .placeholder = Nowa lisćina
+    .aria-label = Mě lisćiny wobźěłaś
+newtab-widget-lists-name-placeholder-checklist =
+    .placeholder = Kontrolna lisćina
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nowa lisćina
 newtab-widget-section-title = Asistenty
 newtab-widget-menu-hide = Asistent schowaś
+newtab-widget-menu-change-size = Wjelikosć změniś
+newtab-widget-size-small = Mały
+newtab-widget-size-medium = Srjejźny
+newtab-widget-size-large = Wjeliki
 # Tooltip for hide all widgets button
 newtab-widget-section-hide-all-button =
     .title = Asistenty schowaś
@@ -692,10 +805,15 @@ newtab-widget-section-maximize =
 newtab-widget-section-minimize =
     .title = Asistenty miniměrowaś
     .aria-label = Wšykne asistenty do kompaktneje wjelikosći złožyś
+newtab-widget-section-menu-button =
+    .title = Meni asistentow
+    .aria-label = Meni asistentow wócyniś
+newtab-widget-section-menu-hide-all = Asistenty schowaś
+newtab-widget-section-menu-learn-more = Dalšne informacije
 newtab-widget-section-feedback = Grońśo nam swójo měnjenje
+newtab-widget-lists-name-default = Kontrolna lisćina
 
-## Strings for timer productivity widget
-## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+## Strings introduced by the Nova redesign of the Timer widget
 
 newtab-widget-timer-notification-title = Měritko casa
 newtab-widget-timer-notification-focus = Fokusowy cas jo mimo. Wjelicne źěło. Trjebaśo pśestank?
@@ -713,7 +831,6 @@ newtab-widget-timer-reset =
     .title = Slědk stajiś
 newtab-widget-timer-menu-notifications = Zdźělenja znjemóžniś
 newtab-widget-timer-menu-notifications-on = Zdźělenja zmóžniś
-newtab-widget-timer-menu-hide = Měritko casa schowaś
 newtab-widget-timer-menu-learn-more = Dalšne informacije
 # The title displays above a set of top news headlines.
 newtab-daily-briefing-card-title = Wažne głowne nadpisma
@@ -724,12 +841,124 @@ newtab-daily-briefing-card-timestamp = Pśed { $minutes } m zaktualizěrowany
 newtab-widget-message-title = Wóstańśo koncentrěrowany z lisćinami a zatwarjonym casowym měritkom
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Wót malsnych dopomnjeśow do wšednych nadawkowych lisćinow, koncentrěrujśo se na posejźenja, aby pśestawki pódlejšył – njepópušćajśo a buźćo zdypkom.
+# "Make Firefox yours" refers to about:newtab. The call to action here ("Try it now")
+# is to customize the new tab page with a background image or color from
+# the built-in wallpaper collection or uploading your own image.
+newtab-promo-card-title-addons = Pśiměŕśo { -brand-product-name } pó swójom dobrozdaśu
+newtab-promo-card-body-addons = Wubjeŕśo slězynowy wobraz z našeje zběrki abo napórajśo swójski.
+newtab-promo-card-cta-addons = Wopytajśo něnto
 newtab-promo-card-title = { -brand-product-name } pódpěraś
 newtab-promo-card-body = Naše sponsory našu misiju pódpěraju, aby lěpšy web twórili
 newtab-promo-card-cta = Dalšne informacije
 newtab-promo-card-dismiss-button =
     .title = Zachyśiś
     .aria-label = Zachyśiś
+
+## Strings introduced by the Nova redesign of the Timer widget
+
+# Variables:
+#   $minutes (number) - The currently selected timer duration in minutes
+newtab-widget-timer-start-aria =
+    .aria-label =
+        { $minutes ->
+            [one] { $minutes }-minutowy casowe měritko startowaś
+            [two] { $minutes }-minutowy casowe měritko startowaś
+            [few] { $minutes }-minutowy casowe měritko startowaś
+           *[other] { $minutes }-minutowy casowe měritko startowaś
+        }
+newtab-widget-timer-pause-aria =
+    .aria-label = Casowe měritko zastajiś
+# Variables:
+#   $minutes (number) - The currently selected timer duration in minutes
+newtab-widget-timer-spinbutton-name =
+    .aria-label =
+        { $minutes ->
+            [one] { $minutes } minuta
+            [two] { $minutes } minuśe
+            [few] { $minutes } minuty
+           *[other] { $minutes } minutow
+        }
+newtab-widget-timer-decrease-min =
+    .title = Wó 1 minutu pómjeńšyś
+newtab-widget-timer-increase-min =
+    .title = Wó 1 minutu pówušyś
+newtab-widget-timer-mode-group =
+    .aria-label = Modus casowego měritka
+# Small label shown beneath the live time while the focus timer is running or paused.
+newtab-widget-timer-running-focus = Fokus
+# Small label shown beneath the live time while the break timer is running or paused.
+newtab-widget-timer-running-break = Pawza
+# Context-menu item to hide the Timer widget. Replaces the shared "Hide widget"
+# copy with a widget-specific string per the Nova design.
+newtab-widget-timer-menu-hide = Měritko casa schowaś
+# Heading shown inside the Timer widget after a focus session ends.
+newtab-widget-timer-celebration-heading-focus = Dobre źěło
+# Heading shown inside the Timer widget after a break session ends.
+newtab-widget-timer-celebration-heading-break = Waša pawza jo mimo
+# Message shown inside the Timer widget after a focus session ends.
+newtab-widget-timer-celebration-message-focus = Trjebaśo pawzu?
+# Message shown inside the Timer widget after a break session ends.
+newtab-widget-timer-celebration-message-break = Sćo gótowy se koncentrěrowaś?
+
+## Sports widget
+
+newtab-sports-widget-menu-follow-teams = Teamam slědowaś
+newtab-sports-widget-menu-view-upcoming = Pśichodny pokazaś
+newtab-sports-widget-menu-view-results = Wuslědki pokazaś
+newtab-sports-widget-menu-learn-more = Dalšne informacije
+newtab-sports-widget-countdown-title = Countdown k swětowemu mejstaŕstwoju
+# Abbreviated label for days in the sport widget countdown. D is short for Days.
+# The layout only allows for 1–2 characters: if there is an equivalent single
+# character for your language, use that. Your translation will be automatically
+# truncated at 1 character to avoid layout issues.
+newtab-sports-widget-countdown-days = Ź
+# Abbreviated label for hours in the sport widget countdown. H is short for Hours.
+# The layout only allows for 1–2 characters: if there is an equivalent single
+# character for your language, use that. Your translation will be automatically
+# truncated at 1 character to avoid layout issues.
+newtab-sports-widget-countdown-hours = G
+# Abbreviated label for minutes in the sport widget countdown. M is short for Minutes.
+# The layout only allows for 1–2 characters: if there is an equivalent single
+# character for your language, use that. Your translation will be automatically
+# truncated at 1 character to avoid layout issues.
+newtab-sports-widget-countdown-minutes = M
+newtab-sports-widget-get-updates = Dostańśo aktualizacije live a wěcej.
+newtab-sports-widget-view-schedule =
+    .label = Grajny plan pokazaś
+newtab-sports-widget-follow-teams =
+    .label = Teamam slědowaś
+newtab-sports-widget-choose-wallpaper =
+    .label = Wubjeŕśo slězynowy wobraz
+newtab-sports-widget-skip = Pśeskócyś
+newtab-sports-widget-search-teams =
+    .placeholder = Teamy pytaś
+    .aria-label = Teamy pytaś
+newtab-sports-widget-done-button =
+    .label = Dokóńcony
+newtab-sports-widget-group-stage = Kupkowa faza
+# The "LIVE" string is meant to be uppercase in English, but other languages and locales may vary in how they handle this.
+newtab-sports-widget-live = LIVE
+newtab-custom-widget-live-refresh =
+    .title = Wuslědki aktualizěrowaś
+    .aria-label = Wuslědki aktualizěrowaś
+newtab-sports-widget-upcoming = Pśichodne
+newtab-sports-widget-results = Wuslědki
+newtab-sports-widget-semi-finals = Połfinale
+newtab-sports-widget-bronze-finals = Graśe wó městno 3
+# Final is the final match for 1st place.
+newtab-sports-widget-final = Finale
+newtab-sports-widget-delayed = Wokomuźony
+newtab-sports-widget-postponed = Wótstarcony
+newtab-sports-widget-suspended = Wótgronjony
+newtab-sports-widget-cancelled = Anulěrowany
+newtab-sports-widget-information = Informacije wó graśu
+newtab-sports-widget-no-live-data = Daty graśa live se ned njeaktualizěruju
+newtab-sports-widget-view-results-link = Wuslědki pokazaś
+newtab-sports-widget-third-place = Tśeśe městno
+# Runner-up is the team in 2nd place.
+newtab-sports-widget-runner-up = Druge městno
+newtab-sports-widget-champions = Mejstarje
+newtab-sports-widget-world-cup-champions = Swětowe mejstarje 2026
 
 ## Strings for activation window message variants. In certain experiment configurations,
 ## the strings from these variants may be displayed in a message below the search input

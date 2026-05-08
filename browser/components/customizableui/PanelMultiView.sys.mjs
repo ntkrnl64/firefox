@@ -82,7 +82,7 @@ var AssociatedToNode = class {
    * @returns {DOMWindow}
    */
   get window() {
-    return this.node.ownerGlobal;
+    return this.node.documentGlobal;
   }
 
   /**
@@ -1605,6 +1605,7 @@ export var PanelView = class extends AssociatedToNode {
         localName == "moz-button" ||
         localName == "moz-box-button" ||
         localName == "moz-toggle" ||
+        localName == "summary" ||
         node.classList.contains("text-link") ||
         (!arrowKey && isNavigableWithTabOnly) ||
         node.dataset?.capturesFocus === "true"
@@ -1938,13 +1939,16 @@ export var PanelView = class extends AssociatedToNode {
           target = button.buttonEl;
           details.composed = true;
         }
-        let dispEvent = new event.target.ownerGlobal.MouseEvent(
+        let dispEvent = new event.target.documentGlobal.MouseEvent(
           "mousedown",
           details
         );
         target.dispatchEvent(dispEvent);
         // This event will trigger a command event too.
-        dispEvent = new event.target.ownerGlobal.PointerEvent("click", details);
+        dispEvent = new event.target.documentGlobal.PointerEvent(
+          "click",
+          details
+        );
         target.dispatchEvent(dispEvent);
         this._doingKeyboardActivation = false;
         break;

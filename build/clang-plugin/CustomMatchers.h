@@ -424,6 +424,9 @@ AST_MATCHER(FunctionDecl, isMarkedImplicit) {
 AST_MATCHER(FunctionDecl, isMarkedMustOverride) {
   return hasCustomAttribute<moz_must_override>(&Node);
 }
+AST_MATCHER(FunctionDecl, isMarkedNonTerminatedString) {
+  return hasCustomAttribute<moz_non_terminated_string>(&Node);
+}
 
 AST_MATCHER(CXXRecordDecl, isConcreteClass) { return !Node.isAbstract(); }
 
@@ -506,6 +509,11 @@ AST_MATCHER(CXXMethodDecl, isRequiredBaseMethod) {
 AST_MATCHER(CXXMethodDecl, isNonVirtual) {
   const CXXMethodDecl *Decl = Node.getCanonicalDecl();
   return Decl && !Decl->isVirtual();
+}
+
+AST_MATCHER(CXXMethodDecl, hasMethodDefinition) {
+  const CXXMethodDecl *Decl = Node.getCanonicalDecl();
+  return Decl && Decl->isDefined();
 }
 
 AST_MATCHER(FunctionDecl, isMozMustReturnFromCaller) {

@@ -1323,7 +1323,7 @@ void imgLoader::GlobalInit() {
   sCacheMaxSize = cachesize > 0 ? cachesize : 0;
 
   sMemReporter = new imgMemoryReporter();
-  RegisterStrongAsyncMemoryReporter(sMemReporter);
+  RegisterStrongAsyncMemoryReporter(do_AddRef(sMemReporter));
   RegisterImagesContentUsedUncompressedDistinguishedAmount(
       imgMemoryReporter::ImagesContentUsedUncompressedDistinguishedAmount);
 }
@@ -2787,7 +2787,7 @@ nsresult imgLoader::LoadImageWithChannel(nsIChannel* channel,
 #endif
 
   // Filter out any load flags not from nsIRequest
-  requestFlags &= nsIRequest::LOAD_REQUESTMASK;
+  requestFlags &= nsIRequest::LOAD_INHERIT_MASK;
 
   nsresult rv = NS_OK;
   if (request) {
@@ -3077,7 +3077,7 @@ static bool MaybeCheckWAICTIntegrity(nsIStreamListener* aListener,
   promise->Then(
       GetCurrentSerialEventTarget(), __func__,
       [listener = nsCOMPtr{aListener}, channel, request = nsCOMPtr{aRequest},
-       status, policy = RefPtr{policy}, computedHash,
+       status, policy = RefPtr{policy}, computedHash = std::move(computedHash),
        bufferedImage = std::move(aBufferedImage)](bool) {
         nsCOMPtr<nsIURI> originalURI;
         channel->GetOriginalURI(getter_AddRefs(originalURI));

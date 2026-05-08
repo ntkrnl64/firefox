@@ -49,6 +49,18 @@ using namespace js::wasm;
 
 using mozilla::Atomic;
 
+ScriptedCaller ScriptedCaller::selfHosted(JSContext* cx) {
+  AutoEnterOOMUnsafeRegion oomUnsafe;
+  // The self_hosted_ atom is used by the saved stack code to distinguish self
+  // hosted frames from normal user frames.
+  UniqueChars selfHosted =
+      StringToNewUTF8CharsZ(cx, *cx->names().self_hosted_.get());
+  if (!selfHosted) {
+    oomUnsafe.crash("ScriptedCaller::selfHosted");
+  }
+  return ScriptedCaller(std::move(selfHosted), false, 0);
+}
+
 uint32_t wasm::ObservedCPUFeatures() {
   enum Arch : uint32_t {
     X86 = 0x1,
@@ -219,12 +231,26 @@ FeatureArgs FeatureArgs::build(JSContext* cx, const FeatureOptions& options) {
 
   features.simd = jit::JitSupportsWasmSimd();
   features.isBuiltinModule = options.isBuiltinModule;
-  features.builtinModules.jsString = options.jsStringBuiltins;
-  features.builtinModules.jsStringConstants = options.jsStringConstants;
-  features.builtinModules.jsStringConstantsNamespace =
-      options.jsStringConstantsNamespace;
-  features.builtinModules.intGemm =
-      MozIntGemmAvailable(cx) && options.mozIntGemm;
+  if (features.isBuiltinModule) {
+    // Builtin modules can use stack switching if it's available. JS-PI needs
+    // this.
+    features.stackSwitching = wasm::IonPlatformSupport();
+    // No builtin modules are available to use within a builtin module. We
+    // theoretically could allow a builtin module to import another builtin
+    // module, but we'd need to find a way to prevent cycles. For now just
+    // disable this.
+    MOZ_ASSERT(!options.jsStringBuiltins);
+    MOZ_ASSERT(!options.jsStringConstants);
+    MOZ_ASSERT(!options.mozIntGemm);
+  } else {
+    // Enable builtin modules that have been selected by the user.
+    features.builtinModules.jsString = options.jsStringBuiltins;
+    features.builtinModules.jsStringConstants = options.jsStringConstants;
+    features.builtinModules.jsStringConstantsNamespace =
+        options.jsStringConstantsNamespace;
+    features.builtinModules.intGemm =
+        MozIntGemmAvailable(cx) && options.mozIntGemm;
+  }
 
   return features;
 }
@@ -361,25 +387,26 @@ SharedCompileArgs CompileArgs::buildAndReport(JSContext* cx,
 }
 
 BytecodeSource::BytecodeSource(const uint8_t* begin, size_t length) {
-  BytecodeRange envRange;
   BytecodeRange codeRange;
+  if (!StartsCodeSection(begin, begin + length, &codeRange)) {
+    env_ = BytecodeSpan(begin, length);
+    code_ = BytecodeSpan();
+    tail_ = BytecodeSpan();
+    return;
+  }
+
+  BytecodeRange envRange;
   BytecodeRange tailRange;
-  if (StartsCodeSection(begin, begin + length, &codeRange)) {
-    if (codeRange.end <= length) {
-      envRange = BytecodeRange(0, codeRange.start);
-      tailRange = BytecodeRange(codeRange.end, length - codeRange.end);
-    } else {
-      MOZ_RELEASE_ASSERT(codeRange.start <= length);
-      // If the specified code range is larger than the buffer, clamp it to the
-      // the buffer size. This buffer will be rejected later.
-      envRange = BytecodeRange(0, codeRange.start);
-      codeRange = BytecodeRange(codeRange.start, length - codeRange.start);
-      MOZ_RELEASE_ASSERT(codeRange.end == length);
-      tailRange = BytecodeRange(length, 0);
-    }
+  if (codeRange.end <= length) {
+    envRange = BytecodeRange(0, codeRange.start);
+    tailRange = BytecodeRange(codeRange.end, length - codeRange.end);
   } else {
-    envRange = BytecodeRange(0, length);
-    codeRange = BytecodeRange(length, 0);
+    MOZ_RELEASE_ASSERT(codeRange.start <= length);
+    // If the specified code range is larger than the buffer, clamp it to the
+    // the buffer size. This buffer will be rejected later.
+    envRange = BytecodeRange(0, codeRange.start);
+    codeRange = BytecodeRange(codeRange.start, length - codeRange.start);
+    MOZ_RELEASE_ASSERT(codeRange.end == length);
     tailRange = BytecodeRange(length, 0);
   }
 
@@ -1038,7 +1065,7 @@ bool wasm::CompileCompleteTier2(const ShareableBytes* codeSection,
   const CodeMetadata& codeMeta = module.codeMeta();
   ModuleGenerator mg(codeMeta, compilerEnv, CompileState::EagerTier2, cancelled,
                      error, warnings);
-  if (!mg.initializeCompleteTier()) {
+  if (!mg.initializeCompleteTier(nullptr, &module.codeTailMeta())) {
     return false;
   }
 
@@ -1208,8 +1235,8 @@ SharedModule wasm::CompileStreaming(
   }
 
   BytecodeBuffer bytecodeBuffer(&envBytes, &codeBytes, &tailBytes);
-  return mg.finishModule(BytecodeBufferOrSource(bytecodeBuffer), *moduleMeta,
-                         streamEnd.completeTier2Listener);
+  return mg.finishModule(BytecodeBufferOrSource(std::move(bytecodeBuffer)),
+                         *moduleMeta, streamEnd.completeTier2Listener);
 }
 
 class DumpIonModuleGenerator {

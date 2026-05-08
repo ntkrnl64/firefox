@@ -18,6 +18,23 @@ ChromeUtils.defineESModuleGetters(lazy, {
  * JSWindowActor to pass data between AIChatContent singleton and content pages.
  */
 export class AIChatContentParent extends JSWindowActorParent {
+  #settingsURI = Services.io.newURI("about:settings");
+  #prefsURI = Services.io.newURI("about:preferences");
+
+  /**
+   * Returns true if the URI points to the browser settings page.
+   * Matches both about:preferences and its about:settings alias,
+   *
+   * @param {nsIURI} uri - A parsed URI object
+   * @returns {boolean}
+   */
+  isSettingsURI(uri) {
+    return (
+      uri.equalsExceptRef(this.#settingsURI) ||
+      uri.equalsExceptRef(this.#prefsURI)
+    );
+  }
+
   dispatchMessageToChatContent(message) {
     // Ideally we should allowlist or use a schema to validate what we send to
     // the child process, that is bug 2022057.
@@ -52,10 +69,6 @@ export class AIChatContentParent extends JSWindowActorParent {
 
   receiveMessage({ data, name }) {
     switch (name) {
-      case "aiChatContentActor:search":
-        this.#handleSearchFromChild(data);
-        break;
-
       case "aiChatContentActor:followUp":
         this.#handleFollowUpFromChild(data);
         break;
@@ -92,15 +105,6 @@ export class AIChatContentParent extends JSWindowActorParent {
     aiWindow?.onContentReady();
   }
 
-  #handleSearchFromChild(data) {
-    try {
-      const { topChromeWindow } = this.browsingContext;
-      lazy.AIWindow.performSearch(data, topChromeWindow);
-    } catch (e) {
-      console.warn("Could not perform search from AI Window chat", e);
-    }
-  }
-
   #handleFooterActionFromChild(data) {
     try {
       const aiWindow = this.#getAIWindowElement();
@@ -121,7 +125,11 @@ export class AIChatContentParent extends JSWindowActorParent {
       }
 
       const uri = Services.io.newURI(url);
-      if (uri.scheme !== "http" && uri.scheme !== "https") {
+      if (
+        uri.scheme !== "http" &&
+        uri.scheme !== "https" &&
+        !this.isSettingsURI(uri)
+      ) {
         return;
       }
 
@@ -138,6 +146,11 @@ export class AIChatContentParent extends JSWindowActorParent {
       // If anything differs (hash/query/path), let normal navigation proceed.
       if (url === currentPageURL) {
         lazy.AIWindowUI.handleSameLinkClick(window);
+        return;
+      }
+
+      if (this.isSettingsURI(uri)) {
+        lazy.URILoadingHelper.switchToTabHavingURI(window, url, true, {});
         return;
       }
 

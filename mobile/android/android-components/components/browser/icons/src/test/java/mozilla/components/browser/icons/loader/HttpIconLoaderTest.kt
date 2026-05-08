@@ -31,6 +31,7 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoMoreInteractions
 import java.io.IOException
 import java.io.InputStream
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class HttpIconLoaderTest {
@@ -71,9 +72,9 @@ class HttpIconLoaderTest {
                     ),
                 )
 
-                assertTrue(result is IconLoader.Result.BytesResult)
+                assertIs<IconLoader.Result.BytesResult>(result)
 
-                val data = (result as IconLoader.Result.BytesResult).bytes
+                val data = result.bytes
 
                 assertTrue(data.isNotEmpty())
 
@@ -281,7 +282,7 @@ class HttpIconLoaderTest {
                     ),
                 )
 
-                assertTrue(result is IconLoader.Result.NoResult)
+                assertIs<IconLoader.Result.NoResult>(result)
             } finally {
                 server.close()
             }
@@ -322,7 +323,7 @@ class HttpIconLoaderTest {
                     ),
                 )
 
-                assertTrue(result is IconLoader.Result.NoResult)
+                assertIs<IconLoader.Result.NoResult>(result)
             } finally {
                 server.close()
             }
@@ -363,7 +364,7 @@ class HttpIconLoaderTest {
                     ),
                 )
 
-                assertTrue(result is IconLoader.Result.NoResult)
+                assertIs<IconLoader.Result.NoResult>(result)
             } finally {
                 server.close()
             }
@@ -404,8 +405,8 @@ class HttpIconLoaderTest {
                         type = IconRequest.Resource.Type.APPLE_TOUCH_ICON,
                     ),
                 )
-                assertTrue("Result should return BytesResult type", result is IconLoader.Result.BytesResult)
-                val data = (result as IconLoader.Result.BytesResult).bytes
+                assertIs<IconLoader.Result.BytesResult>(result, "Result should return BytesResult type")
+                val data = result.bytes
                 assertTrue("Data should not be empty", data.isNotEmpty())
             } finally {
                 server.close()

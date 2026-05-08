@@ -32,6 +32,7 @@ import org.mockito.Mockito.doNothing
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.verify
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class PermissionsDialogFragmentTest {
@@ -815,7 +816,7 @@ class PermissionsDialogFragmentTest {
         )
 
         val holder = recyclerAdapter.onCreateViewHolder(permissionsRecyclerView, 3)
-        assertTrue(holder is RequiredPermissionsAdapter.OptInPermissionViewHolder)
+        assertIs<RequiredPermissionsAdapter.OptInPermissionViewHolder>(holder)
         recyclerAdapter.onBindViewHolder(holder, 0)
 
         val permissionOptInCheckbox = holder.itemView.findViewById<AppCompatCheckBox>(R.id.permission_opt_in_item)

@@ -67,7 +67,7 @@ struct FontTemplate {
 };
 
 struct FontInstanceData {
-  WrFontKey mFontKey;
+  WrFontKey mFontKey{};
   float mSize;
   Maybe<FontInstanceOptions> mOptions;
   Maybe<FontInstancePlatformOptions> mPlatformOptions;

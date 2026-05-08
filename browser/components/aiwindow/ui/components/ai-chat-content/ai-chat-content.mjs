@@ -21,6 +21,7 @@ const FOLLOW_UP_QTY = 2;
 export class AIChatContent extends MozLitElement {
   static properties = {
     assistantIsLoading: { type: Boolean },
+    assistantResponseAnnouncement: { type: String, state: true },
     conversationState: { type: Array },
     followUpSuggestions: { type: Array },
     errorObj: { type: Object },
@@ -32,10 +33,15 @@ export class AIChatContent extends MozLitElement {
 
   #lastScrollReq = null;
   #overflowObserver = null;
+  #scrollHandler = null;
+  #scrollClickHandler = null;
+  #scrollRafId = null;
+  #pendingAnnouncementMessageId = null;
 
   constructor() {
     super();
     this.assistantIsLoading = false;
+    this.assistantResponseAnnouncement = "";
     this.conversationState = [];
     this.followUpSuggestions = [];
     this.errorObj = null;
@@ -66,12 +72,14 @@ export class AIChatContent extends MozLitElement {
     );
     this.#initFooterActionListeners();
     this.#initOverflowObserver();
+    this.#initScrollListener();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     this.#overflowObserver?.disconnect();
     this.#overflowObserver = null;
+    this.#teardownScrollListener();
   }
 
   #dispatchAction(action, detail) {
@@ -131,6 +139,14 @@ export class AIChatContent extends MozLitElement {
       "aiChatError:sign-in",
       this.openAccountSignInAfterError.bind(this)
     );
+
+    this.addEventListener("ai-chat-message:complete", event => {
+      const { messageId, text } = event.detail ?? {};
+      if (messageId && messageId === this.#pendingAnnouncementMessageId) {
+        this.#pendingAnnouncementMessageId = null;
+        this.assistantResponseAnnouncement = text || "";
+      }
+    });
   }
 
   /**
@@ -168,14 +184,33 @@ export class AIChatContent extends MozLitElement {
     this.addEventListener("open-memories-learn-more", event => {
       this.#dispatchAction("open-memories-learn-more", event.detail);
     });
+
+    this.addEventListener("thumbs-up", event => {
+      this.#dispatchAction("thumbs-up", event.detail);
+    });
+
+    this.addEventListener("thumbs-down", event => {
+      this.#dispatchAction("thumbs-down", event.detail);
+    });
   }
 
   #initOverflowObserver() {
     this.#overflowObserver = new ResizeObserver(() => {
       const wrapper = this.shadowRoot.querySelector(".chat-content-wrapper");
-      wrapper?.toggleAttribute(
+      const innerWrapper = this.shadowRoot.querySelector(".chat-inner-wrapper");
+
+      if (!wrapper || !innerWrapper) {
+        return;
+      }
+
+      const hasContent = innerWrapper.children.length;
+      // Use a 10px threshold to avoid false positives from layout differences
+      const thresholdPadding = 10;
+
+      wrapper.toggleAttribute(
         "overflowing",
-        wrapper.scrollHeight > wrapper.clientHeight
+        hasContent &&
+          wrapper.scrollHeight > wrapper.clientHeight + thresholdPadding
       );
     });
     this.updateComplete.then(() => {
@@ -183,6 +218,67 @@ export class AIChatContent extends MozLitElement {
         this.shadowRoot.querySelector(".chat-inner-wrapper")
       );
     });
+  }
+
+  get #wrapper() {
+    return this.shadowRoot?.querySelector(".chat-content-wrapper");
+  }
+
+  get #jumpButton() {
+    return this.shadowRoot?.querySelector(".jump-to-bottom-button");
+  }
+
+  #initScrollListener() {
+    this.updateComplete.then(() => {
+      if (!this.isConnected) {
+        return;
+      }
+      const wrapper = this.#wrapper;
+      const btn = this.#jumpButton;
+      if (!wrapper || !btn) {
+        return;
+      }
+      this.#scrollHandler = () => {
+        if (this.#scrollRafId) {
+          return;
+        }
+        this.#scrollRafId = requestAnimationFrame(() => {
+          this.#scrollRafId = null;
+          const distanceFromBottom =
+            wrapper.scrollHeight - wrapper.scrollTop - wrapper.clientHeight;
+          const threshold = wrapper.clientHeight * 0.5;
+          const show = distanceFromBottom > threshold;
+          const atBottom = distanceFromBottom < 1;
+          if (btn.hasAttribute("visible") !== show) {
+            btn.toggleAttribute("visible", show);
+            btn.toggleAttribute("disabled", !show);
+          }
+          if (wrapper.hasAttribute("scrolled-to-bottom") !== atBottom) {
+            wrapper.toggleAttribute("scrolled-to-bottom", atBottom);
+          }
+        });
+      };
+      this.#scrollClickHandler = () => {
+        wrapper.scrollTop = wrapper.scrollHeight;
+      };
+      wrapper.addEventListener("scroll", this.#scrollHandler);
+      btn.addEventListener("click", this.#scrollClickHandler);
+    });
+  }
+
+  #teardownScrollListener() {
+    if (this.#scrollRafId) {
+      cancelAnimationFrame(this.#scrollRafId);
+      this.#scrollRafId = null;
+    }
+    if (this.#scrollHandler) {
+      this.#wrapper?.removeEventListener("scroll", this.#scrollHandler);
+      this.#scrollHandler = null;
+    }
+    if (this.#scrollClickHandler) {
+      this.#jumpButton?.removeEventListener("click", this.#scrollClickHandler);
+      this.#scrollClickHandler = null;
+    }
   }
 
   #getAssistantMessageBody(messageId) {
@@ -234,10 +330,10 @@ export class AIChatContent extends MozLitElement {
     }
 
     this.errorObj = null;
-    this.#checkConversationState(message);
 
     switch (message.role) {
       case "loading":
+        this.#checkConversationState(message);
         this.handleLoadingEvent(event);
         break;
       case "assistant":
@@ -248,10 +344,36 @@ export class AIChatContent extends MozLitElement {
         this.#checkConversationState(message);
         this.handleUserPromptEvent(event);
         break;
+      case "assistant-message-complete":
+        this.#setMessageComplete(message);
+        break;
       // Used to clear the conversation state via side effects ( new conv id )
       case "clear-conversation":
         this.#checkConversationState(message);
     }
+  }
+
+  #setMessageComplete(message) {
+    this.assistantIsLoading = false;
+    const messageId = message.content?.id;
+    if (!messageId) {
+      return;
+    }
+
+    const assistantLastMessage = this.conversationState.findLast(
+      msg => msg?.messageId === messageId
+    );
+    if (assistantLastMessage) {
+      assistantLastMessage.isLastChunk = true;
+    }
+    this.#pendingAnnouncementMessageId = messageId;
+    this.assistantResponseAnnouncement = "";
+    this.requestUpdate();
+  }
+
+  #clearAssistantResponseAnnouncement() {
+    this.#pendingAnnouncementMessageId = null;
+    this.assistantResponseAnnouncement = "";
   }
 
   /**
@@ -275,15 +397,21 @@ export class AIChatContent extends MozLitElement {
     if (convIdChanged || isReloadingSameConvo) {
       this.conversationState = [];
       this.followUpSuggestions = [];
-      this.shadowRoot
-        ?.querySelector(".chat-inner-wrapper")
-        ?.style.removeProperty("--content-height");
+      this.#clearAssistantResponseAnnouncement();
+      this.assistantIsLoading = false;
+      this.isSearching = false;
+      if (convIdChanged) {
+        this.shadowRoot
+          ?.querySelector(".chat-inner-wrapper")
+          ?.style.removeProperty("--content-height");
+      }
       this.requestUpdate();
     }
   }
 
   handleLoadingEvent(event) {
     const { isSearching } = event.detail;
+    this.#clearAssistantResponseAnnouncement();
     this.isSearching = !!isSearching;
     this.assistantIsLoading = true;
     this.requestUpdate();
@@ -307,6 +435,7 @@ export class AIChatContent extends MozLitElement {
     const { convId, content, ordinal, isPreviousMessage } = event.detail;
     if (!isPreviousMessage) {
       this.assistantIsLoading = true;
+      this.#clearAssistantResponseAnnouncement();
     }
     this.conversationState[ordinal] = {
       role: "user",
@@ -356,8 +485,9 @@ export class AIChatContent extends MozLitElement {
       content,
       memoriesApplied,
       showMemoriesCallout,
-      webSearchQueries,
+      webSearchQueries = [],
       followUpSuggestions = [],
+      isPreviousMessage,
     } = event.detail;
 
     if (typeof content.body !== "string" || !content.body) {
@@ -376,7 +506,7 @@ export class AIChatContent extends MozLitElement {
       body: content.body,
       appliedMemories: memoriesApplied ?? [],
       showCallout: showMemoriesCallout ?? false,
-      searchTokens: webSearchQueries ?? [],
+      isLastChunk: !!isPreviousMessage,
     };
 
     this.requestUpdate();
@@ -391,16 +521,14 @@ export class AIChatContent extends MozLitElement {
         return;
       }
       let lastMessage = msgs[msgs.length - 1];
-      let haveMultipleMessages = msgs.length > 1;
       requestAnimationFrame(() => {
         if (scrollReq !== this.#lastScrollReq) {
           return;
         }
         let elTop = lastMessage.offsetTop;
-        let spacer = haveMultipleMessages ? "small" : "large";
         lastMessage.parentNode.style.setProperty(
           "--content-height",
-          `calc(${elTop}px + 100% - var(--space-${spacer}) - var(--space-xsmall))`
+          `calc(${elTop}px + 100% - var(--smart-window-top-spacing-chat))`
         );
 
         requestAnimationFrame(() => {
@@ -499,11 +627,11 @@ export class AIChatContent extends MozLitElement {
           .message=${msg.body}
           .role=${msg.role}
           .messageId=${msg.messageId}
-          .searchTokens=${msg.searchTokens || []}
+          .complete=${msg.role === "assistant" && !!msg.isLastChunk}
           .conversationId=${this.conversationId}
           .seenUrls=${this.seenUrls}
         ></ai-chat-message>
-        ${msg.role === "assistant"
+        ${msg.role === "assistant" && msg.isLastChunk
           ? html`
               <assistant-message-footer
                 .messageId=${msg.messageId}
@@ -534,7 +662,7 @@ export class AIChatContent extends MozLitElement {
       return nothing;
     }
     return html`<chat-assistant-loader
-      .isSearch=${this.isSearching}
+      .mode=${this.isSearching ? "search" : "default"}
     ></chat-assistant-loader>`;
   }
 
@@ -570,6 +698,21 @@ export class AIChatContent extends MozLitElement {
           ${this.#renderLoader()} ${this.#renderError()}
         </div>
       </div>
+      <div
+        class="assistant-response-announcer"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        ${this.assistantResponseAnnouncement}
+      </div>
+      <moz-button
+        class="jump-to-bottom-button"
+        data-l10n-id="aiwindow-jump-to-bottom"
+        data-l10n-attrs="aria-label,tooltiptext"
+        iconsrc="chrome://global/skin/icons/shaft-arrow-down.svg"
+        disabled
+      ></moz-button>
     `;
   }
 }

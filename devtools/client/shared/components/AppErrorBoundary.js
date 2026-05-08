@@ -227,6 +227,7 @@ class AppErrorBoundary extends Component {
     const extras = Telemetry.sanitizeEventExtras(
       {
         error_name: error.name,
+        is_destroying: toolbox.isDestroying(),
         packet_error: serverPacket.error,
         packet_target: serverPacket.from,
         packet_type: clientPacket.type,

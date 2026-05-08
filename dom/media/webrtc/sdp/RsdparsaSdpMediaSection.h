@@ -20,7 +20,7 @@ class RsdparsaSdpMediaSection final : public SdpMediaSection {
   friend class RsdparsaSdp;
 
  public:
-  ~RsdparsaSdpMediaSection() {}
+  ~RsdparsaSdpMediaSection() = default;
 
   MediaType GetMediaType() const override { return mMediaType; }
 
@@ -50,6 +50,7 @@ class RsdparsaSdpMediaSection final : public SdpMediaSection {
   RsdparsaSdpMediaSection(size_t level, RsdparsaSessionHandle session,
                           const RsdparsaSdpAttributeList* sessionLevel);
 
+  using RustMediaSection = sdp::ffi::SdpMedia;
   RustMediaSection* GetSection() const;
 
   void LoadFormats();

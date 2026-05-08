@@ -7,6 +7,7 @@ prefs = [
   "layout.css.backdrop-filter.enabled=true",
   "layout.css.fit-content-function.enabled=true",
   "layout.css.scroll-driven-animations.enabled=true",
+  "layout.css.scroll-driven-animations.viewtimeline.enabled=true",
   "layout.css.stretch-size-keyword.enabled=true",
   "layout.css.webkit-fill-available.all-size-properties.enabled=true",
   "layout.css.basic-shape-shape.enabled=true",
@@ -14,6 +15,7 @@ prefs = [
   "layout.css.anchor-positioning.enabled=true",
   "layout.css.anchor-positioning.position-try-order.enabled=true",
   "layout.css.scroll-state.enabled=true",
+  "layout.css.style-queries.enabled=true",
   "layout.css.text-box.enabled=true",
 ]
 support-files = [
@@ -619,6 +621,8 @@ skip-if = [
 ["test_pseudoelement_parsing.html"]
 
 ["test_pseudoelement_state.html"]
+
+["test_query_condition_matches_element.html"]
 
 ["test_query_container_for.html"]
 

@@ -102,7 +102,7 @@ tab-context-close-multiple-tabs =
     .accesskey = M
 tab-context-close-duplicate-tabs =
     .label = Close Duplicate Tabs
-    .accesskey = u
+    .accesskey = x
 tab-context-share-url =
     .label = Share
     .accesskey = h
@@ -148,3 +148,8 @@ tab-context-send-to-mobile =
            *[other] Send { $tabCount } Tabs to Mobile
         }
     .accesskey = n
+
+# Verb: share a collection of selected tabs as a link
+tab-context-share-selected-tabs =
+    .label = Create Shareable Link
+    .accesskey = a

@@ -139,10 +139,10 @@ class nsJARURI final : public nsIJARURI,
       return NS_OK;
     }
 
-    explicit Mutator() {}
+    explicit Mutator() = default;
 
    private:
-    virtual ~Mutator() {}
+    virtual ~Mutator() = default;
 
     friend class nsJARURI;
   };

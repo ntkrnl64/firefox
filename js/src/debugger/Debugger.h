@@ -1152,14 +1152,19 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
 
   inline Breakpoint* firstBreakpoint() const;
 
-  [[nodiscard]] static bool replaceFrameGuts(JSContext* cx,
-                                             AbstractFramePtr from,
-                                             AbstractFramePtr to,
-                                             ScriptFrameIter& iter);
+  /*
+   * Update the frame guts for OSR and bailout. Crashes on OOM
+   * rather than trying to maintain invariants across OOM.
+   */
+  static void replaceFrameGuts(JSContext* cx, AbstractFramePtr from,
+                               AbstractFramePtr to, ScriptFrameIter& iter);
 
  public:
   Debugger(JSContext* cx, NativeObject* dbg);
   ~Debugger();
+
+  Debugger(const Debugger&) = delete;
+  Debugger& operator=(const Debugger&) = delete;
 
   inline const js::HeapPtr<NativeObject*>& toJSObject() const;
   inline js::HeapPtr<NativeObject*>& toJSObjectRef();
@@ -1317,10 +1322,6 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
                                  Handle<WasmInstanceObject*> wasmInstance);
 
   DebuggerDebuggeeLink* getDebuggeeLink();
-
- private:
-  Debugger(const Debugger&) = delete;
-  Debugger& operator=(const Debugger&) = delete;
 };
 
 // Specialize InternalBarrierMethods so we can have WeakHeapPtr<Debugger*>.

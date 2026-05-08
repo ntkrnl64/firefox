@@ -27,6 +27,7 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.reset
 import org.mockito.Mockito.verify
+import kotlin.test.assertIs
 import androidx.appcompat.R as appcompatR
 
 @RunWith(AndroidJUnit4::class)
@@ -108,9 +109,9 @@ class BrowserMenuItemToolbarTest {
         val child2 = layout.getChildAt(1)
         val child3 = layout.getChildAt(2)
 
-        assertTrue(child1 is ImageButton)
-        assertTrue(child2 is ImageButton)
-        assertTrue(child3 is ImageButton)
+        assertIs<ImageButton>(child1)
+        assertIs<ImageButton>(child2)
+        assertIs<ImageButton>(child3)
 
         assertEquals("Button01", child1.contentDescription)
         assertEquals("Button02", child2.contentDescription)

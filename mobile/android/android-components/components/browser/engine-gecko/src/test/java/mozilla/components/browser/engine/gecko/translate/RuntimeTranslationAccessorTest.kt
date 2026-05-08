@@ -17,6 +17,7 @@ import org.mozilla.geckoview.TranslationsController.TranslationsException
 import org.mozilla.geckoview.TranslationsController.TranslationsException.ERROR_COULD_NOT_TRANSLATE
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowLooper
+import kotlin.test.assertIs
 
 @RunWith(RobolectricTestRunner::class)
 class RuntimeTranslationAccessorTest {
@@ -78,7 +79,7 @@ class RuntimeTranslationAccessorTest {
 
         assertEquals("Initial", successValue)
         assertNotNull(errorValue)
-        assertTrue(errorValue is TranslationError.UnexpectedNull)
+        assertIs<TranslationError.UnexpectedNull>(errorValue)
     }
 
     @Test
@@ -116,7 +117,7 @@ class RuntimeTranslationAccessorTest {
 
         assertNull(successValue)
         assertNotNull(errorValue)
-        assertTrue(errorValue is TranslationError.UnknownError)
+        assertIs<TranslationError.UnknownError>(errorValue)
         assertEquals(exception, (errorValue as TranslationError.UnknownError).cause)
     }
 
@@ -137,6 +138,6 @@ class RuntimeTranslationAccessorTest {
 
         assertNull(successValue)
         assertNotNull(errorValue)
-        assertTrue(errorValue is TranslationError.CouldNotTranslateError)
+        assertIs<TranslationError.CouldNotTranslateError>(errorValue)
     }
 }

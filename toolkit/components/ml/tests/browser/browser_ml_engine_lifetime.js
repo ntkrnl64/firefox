@@ -304,6 +304,55 @@ add_task(async function test_ml_engine_reuse_same() {
 });
 
 /**
+ * Tests that engines are reused when only per-request metadata differs.
+ * Telemetry and lifetime fields (featureId, flowId, timeoutMS) must not
+ * cause engine replacement, or concurrent callers would interrupt each
+ * other's in-flight streams.
+ */
+add_task(async function test_ml_engine_reuse_metadata_differs() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    engineId: "echo-metadata",
+    featureId: "test-feature",
+    flowId: "flow-1",
+    timeoutMS: 1000,
+  });
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "First inference completes."
+  );
+
+  const engineInstance2 = await createEngine({
+    taskName: "moz-echo",
+    engineId: "echo-metadata",
+    featureId: "test-feature",
+    flowId: "flow-2",
+    timeoutMS: 5000,
+  });
+  is(
+    engineInstance,
+    engineInstance2,
+    "Engine is reused when only per-request metadata differs."
+  );
+
+  const inferencePromise2 = engineInstance2.run({ data: "Echoed again." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await inferencePromise2).output.echo,
+    "Echoed again.",
+    "Second inference completes on the reused engine."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
  * Tests that we can have two competing engines
  */
 add_task(async function test_ml_two_engines() {
@@ -378,7 +427,7 @@ add_task(async function test_ml_dupe_engines() {
   let engineInstance2 = await createEngine({
     taskName: "moz-echo",
     engineId: "engine1",
-    timeoutMS: 2000, // that makes the options different
+    numThreads: 2, // engine-identity change forces re-creation
   });
   const inferencePromise2 = engineInstance2.run({ data: "This gets echoed." });
   await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);

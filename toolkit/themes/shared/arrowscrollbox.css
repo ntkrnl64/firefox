@@ -33,7 +33,7 @@ toolbarbutton {
   position: relative;
 
   &[disabled] {
-    fill-opacity: var(--toolbarbutton-disabled-opacity);
+    fill-opacity: var(--toolbarbutton-opacity-disabled);
   }
 
   > .toolbarbutton-icon {

@@ -78,9 +78,7 @@ pid_t gettid_pthread() {
 
 #ifdef XP_WIN
 #  include "util/WindowsWrapper.h"
-#  include <codecvt>
 #  include <evntprov.h>
-#  include <locale>
 #  include <string>
 
 const GUID PROVIDER_JSCRIPT9 = {
@@ -433,17 +431,24 @@ JS::JitCodeRecord* JS::LookupJitCodeRecord(uint64_t addr) {
     return nullptr;
   }
 
-  AutoLockPerfSpewer lock;
+  // Bug 2032436: Use tryLock to avoid deadlocking when a native allocation
+  // profiler captures a backtrace while the PerfSpewer lock is already held on
+  // this thread (e.g. during JIT compilation).
+  if (!PerfMutex.tryLock()) {
+    return nullptr;
+  }
 
-  // Search through profilerData for a record that contains this address
+  JS::JitCodeRecord* result = nullptr;
   for (auto& record : profilerData) {
     if (addr >= record.code_addr &&
         addr < record.code_addr + record.instructionSize) {
-      return &record;
+      result = &record;
+      break;
     }
   }
 
-  return nullptr;
+  PerfMutex.unlock();
+  return result;
 }
 
 static bool PerfSrcEnabled() {
@@ -641,8 +646,11 @@ static void PrintStackValue(JSContext* maybeCx, StackValue* stackVal,
 }
 #endif
 
+WasmBaselinePerfSpewer::WasmBaselinePerfSpewer()
+    : needsToRecordInstruction_(PerfIREnabled() || PerfSrcEnabled()) {}
+
 [[nodiscard]] bool WasmBaselinePerfSpewer::needsToRecordInstruction() const {
-  return PerfIREnabled() || PerfSrcEnabled();
+  return needsToRecordInstruction_;
 }
 
 void WasmBaselinePerfSpewer::recordInstruction(MacroAssembler& masm,

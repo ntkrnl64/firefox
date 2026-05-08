@@ -5,12 +5,15 @@
 #ifndef mozilla_layout_ScrollSnapInfo_h_
 #define mozilla_layout_ScrollSnapInfo_h_
 
+#include <iosfwd>
+
 #include "mozilla/AppUnits.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ScrollSnapTargetId.h"
 #include "mozilla/ScrollTypes.h"
 #include "mozilla/ServoStyleConsts.h"
 #include "mozilla/StaticPrefs_layout.h"
+#include "mozilla/WritingModes.h"
 #include "mozilla/layers/LayersTypes.h"
 #include "nsPoint.h"
 
@@ -36,6 +39,13 @@ struct SnapPoint {
 
   Maybe<nscoord> mX;
   Maybe<nscoord> mY;
+
+  const Maybe<nscoord>& I(WritingMode aWM) const {
+    return aWM.IsVertical() ? mY : mX;
+  }
+  const Maybe<nscoord>& B(WritingMode aWM) const {
+    return aWM.IsVertical() ? mX : mY;
+  }
 };
 
 struct ScrollSnapInfo {
@@ -53,6 +63,13 @@ struct ScrollSnapInfo {
   // The scroll frame's scroll-snap-type.
   StyleScrollSnapStrictness mScrollSnapStrictnessX;
   StyleScrollSnapStrictness mScrollSnapStrictnessY;
+
+  StyleScrollSnapStrictness StrictnessInline(WritingMode aWM) const {
+    return aWM.IsVertical() ? mScrollSnapStrictnessY : mScrollSnapStrictnessX;
+  }
+  StyleScrollSnapStrictness StrictnessBlock(WritingMode aWM) const {
+    return aWM.IsVertical() ? mScrollSnapStrictnessX : mScrollSnapStrictnessY;
+  }
 
   struct SnapTarget {
     // The scroll positions corresponding to scroll-snap-align values.
@@ -134,6 +151,15 @@ struct ScrollSnapInfo {
   // Note: This snapport size has been already deflated by scroll-padding.
   nsSize mSnapportSize;
 };
+
+std::ostream& operator<<(std::ostream& aStream,
+                         const ScrollSnapInfo::SnapTarget& aTarget);
+
+// For convenience, allow printing a pointer to a SnapTarget without
+// explicitly dereferencing it. This makes it easier to print an
+// array of pointers.
+std::ostream& operator<<(std::ostream& aStream,
+                         const ScrollSnapInfo::SnapTarget* aTarget);
 
 }  // namespace mozilla
 

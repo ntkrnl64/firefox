@@ -77,6 +77,7 @@ ModuleGenerator::ModuleGenerator(const CodeMetadata& codeMeta,
       cancelled_(cancelled),
       codeMeta_(&codeMeta),
       compilerEnv_(&compilerEnv),
+      existingCodeTailMeta_(nullptr),
       featureUsage_(FeatureUsage::None),
       codeBlock_(nullptr),
       linkData_(nullptr),
@@ -85,6 +86,9 @@ ModuleGenerator::ModuleGenerator(const CodeMetadata& codeMeta,
       debugStubCodeOffset_(0),
       requestTierUpStubCodeOffset_(0),
       updateCallRefMetricsStubCodeOffset_(0),
+#ifdef ENABLE_WASM_JSPI
+      contBaseFrameOffset_(0),
+#endif
       lastPatchedCallSite_(0),
       startOfUnpatchedCallsites_(0),
       numCallRefMetrics_(0),
@@ -140,8 +144,13 @@ ModuleGenerator::~ModuleGenerator() {
 }
 
 bool ModuleGenerator::initializeCompleteTier(
-    CodeMetadataForAsmJS* codeMetaForAsmJS) {
+    CodeMetadataForAsmJS* codeMetaForAsmJS,
+    const CodeTailMetadata* existingCodeTailMeta) {
   MOZ_ASSERT(compileState_ != CompileState::LazyTier2);
+
+  MOZ_ASSERT((compileState_ == CompileState::EagerTier2) ==
+             !!existingCodeTailMeta);
+  existingCodeTailMeta_ = existingCodeTailMeta;
 
   // Initialize our task system
   if (!initTasks()) {
@@ -172,6 +181,7 @@ bool ModuleGenerator::initializePartialTier(const Code& code,
 
   MOZ_ASSERT(!partialTieringCode_);
   partialTieringCode_ = &code;
+  existingCodeTailMeta_ = &code.codeTailMeta();
 
   // Initialize our task system and start this partial tier
   return initTasks() && startPartialTier(funcIndex);
@@ -324,6 +334,12 @@ void ModuleGenerator::noteCodeRange(uint32_t codeRangeIndex,
       MOZ_ASSERT(!updateCallRefMetricsStubCodeOffset_);
       updateCallRefMetricsStubCodeOffset_ = codeRange.begin();
       break;
+#ifdef ENABLE_WASM_JSPI
+    case CodeRange::ContBaseFrame:
+      MOZ_ASSERT(!contBaseFrameOffset_);
+      contBaseFrameOffset_ = codeRange.begin();
+      break;
+#endif
     case CodeRange::TrapExit:
       MOZ_ASSERT(!linkData_->trapOffset);
       linkData_->trapOffset = codeRange.begin();
@@ -683,10 +699,7 @@ bool ModuleGenerator::initTasks() {
     numTasks = 2 * GetMaxWasmCompilationThreads();
   }
 
-  const CodeTailMetadata* codeTailMeta = nullptr;
-  if (partialTieringCode_) {
-    codeTailMeta = &partialTieringCode_->codeTailMeta();
-  }
+  const CodeTailMetadata* codeTailMeta = existingCodeTailMeta_;
 
   if (!tasks_.initCapacity(numTasks)) {
     return false;
@@ -1396,6 +1409,9 @@ SharedModule ModuleGenerator::finishModule(
   code->setDebugStubOffset(debugStubCodeOffset_);
   code->setRequestTierUpStubOffset(requestTierUpStubCodeOffset_);
   code->setUpdateCallRefMetricsStubOffset(updateCallRefMetricsStubCodeOffset_);
+#ifdef ENABLE_WASM_JSPI
+  code->setContBaseFrameOffset(contBaseFrameOffset_);
+#endif
 
   // All the components are finished, so create the complete Module and start
   // tier-2 compilation if requested.

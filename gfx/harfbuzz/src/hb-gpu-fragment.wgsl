@@ -1,9 +1,5 @@
 /*
  * Copyright (C) 2026  Behdad Esfahbod
- * Copyright (C) 2017  Eric Lengyel
- *
- * Based on the Slug algorithm by Eric Lengyel:
- * https://github.com/EricLengyel/Slug
  *
  *  This is part of HarfBuzz, a text shaping library.
  *
@@ -27,7 +23,10 @@
  */
 
 
-/* Requires WGSL (WebGPU Shading Language). */
+/* Shared fragment-shader helpers for the hb-gpu renderers.
+ *
+ * Requires WGSL (WebGPU Shading Language).
+ */
 
 
 const HB_GPU_UNITS_PER_EM: f32 = 4.0;
@@ -39,8 +38,6 @@ fn hb_gpu_fetch (hb_gpu_atlas: ptr<storage, array<vec4<i32>>, read>,
 {
   return (*hb_gpu_atlas)[offset];
 }
-
-
 fn _hb_gpu_calc_root_code (y1: f32, y2: f32, y3: f32) -> u32
 {
   let i1 = bitcast<u32> (y1) >> 31u;
@@ -106,6 +103,7 @@ struct _hb_gpu_glyph_info
   bandIndex: vec2<i32>,
   numHBands: i32,
   numVBands: i32,
+  scale: vec2f,
 }
 
 fn _hb_gpu_decode_glyph (renderCoord: vec2f, glyphLoc_: u32,
@@ -119,6 +117,7 @@ fn _hb_gpu_decode_glyph (renderCoord: vec2f, glyphLoc_: u32,
   let ext = vec4f (header0) * HB_GPU_INV_UNITS;
   gi.numHBands = header1.r;
   gi.numVBands = header1.g;
+  gi.scale = vec2f (f32 (header1.b), f32 (header1.a));
 
   let extSize = ext.zw - ext.xy;
   let bandScale = vec2f (f32 (gi.numVBands), f32 (gi.numHBands)) / max (extSize, vec2f (1.0 / 65536.0));
@@ -132,6 +131,20 @@ fn _hb_gpu_decode_glyph (renderCoord: vec2f, glyphLoc_: u32,
   return gi;
 }
 
+/* Return pixels per em at this fragment.
+ *
+ * renderCoord:  em-space sample position
+ * glyphLoc:     texel offset of glyph blob in atlas
+ */
+fn hb_gpu_ppem (renderCoord: vec2f, glyphLoc_: u32,
+                hb_gpu_atlas: ptr<storage, array<vec4<i32>>, read>) -> f32
+{
+  let gi = _hb_gpu_decode_glyph (renderCoord, glyphLoc_, hb_gpu_atlas);
+  let emsPerPixel = fwidth (renderCoord);
+  return min (gi.scale.x, gi.scale.y) /
+         max (emsPerPixel.x, emsPerPixel.y);
+}
+
 /* Return per-pixel curve counts: (horizontal, vertical). */
 fn _hb_gpu_curve_counts (renderCoord: vec2f, glyphLoc_: u32,
                          hb_gpu_atlas: ptr<storage, array<vec4<i32>>, read>) -> vec2<i32>
@@ -142,17 +155,10 @@ fn _hb_gpu_curve_counts (renderCoord: vec2f, glyphLoc_: u32,
   return vec2<i32> (hCount, vCount);
 }
 
-/* Return coverage in [0, 1].
- *
- * renderCoord:    em-space sample position
- * glyphLoc:       texel offset of glyph blob in atlas
- * hb_gpu_atlas:   storage buffer pointer to the atlas
- */
-fn hb_gpu_render (renderCoord: vec2f, glyphLoc_: u32,
-                  hb_gpu_atlas: ptr<storage, array<vec4<i32>>, read>) -> f32
+/* Single-sample coverage in [0, 1]. */
+fn _hb_gpu_slug_single (renderCoord: vec2f, pixelsPerEm: vec2f, glyphLoc_: u32,
+                           hb_gpu_atlas: ptr<storage, array<vec4<i32>>, read>) -> f32
 {
-  let emsPerPixel = fwidth (renderCoord);
-  let pixelsPerEm = 1.0 / emsPerPixel;
 
   let gi = _hb_gpu_decode_glyph (renderCoord, glyphLoc_, hb_gpu_atlas);
   let glyphLoc = gi.glyphLoc;
@@ -272,13 +278,50 @@ fn hb_gpu_render (renderCoord: vec2f, glyphLoc_: u32,
   return _hb_gpu_calc_coverage (xcov, ycov, xwgt, ywgt);
 }
 
+/* Return coverage in [0, 1].
+ *
+ * renderCoord:    em-space sample position
+ * glyphLoc:       texel offset of glyph blob in atlas
+ * hb_gpu_atlas:   storage buffer pointer to the atlas
+ */
+/* The MSAA-aware implementation.  Caller supplies pixelsPerEm so
+ * this function can be invoked from non-uniform control flow (for
+ * example inside an op-stream branch in hb-gpu-paint-fragment.wgsl,
+ * where WGSL would otherwise reject an fwidth call). */
+fn _hb_gpu_slug (renderCoord: vec2f, pixelsPerEm: vec2f, glyphLoc_: u32,
+                      hb_gpu_atlas: ptr<storage, array<vec4<i32>>, read>) -> f32
+{
+  var c = _hb_gpu_slug_single (renderCoord, pixelsPerEm, glyphLoc_, hb_gpu_atlas);
+
+  /* Inline ppem from pixelsPerEm so we don't re-enter hb_gpu_ppem
+   * (which would call fwidth again -- rejected by WGSL when this
+   * function is invoked from non-uniform control flow). */
+  let gi_pp = _hb_gpu_decode_glyph (renderCoord, glyphLoc_, hb_gpu_atlas);
+  let ppem = min (gi_pp.scale.x, gi_pp.scale.y) *
+             min (pixelsPerEm.x, pixelsPerEm.y);
+
+  if (ppem < 16.0)
+  {
+    let emsPerPixel = 1.0 / pixelsPerEm;
+    let d = emsPerPixel * (1.0 / 3.0);
+    let msaa = 0.25 *
+      (_hb_gpu_slug_single (renderCoord + vec2f (-d.x, -d.y), pixelsPerEm, glyphLoc_, hb_gpu_atlas) +
+       _hb_gpu_slug_single (renderCoord + vec2f ( d.x, -d.y), pixelsPerEm, glyphLoc_, hb_gpu_atlas) +
+       _hb_gpu_slug_single (renderCoord + vec2f (-d.x,  d.y), pixelsPerEm, glyphLoc_, hb_gpu_atlas) +
+       _hb_gpu_slug_single (renderCoord + vec2f ( d.x,  d.y), pixelsPerEm, glyphLoc_, hb_gpu_atlas));
+
+    c = mix (c, msaa, smoothstep (16.0, 8.0, ppem));
+  }
+
+  return c;
+}
 /* Stem darkening for small sizes.
  *
- * coverage:    output of hb_gpu_render
+ * coverage:    output of hb_gpu_draw
  * brightness:  foreground brightness in [0, 1]
  * ppem:        pixels per em at this fragment
  */
-fn hb_gpu_darken (coverage: f32, brightness: f32, ppem: f32) -> f32
+fn hb_gpu_stem_darken (coverage: f32, brightness: f32, ppem: f32) -> f32
 {
   return pow (coverage,
 	      mix (pow (2.0, brightness - 0.5), 1.0,

@@ -75,12 +75,19 @@ def lint(paths, config, binary=None, fix=None, rules=[], setup=None, **lintargs)
         for rule in rules:
             extra_args.extend(["--rule", rule])
 
-            # ESLint requires that we specify any plugins, these are typically
-            # named by the prefix before the first `/`. There are some cases where
-            # this doesn't work, but ESLint also can't handle those cases with
-            # the `--plugin` argument anyway.
-            if "/" in rule:
-                extra_args.extend(["--plugin", rule.split("/", 1)[0]])
+        i = 0
+        extra_args_len = len(extra_args)
+        while i < extra_args_len:
+            if extra_args[i] == "--rule":
+                i += 1
+                # ESLint requires that we specify any plugins. These are typically
+                # named by the prefix before the first `/`. There are some cases where
+                # this doesn't work, but ESLint also can't handle those cases with
+                # the `--plugin` argument anyway.
+                if i < extra_args_len and "/" in extra_args[i]:
+                    extra_args.extend(["--plugin", extra_args[i].split("/", 1)[0]])
+
+            i += 1
 
         # First run ESLint
         cmd_args = (
@@ -120,7 +127,7 @@ def lint(paths, config, binary=None, fix=None, rules=[], setup=None, **lintargs)
     # as it doesn't understand those arguments.
     def bypass(arg):
         bypass_list = ["--config", "--plugin", "--rule"]
-        return any(arg.startswith(flag) for flag in bypass_list)
+        return any(not arg.startswith(flag) for flag in bypass_list)
 
     cmd_args = (
         [
@@ -135,9 +142,11 @@ def lint(paths, config, binary=None, fix=None, rules=[], setup=None, **lintargs)
         # as it doesn't understand those arguments.
         + list(
             filter(
-                lambda x: not x.startswith("--config")
-                and not x.startswith("--plugin")
-                and not x.startswith("--rule"),
+                lambda x: (
+                    not x.startswith("--config")
+                    and not x.startswith("--plugin")
+                    and not x.startswith("--rule")
+                ),
                 [arg for arg in extra_args if bypass(arg)],
             )
         )

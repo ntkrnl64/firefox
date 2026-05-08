@@ -637,7 +637,7 @@ JS::ProfilingFrameIterator::getPhysicalFrameAndEntry(
   MOZ_DIAGNOSTIC_ASSERT(endStackAddress_);
 #ifndef ENABLE_WASM_JSPI
   // The stack addresses are monotonically increasing, except when
-  // suspendable stacks are present (e.g. when JS PI is enabled).
+  // cont stacks are present (e.g. when JS PI is enabled).
   MOZ_DIAGNOSTIC_ASSERT(stackAddr >= endStackAddress_);
 #endif
 
@@ -691,8 +691,8 @@ JS::ProfilingFrameIterator::getPhysicalFrameAndEntry(
   // fallible ones.  The proper solution to this problem is to fix all
   // the jitcode to use frame-pointers and reliably walk the stack with those.
   if (samplePositionInProfilerBuffer_) {
-    *entry = table->lookupForSampler(returnAddr, cx_->runtime(),
-                                     *samplePositionInProfilerBuffer_);
+    *entry =
+        table->lookupForSampler(returnAddr, *samplePositionInProfilerBuffer_);
   } else {
     *entry = table->lookup(returnAddr);
   }

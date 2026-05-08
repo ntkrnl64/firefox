@@ -9,6 +9,7 @@
 #include "ActiveLayerTracker.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/RenderRootStateManager.h"
@@ -16,7 +17,6 @@
 #include "mozilla/layers/WebRenderCanvasRenderer.h"
 #include "mozilla/webgpu/CanvasContext.h"
 #include "nsDisplayList.h"
-#include "nsGkAtoms.h"
 #include "nsLayoutUtils.h"
 #include "nsStyleUtil.h"
 
@@ -262,7 +262,7 @@ class nsDisplayCanvas final : public nsPaintedDisplayItem {
       return;
     }
 
-    RefPtr<CanvasRenderer> renderer = new CanvasRenderer();
+    auto renderer = MakeRefPtr<CanvasRenderer>();
     if (!canvas->InitializeCanvasRenderer(aBuilder, renderer)) {
       return;
     }

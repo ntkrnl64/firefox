@@ -1,4 +1,7 @@
 [DEFAULT]
+prefs = [
+  "browser.settings-redesign.enabled=false",
+]
 support-files = [
   "head.js",
   "../head.js",
@@ -22,6 +25,12 @@ tags = "os_integration"
 ["browser_homepage_default.js"]
 
 ["browser_homepage_firefox_home.js"]
+
+["browser_homepage_firefox_home_disabled_both_off.js"]
+
+["browser_homepage_firefox_home_disabled_tabs_on.js"]
+
+["browser_homepage_firefox_home_disabled_windows_on.js"]
 
 ["browser_homepage_firefox_home_recent_activity.js"]
 

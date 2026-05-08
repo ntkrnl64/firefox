@@ -1,39 +1,63 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Mon, 19 Jan 2026 13:10:00 -0600
-Subject: Bug 2010312 - (fix-d167fe9296) fix linux builds for constexpr
- containing std::string. r?ng!
+Date: Tue, 7 Apr 2026 19:06:00 -0500
+Subject: Bug 2030139 - (fix-15fd636394) disable perfetto usage to avoid new
+ third_party library.
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/ece87d91b514ab155e600e067b4a99601bddbffc
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/f1981bae2720ec8087be98eb7f5f323c1d233640
 ---
- .../linux/wayland/shared_screencast_stream.cc        | 12 ++++++++++++
- 1 file changed, 12 insertions(+)
+ video/video_stream_encoder.cc | 20 ++++++++------------
+ 1 file changed, 8 insertions(+), 12 deletions(-)
 
-diff --git a/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc b/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc
-index bf7da572bc..3cc8bfc63a 100644
---- a/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc
-+++ b/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc
-@@ -78,12 +78,24 @@ constexpr int CursorMetaSize(int w, int h) {
-           w * h * kCursorBpp);
+diff --git a/video/video_stream_encoder.cc b/video/video_stream_encoder.cc
+index f5770ca3c2..0fa5ea7a2a 100644
+--- a/video/video_stream_encoder.cc
++++ b/video/video_stream_encoder.cc
+@@ -871,13 +871,11 @@ void VideoStreamEncoder::AddAdaptationResource(
+   // Map any externally added resources as kCpu for the sake of stats reporting.
+   // TODO(hbos): Make the manager map any unknown resources to kCpu and get rid
+   // of this MapResourceToReason() call.
+-  TRACE_EVENT_BEGIN("webrtc",
+-                    "VideoStreamEncoder::AddAdaptationResource(latency)",
+-                    perfetto::Track::FromPointer(this));
++  TRACE_EVENT_ASYNC_BEGIN0(
++      "webrtc", "VideoStreamEncoder::AddAdaptationResource(latency)", this);
+   encoder_queue_->PostTask([this, resource = std::move(resource)] {
+-    TRACE_EVENT_END("webrtc",
+-                    /* VideoStreamEncoder::AddAdaptationResource(latency) */
+-                    perfetto::Track::FromPointer(this));
++    TRACE_EVENT_ASYNC_END0(
++        "webrtc", "VideoStreamEncoder::AddAdaptationResource(latency)", this);
+     RTC_DCHECK_RUN_ON(encoder_queue_.get());
+     additional_resources_.push_back(resource);
+     stream_resource_manager_.AddResource(resource, VideoAdaptationReason::kCpu);
+@@ -1736,8 +1734,7 @@ void VideoStreamEncoder::TraceFrameDropStart() {
+   RTC_DCHECK_RUN_ON(encoder_queue_.get());
+   // Start trace event only on the first frame after encoder is paused.
+   if (!encoder_paused_and_dropped_frame_) {
+-    TRACE_EVENT_BEGIN("webrtc", "EncoderPaused",
+-                      perfetto::Track::FromPointer(this));
++    TRACE_EVENT_ASYNC_BEGIN0("webrtc", "EncoderPaused", this);
+   }
+   encoder_paused_and_dropped_frame_ = true;
  }
+@@ -1746,8 +1743,7 @@ void VideoStreamEncoder::TraceFrameDropEnd() {
+   RTC_DCHECK_RUN_ON(encoder_queue_.get());
+   // End trace event on first frame after encoder resumes, if frame was dropped.
+   if (encoder_paused_and_dropped_frame_) {
+-    TRACE_EVENT_END("webrtc", /* EncoderPaused */
+-                    perfetto::Track::FromPointer(this));
++    TRACE_EVENT_ASYNC_END0("webrtc", "EncoderPaused", this);
+   }
+   encoder_paused_and_dropped_frame_ = false;
+ }
+@@ -2206,8 +2202,8 @@ void VideoStreamEncoder::EncodeVideoFrame(const VideoFrame& video_frame,
+   }
+   accumulated_update_rect_is_valid_ = true;
  
-+#if defined(__GNUC__) && defined(WEBRTC_MOZILLA_BUILD)
-+// Mozilla linux builds are using -std=gnu++20, which doesn't approve
-+// of using std::string in a constexpr.  PipewireVersion now contains
-+// std::string as of libwebrtc commit d167fe9296.
-+static const PipeWireVersion kDmaBufModifierMinVersion = {.major = 0,
-+                                                          .minor = 3,
-+                                                          .micro = 33};
-+static const PipeWireVersion kDropSingleModifierMinVersion = {.major = 0,
-+                                                              .minor = 3,
-+                                                              .micro = 40};
-+#else
- constexpr PipeWireVersion kDmaBufModifierMinVersion = {.major = 0,
-                                                        .minor = 3,
-                                                        .micro = 33};
- constexpr PipeWireVersion kDropSingleModifierMinVersion = {.major = 0,
-                                                            .minor = 3,
-                                                            .micro = 40};
-+#endif
+-  TRACE_EVENT_INSTANT("webrtc", "Encode", perfetto::Track::FromPointer(this),
+-                      "render_time", video_frame.render_time_ms());
++  TRACE_EVENT_ASYNC_STEP_INTO0("webrtc", "Video", video_frame.render_time_ms(),
++                               "Encode");
  
- class SharedScreenCastStreamPrivate {
-  public:
+   stream_resource_manager_.OnEncodeStarted(out_frame, time_when_posted_us);
+ 

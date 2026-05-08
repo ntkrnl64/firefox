@@ -39,6 +39,7 @@ ChromeUtils.defineLazyGetter(
 export const ERRORS = Object.freeze({
   GENERIC: "generic-error",
   NETWORK: "network-error",
+  CATASTROPHIC: "catastrophic-error",
   TIMEOUT: "timeout-error", // Activation took too long and was aborted
   MISSING_PROMISE: "missing-activation-promise", // Expected promise was not returned
   MISSING_ABORT: "missing-abort-controller", // Expected abort controller was not returned
@@ -104,6 +105,9 @@ export async function scheduleCallback(
 ) {
   const getNow = imports.getNow || (() => Temporal.Now.instant());
   while (getNow().until(timepoint).total("milliseconds") > 0) {
+    if (abortSignal.aborted) {
+      return;
+    }
     const msUntilTrigger = getNow().until(timepoint).total("milliseconds");
     // clamp the timeout to the max allowed by setTimeout
     const clampedMs = Math.min(msUntilTrigger, 2147483647);
@@ -136,7 +140,7 @@ class IPPProxyManagerSingleton extends EventTarget {
   #activationAbortController = null;
 
   #pass = null;
-  /**@type {import("./GuardianClient.sys.mjs").ProxyUsage | null} */
+  /**@type {import("./GuardianTypes.sys.mjs").ProxyUsage | null} */
   #usage = null;
   /**@type {import("./IPPChannelFilter.sys.mjs").IPPChannelFilter | null} */
   #connection = null;
@@ -149,6 +153,8 @@ class IPPProxyManagerSingleton extends EventTarget {
   #usageRefreshAbortController = null;
   /** @type {string | null} */
   #errorType = null;
+  #refreshUsageAbortController = null;
+  #rotateProxyPassAbortController = null;
 
   constructor() {
     super();
@@ -229,7 +235,7 @@ class IPPProxyManagerSingleton extends EventTarget {
    * This will be updated on every new ProxyPass fetch,
    * changes to the usage will be notified via the "IPPProxyManager:UsageChanged" event.
    *
-   * @returns {import("./GuardianClient.sys.mjs").ProxyUsage | null}
+   * @returns {import("./GuardianTypes.sys.mjs").ProxyUsage | null}
    */
   get usageInfo() {
     return this.#usage;
@@ -264,10 +270,13 @@ class IPPProxyManagerSingleton extends EventTarget {
    * True if started by user action, false if system action
    * @param {boolean} inPrivateBrowsing
    * True if started from a private browsing window
+   * @param {string} [country]
+   * Optional ISO 3166-1 alpha-2 country code to route through. When
+   * omitted, the recommended (anycast) location is used.
    * @returns {Promise<{started: boolean, error?: string}>}
    * Started is true if successfully connected, error contains the error message if it fails.
    */
-  async start(userAction = true, inPrivateBrowsing = false) {
+  async start(userAction = true, inPrivateBrowsing = false, country) {
     if (this.#state === IPPProxyStates.ACTIVATING) {
       if (!this.#activatingPromise) {
         throw new Error(ERRORS.MISSING_PROMISE);
@@ -307,7 +316,7 @@ class IPPProxyManagerSingleton extends EventTarget {
     );
 
     this.#activatingPromise = Promise.race([
-      this.#startInternal(abortSignal),
+      this.#startInternal(abortSignal, country),
       abortPromise,
     ])
       .then(
@@ -345,7 +354,7 @@ class IPPProxyManagerSingleton extends EventTarget {
     return this.#activatingPromise;
   }
 
-  async #startInternal(abortSignal) {
+  async #startInternal(abortSignal, country) {
     // Check network status before attempting connection
     if (lazy.IPPNetworkUtils.isOffline) {
       throw ERRORS.NETWORK;
@@ -384,7 +393,9 @@ class IPPProxyManagerSingleton extends EventTarget {
     }
     this.#schedulePassRotation(this.#pass);
 
-    const location = lazy.IPProtectionServerlist.getDefaultLocation();
+    const location = country
+      ? lazy.IPProtectionServerlist.getLocation(country)
+      : lazy.IPProtectionServerlist.getRecommendedLocation();
     const server = lazy.IPProtectionServerlist.selectServer(location?.city);
     if (!server) {
       throw ERRORS.SERVER_NOT_FOUND;
@@ -460,9 +471,43 @@ class IPPProxyManagerSingleton extends EventTarget {
   }
 
   /**
+   * Switch the active proxy connection to a server in a different country.
+   *
+   * @param {string} country - country code
+   * @returns {{switched: boolean, error?: string}}
+   */
+  switch(country) {
+    if (this.#state !== IPPProxyStates.ACTIVE) {
+      return { switched: false };
+    }
+
+    const location = country
+      ? lazy.IPProtectionServerlist.getLocation(country)
+      : lazy.IPProtectionServerlist.getRecommendedLocation();
+    const server = lazy.IPProtectionServerlist.selectServer(location?.city);
+
+    if (!server) {
+      this.#setErrorState(ERRORS.SERVER_NOT_FOUND);
+      return { switched: false, error: ERRORS.SERVER_NOT_FOUND };
+    }
+
+    lazy.logConsole.debug("Switching to server:", server?.hostname);
+
+    this.#connection.uninitialize();
+    this.#connection.initialize(this.#pass.asBearerToken(), server);
+
+    this.networkErrorObserver.addIsolationKey(this.#connection.isolationKey);
+
+    return { switched: true };
+  }
+
+  /**
    * Stop any connections and reset the pass and usage if the user has changed.
    */
   async reset() {
+    this.#refreshUsageAbortController?.abort();
+    this.#rotateProxyPassAbortController?.abort();
+
     this.#pass = null;
     this.#usage = null;
     if (this.#usageRefreshAbortController) {
@@ -476,8 +521,7 @@ class IPPProxyManagerSingleton extends EventTarget {
       this.#state === IPPProxyStates.PAUSED ||
       this.#state === IPPProxyStates.ERROR
     ) {
-      // Stop as a user action to reset userEnabled and record the correct metrics.
-      await this.stop(true /* userAction */);
+      await this.stop();
     }
   }
 
@@ -522,7 +566,7 @@ class IPPProxyManagerSingleton extends EventTarget {
    */
   async #getPassAndUsage(abortSignal = null) {
     let { status, error, pass, usage } =
-      await lazy.IPProtectionService.guardian.fetchProxyPass(abortSignal);
+      await lazy.IPProtectionService.authProvider.fetchProxyPass(abortSignal);
     lazy.logConsole.debug("ProxyPass:", {
       status,
       valid: pass?.isValid(),
@@ -589,14 +633,18 @@ class IPPProxyManagerSingleton extends EventTarget {
     if (this.#rotateProxyPassPromise) {
       return this.#rotateProxyPassPromise;
     }
+    this.#rotateProxyPassAbortController = new AbortController();
     let { promise, resolve } = Promise.withResolvers();
     using scopeGuard = new DisposableStack();
     scopeGuard.defer(() => {
       resolve();
       this.#rotateProxyPassPromise = null;
+      this.#rotateProxyPassAbortController = null;
     });
     this.#rotateProxyPassPromise = promise;
-    const { pass, usage, error } = await this.#getPassAndUsage();
+    const { pass, usage, error } = await this.#getPassAndUsage(
+      this.#rotateProxyPassAbortController.signal
+    );
     if (usage) {
       this.#setUsage(usage);
       if (this.#usage.remaining <= 0) {
@@ -636,11 +684,17 @@ class IPPProxyManagerSingleton extends EventTarget {
    * @return {Promise<void>}
    */
   async refreshUsage() {
+    this.#refreshUsageAbortController?.abort();
+    this.#refreshUsageAbortController = new AbortController();
+    const { signal } = this.#refreshUsageAbortController;
     let newUsage;
     try {
-      newUsage = await lazy.IPProtectionService.guardian.fetchProxyUsage();
+      newUsage =
+        await lazy.IPProtectionService.authProvider.fetchProxyUsage(signal);
     } catch (error) {
       lazy.logConsole.error("Error refreshing usage:", error);
+    } finally {
+      this.#refreshUsageAbortController = null;
     }
     if (!newUsage) {
       lazy.logConsole.debug("Failed to refresh usage info!");
@@ -721,7 +775,7 @@ class IPPProxyManagerSingleton extends EventTarget {
   }
 
   /**
-   * @param {import("./GuardianClient.sys.mjs").ProxyUsage } usage
+   * @param {import("./GuardianTypes.sys.mjs").ProxyUsage } usage
    */
   #setUsage(usage) {
     this.#usage = usage;

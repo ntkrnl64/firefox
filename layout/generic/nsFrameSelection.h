@@ -446,16 +446,17 @@ class nsFrameSelection final {
 
   /**
    * Sets the drag state to aState for resons of drag state.
+   * Note that only can run script when called with false as an argument.
    *
    * @param aState is the new state of drag
    */
   MOZ_CAN_RUN_SCRIPT void SetDragState(bool aState);
 
   /**
-   * Gets the drag state to aState for resons of drag state.
-   *
-   * @param aState will hold the state of drag
+   * Marks us as dragging. Equivalent to SetDragState(true), but without the
+   * CAN_RUN_SCRIPT implications.
    */
+  void RestoreDragState() { mDragState = true; }
   [[nodiscard]] bool GetDragState() const { return mDragState; }
 
   /**
@@ -660,6 +661,15 @@ class nsFrameSelection final {
    * @param aExtend continue selection
    */
   MOZ_CAN_RUN_SCRIPT nsresult IntraLineMove(bool aForward, bool aExtend);
+
+  /**
+   * ParagraphMove will generally be called from the nsiselectioncontroller
+   * implementations. the effect being the selection will move to beginning or
+   * end of paragraph
+   * @param aForward move forward in document.
+   * @param aExtend continue selection
+   */
+  MOZ_CAN_RUN_SCRIPT nsresult ParagraphMove(bool aForward, bool aExtend);
 
   /**
    * CreateRangeExtendedToNextGraphemeClusterBoundary() returns range which is

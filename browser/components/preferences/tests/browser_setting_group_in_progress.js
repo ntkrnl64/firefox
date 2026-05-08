@@ -12,14 +12,13 @@ async function openPrefsWithSettings({ allEnabled, sectionEnabled }) {
   });
   await openPreferencesViaOpenPreferencesAPI("privacy", { leaveOpen: true });
   let doc = gBrowser.selectedBrowser.contentDocument;
-  let win = doc.ownerGlobal;
+  let win = doc.documentGlobal;
   win.Preferences.addSetting({
     id: "testSetting",
     get: () => true,
   });
   win.SettingGroupManager.registerGroup("mysection", {
     inProgress: true,
-    l10nId: "downloads-header-2",
     headingLevel: 2,
     items: [
       {
@@ -30,7 +29,6 @@ async function openPrefsWithSettings({ allEnabled, sectionEnabled }) {
       },
     ],
   });
-  let zoomGroup = doc.getElementById("zoomGroup");
   let legacyGroup = doc.createXULElement("groupbox");
   legacyGroup.id = "mysectionGroup";
   legacyGroup.setAttribute("data-srd-groupid", "mysection");
@@ -40,8 +38,9 @@ async function openPrefsWithSettings({ allEnabled, sectionEnabled }) {
   mysectionGroup.setAttribute("groupid", "mysection");
   mysectionGroup.setAttribute("data-category", "paneGeneral");
   mysectionGroup.hidden = true;
-  zoomGroup.parentElement.insertBefore(mysectionGroup, zoomGroup);
-  zoomGroup.parentElement.insertBefore(legacyGroup, zoomGroup);
+  let paneContainer = doc.getElementById("generalCategory").parentElement;
+  paneContainer.appendChild(mysectionGroup);
+  paneContainer.appendChild(legacyGroup);
   win.initSettingGroup("mysection");
   let paneLoaded = waitForPaneChange("general");
   EventUtils.synthesizeMouseAtCenter(

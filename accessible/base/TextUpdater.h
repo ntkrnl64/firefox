@@ -23,6 +23,10 @@ class TextUpdater {
   static void Run(DocAccessible* aDocument, TextLeafAccessible* aTextLeaf,
                   const nsAString& aNewText);
 
+  TextUpdater() = delete;
+  TextUpdater(const TextUpdater&) = delete;
+  TextUpdater& operator=(const TextUpdater&) = delete;
+
  private:
   TextUpdater(DocAccessible* aDocument, TextLeafAccessible* aTextLeaf)
       : mDocument(aDocument),
@@ -42,11 +46,6 @@ class TextUpdater {
    */
   void DoUpdate(const nsAString& aNewText, const nsAString& aOldText,
                 uint32_t aSkipStart);
-
- private:
-  TextUpdater();
-  TextUpdater(const TextUpdater&);
-  TextUpdater& operator=(const TextUpdater&);
 
   /**
    * Fire text change events based on difference between strings.

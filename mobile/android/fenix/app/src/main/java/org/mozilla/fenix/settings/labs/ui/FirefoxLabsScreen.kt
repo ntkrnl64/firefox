@@ -41,6 +41,7 @@ import mozilla.components.compose.base.button.IconButton
 import mozilla.components.compose.base.button.TextButton
 import mozilla.components.compose.base.utils.BackInvokedHandler
 import org.mozilla.fenix.R
+import org.mozilla.fenix.compose.PromoCard
 import org.mozilla.fenix.compose.list.SwitchListItem
 import org.mozilla.fenix.settings.labs.FeatureKey
 import org.mozilla.fenix.settings.labs.LabsFeature
@@ -108,14 +109,7 @@ private fun FirefoxLabsScreenContent(
             .fillMaxSize(),
     ) {
         item {
-            Text(
-                text = String.format(
-                    stringResource(R.string.firefox_labs_experimental_description),
-                    stringResource(R.string.app_name),
-                ),
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
-                style = FirefoxTheme.typography.body1,
-            )
+            FirefoxLabsBanner()
         }
 
         items(labsFeatures) { feature ->
@@ -139,6 +133,33 @@ private fun FirefoxLabsScreenContent(
             )
         }
     }
+}
+
+@Composable
+private fun FirefoxLabsBanner() {
+    PromoCard(
+        modifier = Modifier.padding(
+            start = 16.dp,
+            end = 16.dp,
+            top = 8.dp,
+            bottom = 16.dp,
+        ),
+        title = { Text(text = stringResource(R.string.firefox_labs_banner_title)) },
+        message = {
+            Text(
+                text = String.format(
+                    stringResource(R.string.firefox_labs_experimental_description),
+                    stringResource(R.string.app_name),
+                ),
+            )
+        },
+        illustration = {
+            Image(
+                painter = painterResource(iconsR.drawable.mozac_ic_fox_ai_on_state),
+                contentDescription = null,
+            )
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

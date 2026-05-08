@@ -125,7 +125,7 @@ class AlignedBuffer {
   }
   // Set length of buffer, allocating memory as required.
   // If memory is allocated, additional buffer area is filled with 0.
-  bool SetLength(size_t aLength) {
+  [[nodiscard]] bool SetLength(size_t aLength) {
     if (aLength > mLength && !EnsureCapacity(aLength)) {
       return false;
     }
@@ -492,11 +492,11 @@ class VideoData : public MediaData {
     ~QuantizableBuffer();
 
    private:
-    void AllocateRecyclableData(size_t aLength);
+    void AllocateRecyclableData(uint32_t aLength);
 
     RefPtr<layers::BufferRecycleBin> mRecycleBin;
     UniquePtr<uint8_t[]> m8bpcPlanes;
-    size_t mAllocatedLength;
+    uint32_t mAllocatedLength;
   };
 
   // Constructs a VideoData object. If aImage is nullptr, creates a new Image
@@ -689,6 +689,8 @@ class MediaRawData final : public MediaData {
   explicit MediaRawData(AlignedByteBuffer&& aData);
   MediaRawData(AlignedByteBuffer&& aData, AlignedByteBuffer&& aAlphaData);
 
+  MediaRawData(const MediaRawData&) = delete;
+
   // Pointer to data or null if not-yet allocated
   const uint8_t* Data() const { return mBuffer.Data(); }
   // Pointer to alpha data or null if not-yet allocated
@@ -749,7 +751,6 @@ class MediaRawData final : public MediaData {
   AlignedByteBuffer mBuffer;
   AlignedByteBuffer mAlphaBuffer;
   CryptoSample mCryptoInternal;
-  MediaRawData(const MediaRawData&);  // Not implemented
 };
 
 // MediaByteBuffer is a ref counted infallible TArray.

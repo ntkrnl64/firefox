@@ -4703,6 +4703,49 @@ bool CacheIRCompiler::emitSpecializedBindFunctionResult(
   return true;
 }
 
+static void CallLinearizeString(MacroAssembler& masm, Register str,
+                                Register result,
+                                const LiveRegisterSet& volatileRegs,
+                                Label* fail) {
+  masm.PushRegsInMask(volatileRegs);
+
+  using Fn = JSLinearString* (*)(JSString*);
+  masm.setupUnalignedABICall(result);
+  masm.passABIArg(str);
+  masm.callWithABI<Fn, js::jit::LinearizeForCharAccessPure>();
+  masm.storeCallPointerResult(result);
+
+  LiveRegisterSet ignore;
+  ignore.add(result);
+  masm.PopRegsInMaskIgnore(volatileRegs, ignore);
+
+  masm.branchTestPtr(Assembler::Zero, result, result, fail);
+}
+
+bool CacheIRCompiler::emitLinearizeString(StringOperandId strId,
+                                          StringOperandId resultId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  Register str = allocator.useRegister(masm, strId);
+  Register result = allocator.defineRegister(masm, resultId);
+
+  FailurePath* failure;
+  if (!addFailurePath(&failure)) {
+    return false;
+  }
+
+  Label done;
+  masm.movePtr(str, result);
+
+  masm.branchIfNotRope(str, &done);
+  {
+    LiveRegisterSet volatileRegs = liveVolatileRegs();
+    CallLinearizeString(masm, str, result, volatileRegs, failure->label());
+  }
+
+  masm.bind(&done);
+  return true;
+}
+
 bool CacheIRCompiler::emitLinearizeForCharAccess(StringOperandId strId,
                                                  Int32OperandId indexId,
                                                  StringOperandId resultId) {
@@ -4727,19 +4770,7 @@ bool CacheIRCompiler::emitLinearizeForCharAccess(StringOperandId strId,
   masm.branchIfCanLoadStringChar(str, index, scratch, &done);
   {
     LiveRegisterSet volatileRegs = liveVolatileRegs();
-    masm.PushRegsInMask(volatileRegs);
-
-    using Fn = JSLinearString* (*)(JSString*);
-    masm.setupUnalignedABICall(scratch);
-    masm.passABIArg(str);
-    masm.callWithABI<Fn, js::jit::LinearizeForCharAccessPure>();
-    masm.storeCallPointerResult(result);
-
-    LiveRegisterSet ignore;
-    ignore.add(result);
-    masm.PopRegsInMaskIgnore(volatileRegs, ignore);
-
-    masm.branchTestPtr(Assembler::Zero, result, result, failure->label());
+    CallLinearizeString(masm, str, result, volatileRegs, failure->label());
   }
 
   masm.bind(&done);
@@ -4770,19 +4801,7 @@ bool CacheIRCompiler::emitLinearizeForCodePointAccess(
   masm.branchIfCanLoadStringCodePoint(str, index, scratch1, scratch2, &done);
   {
     LiveRegisterSet volatileRegs = liveVolatileRegs();
-    masm.PushRegsInMask(volatileRegs);
-
-    using Fn = JSLinearString* (*)(JSString*);
-    masm.setupUnalignedABICall(scratch1);
-    masm.passABIArg(str);
-    masm.callWithABI<Fn, js::jit::LinearizeForCharAccessPure>();
-    masm.storeCallPointerResult(result);
-
-    LiveRegisterSet ignore;
-    ignore.add(result);
-    masm.PopRegsInMaskIgnore(volatileRegs, ignore);
-
-    masm.branchTestPtr(Assembler::Zero, result, result, failure->label());
+    CallLinearizeString(masm, str, result, volatileRegs, failure->label());
   }
 
   masm.bind(&done);
@@ -5247,7 +5266,8 @@ bool CacheIRCompiler::emitLoadDenseElementResult(ObjOperandId objId,
 
   // If we did not check the packed flag, we must check for a hole value.
   if (!expectPackedElements) {
-    masm.branchTestMagic(Assembler::Equal, element, failure->label());
+    masm.branchTestMagic(Assembler::Equal, element, JS_ELEMENTS_HOLE,
+                         failure->label());
   }
 
   masm.loadTypedOrValue(element, output);
@@ -5302,7 +5322,7 @@ bool CacheIRCompiler::emitGuardIndexIsNotDenseElement(ObjOperandId objId,
   masm.spectreBoundsCheck32(index, capacity, spectreScratch, &notDense);
 
   BaseValueIndex element(scratch, index);
-  masm.branchTestMagic(Assembler::Equal, element, &notDense);
+  masm.branchTestMagic(Assembler::Equal, element, JS_ELEMENTS_HOLE, &notDense);
 
   masm.jump(failure->label());
 
@@ -5600,7 +5620,8 @@ bool CacheIRCompiler::emitLoadDenseElementHoleResult(ObjOperandId objId,
   // Load the value.
   Label done;
   masm.loadValue(BaseObjectElementIndex(scratch1, index), output.valueReg());
-  masm.branchTestMagic(Assembler::NotEqual, output.valueReg(), &done);
+  masm.branchTestMagicValue(Assembler::NotEqual, output.valueReg(),
+                            JS_ELEMENTS_HOLE, &done);
 
   // Load undefined for the hole.
   masm.bind(&hole);
@@ -5669,7 +5690,8 @@ bool CacheIRCompiler::emitLoadDenseElementExistsResult(ObjOperandId objId,
 
   // Hole check.
   BaseObjectElementIndex element(scratch, index);
-  masm.branchTestMagic(Assembler::Equal, element, failure->label());
+  masm.branchTestMagic(Assembler::Equal, element, JS_ELEMENTS_HOLE,
+                       failure->label());
 
   EmitStoreBoolean(masm, true, output);
   return true;
@@ -5702,7 +5724,7 @@ bool CacheIRCompiler::emitLoadDenseElementHoleExistsResult(
   // Load value and replace with true.
   Label done;
   BaseObjectElementIndex element(scratch, index);
-  masm.branchTestMagic(Assembler::Equal, element, &hole);
+  masm.branchTestMagic(Assembler::Equal, element, JS_ELEMENTS_HOLE, &hole);
   EmitStoreBoolean(masm, true, output);
   masm.jump(&done);
 
@@ -7289,7 +7311,8 @@ bool CacheIRCompiler::emitStoreDenseElement(ObjOperandId objId,
                       Imm32(ObjectElements::NON_PACKED), failure->label());
   } else {
     // Hole check.
-    masm.branchTestMagic(Assembler::Equal, element, failure->label());
+    masm.branchTestMagic(Assembler::Equal, element, JS_ELEMENTS_HOLE,
+                         failure->label());
   }
 
   // Perform the store.
@@ -11675,6 +11698,94 @@ bool CacheIRCompiler::emitDateSecondsFromSecondsIntoYearResult(
 
   masm.dateSecondsFromSecondsIntoYear(secondsIntoYear, output.valueReg(),
                                       scratch1, scratch2);
+  return true;
+}
+
+bool CacheIRCompiler::emitDateNow(NumberOperandId resultId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  ValueOperand output = allocator.defineValueRegister(masm, resultId);
+  AutoScratchRegister scratch(allocator, masm);
+  AutoScratchFloatRegister scratchFloat(this);
+
+  LiveRegisterSet volatileRegs = liveVolatileRegs();
+  volatileRegs.takeUnchecked(scratchFloat);
+  masm.PushRegsInMask(volatileRegs);
+
+  using Fn = double (*)(JSContext* cx);
+  masm.setupUnalignedABICall(scratch);
+  masm.loadJSContext(scratch);
+  masm.passABIArg(scratch);
+  masm.callWithABI<Fn, jit::DateNow>(ABIType::Float64);
+  masm.storeCallFloatResult(scratchFloat);
+
+  masm.PopRegsInMask(volatileRegs);
+
+  masm.boxDouble(scratchFloat, output, scratchFloat);
+  return true;
+}
+
+bool CacheIRCompiler::emitDateParse(StringOperandId strId,
+                                    NumberOperandId resultId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  Register str = allocator.useRegister(masm, strId);
+  ValueOperand output = allocator.defineValueRegister(masm, resultId);
+  AutoScratchRegister scratch(allocator, masm);
+  AutoAvailableFloatRegister scratchFloat(*this, FloatReg0);
+
+  LiveRegisterSet volatileRegs = liveVolatileRegs();
+  volatileRegs.takeUnchecked(scratchFloat);
+  masm.PushRegsInMask(volatileRegs);
+
+  using Fn = double (*)(JSContext* cx, const JSString*);
+  masm.setupUnalignedABICall(scratch);
+  masm.loadJSContext(scratch);
+  masm.passABIArg(scratch);
+  masm.passABIArg(str);
+  masm.callWithABI<Fn, jit::DateParse>(ABIType::Float64);
+  masm.storeCallFloatResult(scratchFloat);
+
+  masm.PopRegsInMask(volatileRegs);
+
+  masm.boxDouble(scratchFloat, output, scratchFloat);
+  return true;
+}
+
+bool CacheIRCompiler::emitTimeClip(NumberOperandId timeId,
+                                   NumberOperandId resultId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  ValueOperand output = allocator.defineValueRegister(masm, resultId);
+  AutoAvailableFloatRegister scratchFloat0(*this, FloatReg0);
+  AutoAvailableFloatRegister scratchFloat1(*this, FloatReg1);
+
+  allocator.ensureDoubleRegister(masm, timeId, scratchFloat0);
+
+  if (Assembler::HasRoundInstruction(RoundingMode::TowardsZero)) {
+    masm.timeClip(scratchFloat0, scratchFloat1);
+  } else {
+    LiveRegisterSet liveRegs = liveVolatileRegs();
+    masm.timeClip(scratchFloat0, scratchFloat1, output.scratchReg(), liveRegs);
+  }
+  masm.boxDouble(scratchFloat1, output, scratchFloat1);
+  return true;
+}
+
+bool CacheIRCompiler::emitNewDateObjectResult(uint32_t templateObjectOffset,
+                                              NumberOperandId utcTimeId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  AutoCallVM callvm(masm, this, allocator);
+
+  AutoAvailableFloatRegister scratchFloat(*this, FloatReg0);
+  allocator.ensureDoubleRegister(masm, utcTimeId, scratchFloat);
+
+  callvm.prepare();
+  masm.Push(scratchFloat);
+
+  using Fn = JSObject* (*)(JSContext*, double);
+  callvm.call<Fn, jit::NewDateObject>();
   return true;
 }
 

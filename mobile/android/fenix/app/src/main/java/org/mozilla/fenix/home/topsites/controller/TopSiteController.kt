@@ -17,7 +17,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.availableSearchEngines
@@ -180,7 +179,7 @@ class DefaultTopSiteController(
                     val urlText = urlEditText.text.toString()
 
                     if (urlText.isUrl()) {
-                        viewLifecycleScope.launch(Dispatchers.IO) {
+                        viewLifecycleScope.launch {
                             updateTopSite(
                                 topSite = topSite,
                                 title = titleEditText.text.toString(),
@@ -216,7 +215,7 @@ class DefaultTopSiteController(
     }
 
     @VisibleForTesting
-    internal fun updateTopSite(topSite: TopSite, title: String, url: String) {
+    internal suspend fun updateTopSite(topSite: TopSite, title: String, url: String) {
         if (topSite is TopSite.Frecent) {
             topSitesUseCases.addPinnedSites(
                 title = title,
@@ -238,7 +237,7 @@ class DefaultTopSiteController(
             SupportUtils.GOOGLE_URL -> TopSites.googleTopSiteRemoved.record(NoExtras())
         }
 
-        viewLifecycleScope.launch(Dispatchers.IO) {
+        viewLifecycleScope.launch {
             with(activity.components.useCases.topSitesUseCase) {
                 removeTopSites(topSite)
             }
@@ -352,19 +351,19 @@ class DefaultTopSiteController(
     }
 
     private fun sendMarsTopSiteCallback(url: String) {
-        viewLifecycleScope.launch(Dispatchers.IO) {
+        viewLifecycleScope.launch {
             marsUseCases.recordInteraction(url)
         }
     }
 
     private fun sendMozAdsClickInteraction(clickUrl: String) {
-        viewLifecycleScope.launch(Dispatchers.IO) {
+        viewLifecycleScope.launch {
             mozAdsUseCases.recordClickInteraction(clickUrl = clickUrl)
         }
     }
 
     private fun sendMozAdsImpressionInteraction(impressionUrl: String) {
-        viewLifecycleScope.launch(Dispatchers.IO) {
+        viewLifecycleScope.launch {
             mozAdsUseCases.recordImpressionInteraction(impressionUrl = impressionUrl)
         }
     }

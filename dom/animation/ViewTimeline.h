@@ -41,9 +41,15 @@ class ViewTimeline final : public ScrollTimeline {
       StyleScrollAxis aAxis, const StyleViewTimelineInset& aInset);
 
   JSObject* WrapObject(JSContext* aCx,
-                       JS::Handle<JSObject*> aGivenProto) override {
-    return nullptr;
+                       JS::Handle<JSObject*> aGivenProto) override;
+
+  // ViewTimeline methods.
+  Element* Subject() const {
+    MOZ_ASSERT(mSubject);
+    return mSubject;
   }
+  Nullable<double> GetStartOffset() const;
+  Nullable<double> GetEndOffset() const;
 
   bool IsViewTimeline() const override { return true; }
 
@@ -63,20 +69,20 @@ class ViewTimeline final : public ScrollTimeline {
 
  private:
   ~ViewTimeline() = default;
-  ViewTimeline(Document* aDocument, const Scroller& aScroller,
+  ViewTimeline(Document* aDocument, const ScrollerInfo& aScrollerInfo,
                StyleScrollAxis aAxis, Element* aSubject,
                PseudoStyleType aSubjectPseudoType,
                const StyleViewTimelineInset& aInset)
-      : ScrollTimeline(aDocument, aScroller, aAxis),
+      : ScrollTimeline(aDocument, aScrollerInfo, aAxis),
         mSubject(aSubject),
         mSubjectPseudoType(aSubjectPseudoType),
         mInset(aInset) {}
 
   Maybe<ComputedTimelineData> ComputeTimelineData() const override;
 
-  static std::pair<nscoord, nscoord> IntervalForTimelineRangeName(
+  std::pair<nscoord, nscoord> IntervalForTimelineRangeName(
       const StyleTimelineRangeName aName,
-      const ScrollTimeline::ComputedTimelineData& aData);
+      const ScrollTimeline::ComputedTimelineData& aData) const;
 
   // The subject element.
   // 1. For view(), the subject element is the animation target.

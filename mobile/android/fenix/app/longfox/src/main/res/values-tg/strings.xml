@@ -23,4 +23,6 @@
   <string name="hiscore">ДАСТОВАРД: %1$d</string>
   <string name="sound_on">🔈 садо фаъол аст</string>
   <string name="sound_off">🔇 садо хомӯш аст</string>
+  <!-- Back button -->
+  <string name="back">ба қафо</string>
 </resources>

@@ -351,13 +351,6 @@ class SettingsTest {
     }
 
     @Test
-    fun shouldShowSearchShortcuts() {
-        // When just created
-        // Then
-        assertFalse(settings.shouldShowSearchShortcuts)
-    }
-
-    @Test
     fun shouldShowHistorySuggestions() {
         // When just created
         // Then
@@ -1048,7 +1041,6 @@ class SettingsTest {
     @Test
     fun `GIVEN top composable toolbar is enabled WHEN querying the toolbar height THEN get the height of the composable toolbar`() {
         val settings = spyk(settings)
-        every { settings.shouldUseComposableToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.TOP
 
         assertEquals(64, settings.browserToolbarHeight)
@@ -1057,7 +1049,6 @@ class SettingsTest {
     @Test
     fun `GIVEN bottom composable toolbar is enabled and navigation bar is disabled WHEN querying the toolbar height THEN get the height of the composable toolbar`() {
         val settings = spyk(settings)
-        every { settings.shouldUseComposableToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
         every { settings.shouldUseExpandedToolbar } returns false
 
@@ -1070,7 +1061,6 @@ class SettingsTest {
             screenWidthDp = 599
         }
         val settings = spyk(settings)
-        every { settings.shouldUseComposableToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
         every { settings.shouldUseExpandedToolbar } returns true
 
@@ -1085,7 +1075,6 @@ class SettingsTest {
         }
         val settings = spyk(settings)
 
-        every { settings.shouldUseComposableToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
         every { settings.shouldUseExpandedToolbar } returns true
 
@@ -1100,19 +1089,10 @@ class SettingsTest {
         }
         val settings = spyk(settings)
 
-        every { settings.shouldUseComposableToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
         every { settings.shouldUseExpandedToolbar } returns true
 
         assertEquals(64, settings.browserToolbarHeight)
-    }
-
-    @Test
-    fun `GIVEN composable toolbar is not enabled WHEN querying the toolbar heigh THEN get the height of the toolbar view`() {
-        val settings = spyk(settings)
-        every { settings.shouldUseComposableToolbar } returns false
-
-        assertEquals(56, settings.browserToolbarHeight)
     }
 
     @Test

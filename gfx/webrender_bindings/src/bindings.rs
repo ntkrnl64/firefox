@@ -1328,7 +1328,6 @@ extern "C" {
         num_opaque_rects: usize,
     );
     fn wr_compositor_end_frame(compositor: *mut c_void);
-    fn wr_compositor_enable_native_compositor(compositor: *mut c_void, enable: bool);
     fn wr_compositor_deinit(compositor: *mut c_void);
     fn wr_compositor_get_capabilities(compositor: *mut c_void, caps: *mut CompositorCapabilities);
     fn wr_compositor_get_window_visibility(compositor: *mut c_void, caps: *mut WindowVisibility);
@@ -1500,11 +1499,7 @@ impl Compositor for WrCompositor {
         }
     }
 
-    fn enable_native_compositor(&mut self, _device: &mut Device, enable: bool) {
-        unsafe {
-            wr_compositor_enable_native_compositor(self.0, enable);
-        }
-    }
+    fn enable_native_compositor(&mut self, _device: &mut Device, _enable: bool) {}
 
     fn deinit(&mut self, _device: &mut Device) {
         unsafe {
@@ -2116,12 +2111,6 @@ pub extern "C" fn wr_window_new(
         false
     };
 
-    let precise_linear_gradients = if software {
-        static_prefs::pref!("gfx.webrender.precise-linear-gradients-swgl")
-    } else {
-        static_prefs::pref!("gfx.webrender.precise-linear-gradients")
-    };
-
     let opts = WebRenderOptions {
         enable_aa: true,
         enable_subpixel_aa,
@@ -2177,7 +2166,6 @@ pub extern "C" fn wr_window_new(
         low_quality_pinch_zoom,
         max_shared_surface_size,
         enable_dithering,
-        precise_linear_gradients,
         ..Default::default()
     };
 
@@ -2293,11 +2281,6 @@ pub unsafe extern "C" fn wr_api_accumulate_memory_report(
 #[no_mangle]
 pub unsafe extern "C" fn wr_api_clear_all_caches(dh: &mut DocumentHandle) {
     dh.api.send_debug_cmd(DebugCommand::ClearCaches(ClearCache::all()));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn wr_api_enable_native_compositor(dh: &mut DocumentHandle, enable: bool) {
-    dh.api.send_debug_cmd(DebugCommand::EnableNativeCompositor(enable));
 }
 
 #[no_mangle]
@@ -3183,10 +3166,13 @@ pub extern "C" fn wr_dp_push_stacking_context(
             sc_origin_key != SpatialTreeItemKey::default(),
             "sc_origin_key must be set when stacking context has non-zero origin"
         );
+        // Inherit the stacking context's transform style so this translate-only
+        // reference frame doesn't introduce a 3D flattening boundary for
+        // preserve-3d contexts.
         wr_spatial_id = state.frame_builder.dl_builder.push_reference_frame(
             bounds.min,
             wr_spatial_id,
-            TransformStyle::Flat,
+            params.transform_style,
             PropertyBinding::Value(LayoutTransform::identity()),
             ReferenceFrameKind::Transform {
                 is_2d_scale_translation: true,

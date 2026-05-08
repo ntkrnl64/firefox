@@ -1,4 +1,7 @@
 [DEFAULT]
+prefs = [
+  "browser.settings-redesign.enabled=false",
+]
 support-files = [
   "head.js",
   "../head.js",
@@ -15,6 +18,8 @@ tags = "os_integration"
 ["browser_aiFeatures_smart_window.js"]
 
 ["browser_aiFeatures_smart_window_block_dialog.js"]
+
+["browser_aiFeatures_smart_window_default_settings.js"]
 
 ["browser_aiFeatures_smart_window_memories.js"]
 

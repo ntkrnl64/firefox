@@ -3862,7 +3862,7 @@ static bool DifferenceNonISODateWithLeapMonth(
     months += sign;
     constrainedDate = intermediateDate;
   }
-  MOZ_ASSERT(std::abs(months) < CalendarMonthsPerYear(calendarId));
+  MOZ_ASSERT(std::abs(months) <= CalendarMonthsPerYear(calendarId));
 
   // Convert years to months if necessary.
   if (largestUnit == TemporalUnit::Month && years != 0) {

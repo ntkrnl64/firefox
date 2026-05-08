@@ -1,6 +1,11 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+/*
+ * Tests the functionality of the default search engine and separate private
+ * default search engine dropdowns on about:preferences#search.
+ */
+
 const { SearchTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/SearchTestUtils.sys.mjs"
 );
@@ -215,7 +220,7 @@ async function setDefaultEngine(
   EventUtils.synthesizeMouseAtCenter(
     defaultEngineSelector,
     {},
-    defaultEngineSelector.ownerGlobal
+    defaultEngineSelector.documentGlobal
   );
   await popupShown;
 
@@ -231,7 +236,11 @@ async function setDefaultEngine(
   // Waiting for popupHiding here seemed to cause a race condition, however
   // as we're really just interested in the notification, we'll just use
   // that here.
-  EventUtils.synthesizeMouseAtCenter(engine2Item, {}, engine2Item.ownerGlobal);
+  EventUtils.synthesizeMouseAtCenter(
+    engine2Item,
+    {},
+    engine2Item.documentGlobal
+  );
   await defaultChanged;
 
   const newDefault = testPrivate

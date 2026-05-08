@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 package mozilla.components.feature.awesomebar.provider
 
 import kotlinx.coroutines.CancellationException
@@ -7,7 +11,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.awesomebar.AwesomeBar
 import mozilla.components.concept.awesomebar.optimizedsuggestions.FlightSuggestionStatus
-import mozilla.components.feature.search.SearchUseCases.SearchUseCase
+import mozilla.components.feature.session.SessionUseCases.LoadUrlUseCase
 import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -19,6 +23,8 @@ import org.mockito.Mockito.verify
 import java.time.ZoneId
 import java.util.Locale
 
+private const val ARTIFICIAL_DELAY = 350L
+
 /**
  * Tests for [FlightsOnlineSuggestionProvider].
  *
@@ -27,19 +33,15 @@ import java.util.Locale
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class FlightsOnlineSuggestionProviderTest {
-    private lateinit var fakeDataSource: FakeFlightsSuggestionDataSource
+    private lateinit var fakeDataSource: FakeCombinedOnlineSuggestionDataSource
     private lateinit var provider: FlightsOnlineSuggestionProvider
 
     @Before
     fun setUp() {
-        fakeDataSource = FakeFlightsSuggestionDataSource(
-            results = listOf(
-                sampleFlightItem(),
-            ),
-        )
+        fakeDataSource = FakeCombinedOnlineSuggestionDataSource(flightResults = listOf(sampleFlightItem()))
 
         provider = FlightsOnlineSuggestionProvider(
-            searchUseCase = mock(),
+            loadUrlUseCase = mock(),
             dataSource = fakeDataSource,
             suggestionsHeader = null,
             maxNumberOfSuggestions = DEFAULT_FLIGHT_SUGGESTION_LIMIT,
@@ -71,14 +73,13 @@ class FlightsOnlineSuggestionProviderTest {
 
     @Test
     fun `onSuggestionClicked invokes search use case with query`() = runTest {
-        val searchUseCase: SearchUseCase = mock()
-        val localDateSource = FakeFlightsSuggestionDataSource(
-            results = listOf(
-                sampleFlightItem("test query"),
-            ),
+        val url = "https://www.flightaware.com/live/flight/AAL123"
+        val loadUrlUseCase: LoadUrlUseCase = mock()
+        val localDateSource = FakeCombinedOnlineSuggestionDataSource(
+            flightResults = listOf(sampleFlightItem(url = url)),
         )
         val localProvider = FlightsOnlineSuggestionProvider(
-            searchUseCase = searchUseCase,
+            loadUrlUseCase = loadUrlUseCase,
             dataSource = localDateSource,
             suggestionsHeader = null,
             maxNumberOfSuggestions = DEFAULT_FLIGHT_SUGGESTION_LIMIT,
@@ -92,21 +93,21 @@ class FlightsOnlineSuggestionProviderTest {
         assertNotNull(suggestion.onSuggestionClicked)
         suggestion.onSuggestionClicked!!.invoke()
 
-        verify(searchUseCase).invoke("test query")
+        verify(loadUrlUseCase).invoke(url)
     }
 
     @Test
     fun `respects maxNumberOfSuggestions`() = runTest {
         val manyResults = listOf(
-            sampleFlightItem(query = "a flight", flightNumber = "A"),
-            sampleFlightItem(query = "b flight", flightNumber = "B"),
-            sampleFlightItem(query = "c flight", flightNumber = "C"),
+            sampleFlightItem(url = "https://www.flightaware.com/live/flight/AAL123", flightNumber = "A"),
+            sampleFlightItem(url = "https://www.flightaware.com/live/flight/AAL105", flightNumber = "B"),
+            sampleFlightItem(url = "https://www.flightaware.com/live/flight/AAL101", flightNumber = "C"),
         )
 
-        val localDataSource = FakeFlightsSuggestionDataSource(results = manyResults)
+        val localDataSource = FakeCombinedOnlineSuggestionDataSource(flightResults = manyResults)
 
         val limitedProvider = FlightsOnlineSuggestionProvider(
-            searchUseCase = mock(),
+            loadUrlUseCase = mock(),
             dataSource = localDataSource,
             suggestionsHeader = null,
             maxNumberOfSuggestions = 1,
@@ -122,7 +123,7 @@ class FlightsOnlineSuggestionProviderTest {
     @Test
     fun `id is stable per instance`() = runTest {
         val p = FlightsOnlineSuggestionProvider(
-            searchUseCase = mock(),
+            loadUrlUseCase = mock(),
             dataSource = fakeDataSource,
             suggestionsHeader = null,
             maxNumberOfSuggestions = 1,
@@ -141,7 +142,7 @@ class FlightsOnlineSuggestionProviderTest {
     fun `cancellation before delay prevents data source call`() = runTest {
         val localDataSource = fakeDataSource
         val cancellableProvider = FlightsOnlineSuggestionProvider(
-            searchUseCase = mock(),
+            loadUrlUseCase = mock(),
             dataSource = localDataSource,
             suggestionsHeader = null,
             maxNumberOfSuggestions = 1,
@@ -320,24 +321,8 @@ class FlightsOnlineSuggestionProviderTest {
     }
 }
 
-/**
- * Simple fake data source used for unit tests.
- * Records calls and returns the specified results.
- */
-private class FakeFlightsSuggestionDataSource(
-    private val results: List<AwesomeBar.FlightItem> = emptyList(),
-) : AwesomeBar.FlightsSuggestionDataSource {
-    val calls = mutableListOf<String>()
-
-    override suspend fun fetch(query: String): List<AwesomeBar.FlightItem> {
-        calls += query
-        return results
-    }
-}
-
 /** Convenience factory for creating sample [AwesomeBar.FlightItem] objects for tests. */
 private fun sampleFlightItem(
-    query: String = "AA123 Los Angeles to New York",
     flightNumber: String = "AA123",
     destination: AwesomeBar.FlightItem.Airport = sampleDestination,
     origin: AwesomeBar.FlightItem.Airport = sampleOrigin,
@@ -347,10 +332,9 @@ private fun sampleFlightItem(
     progressPercent: Int = 72,
     timeLeftMinutes: Int? = 63,
     delayed: Boolean = false,
-    url: String = "https://flightaware.com/live/flight/AA123",
+    url: String = "https://flightaware.com/live/flight/AAL123",
     airline: AwesomeBar.FlightItem.Airline = sampleAirline,
 ) = AwesomeBar.FlightItem(
-    query = query,
     flightNumber = flightNumber,
     destination = destination,
     origin = origin,

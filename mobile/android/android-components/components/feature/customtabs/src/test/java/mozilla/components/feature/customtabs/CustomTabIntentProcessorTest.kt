@@ -35,6 +35,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.eq
 import org.mockito.Mockito.verify
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class CustomTabIntentProcessorTest {
@@ -77,7 +78,7 @@ class CustomTabIntentProcessorTest {
         val customTab = store.state.findCustomTab(customTabId!!)
         assertNotNull(customTab!!)
         assertEquals("http://mozilla.org", customTab.content.url)
-        assertTrue(customTab.source is Source.External.CustomTab)
+        assertIs<Source.External.CustomTab>(customTab.source)
         assertNotNull(customTab.config)
         assertFalse(customTab.content.private)
     }
@@ -128,7 +129,7 @@ class CustomTabIntentProcessorTest {
         val customTab = store.state.findCustomTab(customTabId!!)
         assertNotNull(customTab!!)
         assertEquals("http://mozilla.org", customTab.content.url)
-        assertTrue(customTab.source is Source.External.CustomTab)
+        assertIs<Source.External.CustomTab>(customTab.source)
         assertNotNull(customTab.config)
         assertFalse(customTab.content.private)
     }
@@ -172,7 +173,7 @@ class CustomTabIntentProcessorTest {
         val customTab = store.state.findCustomTab(customTabId!!)
         assertNotNull(customTab!!)
         assertEquals("http://mozilla.org", customTab.content.url)
-        assertTrue(customTab.source is Source.External.CustomTab)
+        assertIs<Source.External.CustomTab>(customTab.source)
         assertNotNull(customTab.config)
         assertTrue(customTab.content.private)
     }

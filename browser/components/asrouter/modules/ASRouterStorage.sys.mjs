@@ -28,7 +28,13 @@ export class ASRouterStorage {
   }
 
   get db() {
-    return this._db || (this._db = this.createOrOpenDb());
+    if (!this._db) {
+      this._db = this.createOrOpenDb().catch(e => {
+        this._db = null;
+        throw e;
+      });
+    }
+    return this._db;
   }
 
   /**
@@ -50,14 +56,15 @@ export class ASRouterStorage {
         setSharedMessageImpressions:
           this.setSharedMessageImpressions.bind(this),
         setSharedMessageBlocked: this.setSharedMessageBlocked.bind(this),
+        resetSharedMessageStorage: this.resetSharedMessageStorage.bind(this),
       };
     }
 
     throw new Error(`Store name ${storeName} does not exist.`);
   }
 
-  async _getStore(storeName) {
-    return (await this.db).objectStore(storeName, "readwrite");
+  async _getStore(storeName, mode = "readonly") {
+    return (await this.db).objectStore(storeName, mode);
   }
 
   _get(storeName, key) {
@@ -80,17 +87,22 @@ export class ASRouterStorage {
 
   _set(storeName, key, value) {
     return this._requestWrapper(async () =>
-      (await this._getStore(storeName)).put(value, key)
+      (await this._getStore(storeName, "readwrite")).put(value, key)
     );
   }
 
   _openDatabase() {
     return lazy.IndexedDB.open(this.dbName, this.dbVersion, db => {
       // If provided with array of objectStore names we need to create all the
-      // individual stores
+      // individual stores.
+      // createObjectStore is synchronous (returns IDBObjectStore, not
+      // IDBRequest), so we must not wrap it with the async _requestWrapper:
+      // its returned Promise would never be awaited inside this synchronous
+      // callback, silently swallowing any error instead of letting it abort
+      // the version-change transaction.
       this.storeNames.forEach(store => {
         if (!db.objectStoreNames.contains(store)) {
-          this._requestWrapper(() => db.createObjectStore(store));
+          db.createObjectStore(store);
         }
       });
     });
@@ -105,14 +117,38 @@ export class ASRouterStorage {
   async createOrOpenDb() {
     try {
       const db = await this._openDatabase();
-      return db;
+      return this._registerLifecycleHandlers(db);
     } catch (e) {
       if (this.telemetry) {
         this.telemetry.handleUndesiredEvent({ event: "INDEXEDDB_OPEN_FAILED" });
       }
-      await lazy.IndexedDB.deleteDatabase(this.dbName);
-      return this._openDatabase();
+      try {
+        await lazy.IndexedDB.deleteDatabase(this.dbName);
+      } catch (deleteErr) {
+        if (this.telemetry) {
+          this.telemetry.handleUndesiredEvent({
+            event: "INDEXEDDB_DELETE_FAILED",
+          });
+        }
+      }
+      const db = await this._openDatabase();
+      return this._registerLifecycleHandlers(db);
     }
+  }
+
+  // Register event handlers on a newly opened database connection so that
+  // external lifecycle events (version upgrades from other connections, or
+  // the backend closing the connection due to storage pressure/corruption)
+  // clear the cached _db promise and allow the next access to re-open.
+  _registerLifecycleHandlers(db) {
+    db.onversionchange = () => {
+      db.close();
+      this._db = null;
+    };
+    db.onclose = () => {
+      this._db = null;
+    };
+    return db;
   }
 
   async _requestWrapper(request) {
@@ -223,9 +259,8 @@ export class ASRouterStorage {
         );
       }
 
-      // If impressions is falsy, delete the row (an empty array may indicate a custom
-      // frequency cap; we still want to track the message ID in that case.)
-      if (!impressions) {
+      // If impressions is falsy or empty, delete the row.
+      if (!impressions?.length) {
         await conn.executeBeforeShutdown(
           "ASRouter: setSharedMessageImpressions",
           async () => {
@@ -349,6 +384,41 @@ export class ASRouterStorage {
         }
         success = false;
       }
+    }
+
+    lazy.ProfilesDatastoreService.notify();
+    return success;
+  }
+
+  async resetSharedMessageStorage() {
+    let success = true;
+    try {
+      const conn = await lazy.ProfilesDatastoreService.getConnection();
+      if (!conn) {
+        return false;
+      }
+      await conn.executeBeforeShutdown(
+        "ASRouter: resetSharedMessageBlocklist",
+        async () => {
+          await conn.executeCached(
+            `DELETE FROM MessagingSystemMessageBlocklist;`
+          );
+          await conn.executeCached(
+            `DELETE FROM MessagingSystemMessageImpressions;`
+          );
+        }
+      );
+    } catch (e) {
+      lazy.ASRouterPreferences.console.error(
+        `ASRouterStorage: Failed resetting MessagingSystemMessageBlocklist and MessagingSystemMessageImpressions`,
+        e
+      );
+      if (this.telemetry) {
+        this.telemetry.handleUndesiredEvent({
+          event: "SHARED_DB_WRITE_FAILED",
+        });
+      }
+      success = false;
     }
 
     lazy.ProfilesDatastoreService.notify();

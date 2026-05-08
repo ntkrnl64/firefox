@@ -96,6 +96,7 @@ import org.robolectric.Robolectric
 import java.lang.ref.WeakReference
 import java.security.InvalidParameterException
 import java.util.Date
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class PromptFeatureTest {
@@ -2948,8 +2949,8 @@ class PromptFeatureTest {
         )
 
         // Only interested in the icon, but it doesn't hurt to be sure we show a properly configured dialog.
-        assertTrue(feature.activePrompt!!.get() is SaveLoginDialogFragment)
-        val dialogFragment = feature.activePrompt!!.get() as SaveLoginDialogFragment
+        val dialogFragment = feature.activePrompt!!.get()
+        assertIs<SaveLoginDialogFragment>(dialogFragment)
         assertEquals(loginUsername, dialogFragment.username)
         assertEquals(loginPassword, dialogFragment.password)
         assertEquals(websiteIcon, dialogFragment.icon)
@@ -3266,9 +3267,8 @@ class PromptFeatureTest {
             session = session,
         )
 
-        assertTrue(feature.activePrompt!!.get() is CreditCardSaveDialogFragment)
-
-        val dialogFragment = feature.activePrompt!!.get() as CreditCardSaveDialogFragment
+        val dialogFragment = feature.activePrompt!!.get()
+        assertIs<CreditCardSaveDialogFragment>(dialogFragment)
 
         assertEquals(sessionId, dialogFragment.sessionId)
         assertEquals(creditCardEntry, dialogFragment.creditCard)

@@ -167,6 +167,8 @@ bool CompileZone::allocNurseryBigInts() {
   return zone()->allocNurseryBigInts();
 }
 
+void* CompileZone::addressOfZone() { return zone(); }
+
 void* CompileZone::addressOfNurseryPosition() {
   return zone()->runtimeFromAnyThread()->gc.addressOfNurseryPosition();
 }

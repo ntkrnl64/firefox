@@ -8,9 +8,13 @@
 newtab-page-title = Nov zavihek
 newtab-settings-button =
     .title = Prilagodite stran novega zavihka
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button =
     .title = Prilagodi to stran
+#  (developer note): @nova-cleanup(remove-string): Remove newtab-customize-panel-icon-button-label once Nova lands, will be using newtab-customize-panel-label instead
 newtab-customize-panel-icon-button-label = Prilagodi
+newtab-customize-panel-label =
+    .label = Prilagodi
 newtab-personalize-settings-icon-label =
     .title = Prilagodite stran novega zavihka
     .aria-label = Nastavitve
@@ -144,6 +148,9 @@ newtab-menu-report = Prijavi
 # Context menu option to personalize New Tab recommended stories by blocking a section of stories,
 # e.g. "Sports". "Block" is a verb here.
 newtab-menu-section-block = Prepovej
+# "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
+# e.g. Following the travel section of stories.
+newtab-menu-section-unfollow-topic = Nehaj slediti
 # "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
 # e.g. Following the travel section of stories.
 newtab-menu-section-unfollow = Nehaj slediti temi
@@ -310,9 +317,25 @@ newtab-error-fallback-refresh-link = Osvežite stran za ponoven poskus.
 
 newtab-custom-shortcuts-title = Bližnjice
 newtab-custom-shortcuts-subtitle = Strani, ki jih shranite ali obiščete
+#  (developer note): @nova-cleanup(remove-string): Remove old string once Nova lands. The newtab-custom-shortcuts-nova string will take over
 newtab-custom-shortcuts-toggle =
     .label = Bližnjice
     .description = Strani, ki jih shranite ali obiščete
+newtab-custom-shortcuts-nova =
+    .label = Bližnjice
+newtab-custom-row-description =
+    .description = Število vrstic
+# Variables
+#   $num (number) - Number of rows to display
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be using "row"/"rows" anymore for the dropdown
+newtab-custom-row-selector2 =
+    .label =
+        { $num ->
+            [one] { $num } vrstica
+            [two] { $num } vrstici
+            [few] { $num } vrstice
+           *[other] { $num } vrstic
+        }
 # Variables
 #   $num (number) - Number of rows to display
 newtab-custom-row-selector =
@@ -325,9 +348,12 @@ newtab-custom-row-selector =
 newtab-custom-sponsored-sites = Bližnjice oglaševalcev
 newtab-custom-pocket-title = Priporoča { -pocket-brand-name }
 newtab-custom-pocket-subtitle = Izjemna vsebina, ki jo pripravlja { -pocket-brand-name }, del družine { -brand-product-name }
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be having a description under "Recommended stories" anymore
 newtab-custom-stories-toggle =
     .label = Priporočene zgodbe
     .description = Izjemna vsebina, ki jo pripravlja družina { -brand-product-name }
+newtab-recommended-stories-toggle =
+    .label = Priporočene zgodbe
 newtab-custom-stories-personalized-toggle =
     .label = Zgodbe
 newtab-custom-stories-personalized-checkbox-label = Zgodbe, izbrane na podlagi vaše dejavnosti
@@ -361,8 +387,12 @@ newtab-custom-settings = Več nastavitev
 
 newtab-wallpaper-title = Ozadja
 newtab-wallpaper-reset = Ponastavi privzeto
+#  (developer note): @nova-cleanup(remove-string): Remove old "Upload an image" string once Nova lands. The new "Add an image"  string will take over
 newtab-wallpaper-upload-image = Naloži sliko
+newtab-wallpaper-add-an-image = Dodaj sliko
 newtab-wallpaper-custom-color = Izberite barvo
+newtab-wallpaper-toggle-title =
+    .label = Ozadja
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = Največja dovoljena velikost slike je { $file_size } MB. Poskusite naložiti manjšo datoteko.
@@ -385,7 +415,9 @@ newtab-wallpaper-light-fox-anniversary = Lisica na travnatem polju v megleni gor
 
 ## Solid Colors
 
+#  (developer note): @nova-cleanup(remove-string): Remove old "Solid colors" string once Nova lands. The simplified "Colors" string will take over
 newtab-wallpaper-category-title-colors = Enobarvna
+newtab-wallpaper-colors = Barve
 newtab-wallpaper-blue = Modro
 newtab-wallpaper-light-blue = Svetlo modro
 newtab-wallpaper-light-purple = Svetlo vijolično
@@ -476,6 +508,9 @@ newtab-weather-menu-change-location = Spremeni lokacijo
 newtab-weather-change-location-search-input-placeholder =
     .placeholder = Išči lokacijo
     .aria-label = Išči lokacijo
+# "Current" refers to the user's physical/geographic location detected via geolocation.
+newtab-weather-change-location-search-use-current =
+    .label = Uporabi trenutno lokacijo
 newtab-weather-menu-weather-display = Prikazovalnik vremena
 newtab-weather-todays-forecast = Napoved za današnji dan
 newtab-weather-see-full-forecast = Prikaži celotno napoved
@@ -491,7 +526,6 @@ newtab-weather-menu-temperature-option-fahrenheit = Fahrenheit
 newtab-weather-menu-temperature-option-celsius = Celzij
 newtab-weather-menu-change-temperature-units-fahrenheit = Preklopi na stopinje Fahrenheita
 newtab-weather-menu-change-temperature-units-celsius = Preklopi na stopinje Celzija
-newtab-weather-menu-hide-weather-v2 = Skrij vreme
 newtab-weather-menu-hide-weather = Skrij vreme na novem zavihku
 newtab-weather-menu-learn-more = Več o tem
 newtab-weather-menu-detect-my-location = Zaznaj mojo lokacijo
@@ -501,8 +535,16 @@ newtab-weather-opt-in-not-now =
     .label = Ne zdaj
 newtab-weather-opt-in-yes =
     .label = Da
+newtab-weather-opt-in-use-location =
+    .label = Uporabi lokacijo
 # We'll be showing static (fake) weather data if the user has not opted in to using their location
 newtab-weather-static-city = New York
+# "Highest" here refers to the highest temperature of the day
+newtab-weather-high =
+    .aria-label = Najvišja
+# "Lowest" here refers to the lowest temperature of the day
+newtab-weather-low =
+    .aria-label = Najnižja
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-see-forecast-description =
@@ -554,6 +596,10 @@ newtab-topic-selection-button-pick-interests = Izberite svoja zanimanja
 ## e.g. Following the travel section of stories.
 
 newtab-section-follow-button = Sledi
+# Variables:
+#   $topic (string) - Topic that the user can follow
+newtab-section-follow-button-label =
+    .aria-label = Sledi temi { $topic }
 newtab-section-following-button = Sledite
 newtab-section-unfollow-button = Nehaj slediti
 # A modal may appear next to the Follow button, directing users to try out the feature
@@ -567,6 +613,10 @@ newtab-section-follow-highlight-subtitle = Sledite svojim zanimanjem in dobivajt
 newtab-section-block-button = Prepovej
 newtab-section-blocked-button = Prepovedano
 newtab-section-unblock-button = Dovoli
+# Variables:
+#   $topic (string) - Name of topic that user is unblocking
+newtab-section-unblock-topic =
+    .aria-label = Odblokiraj temo { $topic }
 
 ## Confirmation modal for blocking a section
 
@@ -576,6 +626,7 @@ newtab-section-confirm-block-topic-p2 = Blokirane teme se ne bodo več prikazova
 # Variables:
 #   $topic (string) - Name of topic that user is blocking
 newtab-section-block-topic-button = Blokiraj { $topic }
+newtab-section-block-cancel-button = Prekliči
 
 ## Strings for custom wallpaper highlight
 
@@ -637,6 +688,18 @@ newtab-report-cancel = Prekliči
 newtab-report-submit = Pošlji
 newtab-toast-thanks-for-reporting =
     .message = Hvala za prijavo.
+# Variables:
+#   $topic (string) - Topic that the user has followed
+newtab-section-toast-follow =
+    .message = Zdaj sledite temi { $topic }.
+# Variables:
+#   $topic (string) - Topic that the user has unfollowed
+newtab-section-toast-unfollow =
+    .message = Ne sledite več temi { $topic }.
+# Variables:
+#   $topic (string) - Topic that the user has blocked
+newtab-section-toast-block =
+    .message = Zgodbe o temi { $topic } se vam ne bodo več prikazovale.
 
 ## Strings for task / to-do list productivity widget
 
@@ -653,11 +716,16 @@ newtab-widget-lists-label-beta =
 newtab-widget-lists-completed-list = Opravljeno ({ $number })
 newtab-widget-task-list-menu-copy = Kopiraj
 newtab-widget-lists-menu-edit = Uredi ime seznama
+newtab-widget-lists-menu-edit2 =
+    .aria-label = Uredi ime seznama
 newtab-widget-lists-menu-create = Ustvari nov seznam
 newtab-widget-lists-menu-delete = Izbriši ta seznam
 newtab-widget-lists-menu-copy = Kopiraj seznam v odložišče
-newtab-widget-lists-menu-hide = Skrij vse sezname
 newtab-widget-lists-menu-learn-more = Več o tem
+newtab-widget-lists-button-add-item = Dodaj element
+newtab-widget-lists-input-add-an-item2 =
+    .placeholder = Dodaj element
+    .aria-label = Dodaj element
 newtab-widget-lists-input-add-an-item =
     .placeholder = Dodaj element
 newtab-widget-lists-input-error = Za dodajanje predmeta vključite besedilo.
@@ -674,10 +742,18 @@ newtab-widget-lists-name-label-default =
 newtab-widget-lists-name-placeholder-default =
     .placeholder = Seznam opravil
 # The placeholder value of the name field for a newly created list
+newtab-widget-lists-name-placeholder-new2 =
+    .placeholder = Nov seznam
+    .aria-label = Uredi ime seznama
+# The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nov seznam
 newtab-widget-section-title = Pripomočki
 newtab-widget-menu-hide = Skrij pripomoček
+newtab-widget-menu-change-size = Spremeni velikost
+newtab-widget-size-small = Majhna
+newtab-widget-size-medium = Srednja
+newtab-widget-size-large = Velika
 # Tooltip for hide all widgets button
 newtab-widget-section-hide-all-button =
     .title = Skrij pripomočke
@@ -688,10 +764,10 @@ newtab-widget-section-maximize =
 newtab-widget-section-minimize =
     .title = Pomanjšaj pripomočke
     .aria-label = Skrči vse pripomočke
+newtab-widget-section-menu-learn-more = Več o tem
 newtab-widget-section-feedback = Povejte nam svoje mnenje
 
-## Strings for timer productivity widget
-## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+## Strings introduced by the Nova redesign of the Timer widget
 
 newtab-widget-timer-notification-title = Odštevalnik
 newtab-widget-timer-notification-focus = Čas za osredotočeno delo je potekel. Odlično opravljeno. Potrebujete odmor?
@@ -709,7 +785,6 @@ newtab-widget-timer-reset =
     .title = Ponastavi
 newtab-widget-timer-menu-notifications = Izklopi obvestila
 newtab-widget-timer-menu-notifications-on = Vklopi obvestila
-newtab-widget-timer-menu-hide = Skrij odštevalnik
 newtab-widget-timer-menu-learn-more = Več o tem
 # The title displays above a set of top news headlines.
 newtab-daily-briefing-card-title = Glavne novice
@@ -718,6 +793,7 @@ newtab-daily-briefing-card-menu-dismiss = Skrij
 #   $minutes (number) - Time since the feed has been refreshed
 newtab-daily-briefing-card-timestamp = Posodobljeno pred { $minutes } min
 newtab-widget-message-title = Ostanite osredotočeni s seznami in vgrajenim časovnikom
+newtab-promo-card-cta-addons = Preizkusite zdaj
 newtab-promo-card-title = Podprite { -brand-product-name(sklon: "tozilnik") }
 newtab-promo-card-body = Naši sponzorji podpirajo naše poslanstvo ustvarjanja boljšega spleta
 newtab-promo-card-cta = Več o tem

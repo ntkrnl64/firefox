@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -13,8 +11,11 @@
 #include "mozilla/UniquePtr.h"
 #include "nsIAsyncShutdown.h"
 #include "nsIChannel.h"
+#include "nsIContentClassifierService.h"
+#include "nsIContentClassifierRemoteSettingsClient.h"
 #include "nsISupportsImpl.h"
 #include "nsTArray.h"
+#include "nsTHashMap.h"
 
 #include "mozilla/ContentClassifierEngine.h"
 
@@ -30,10 +31,12 @@ enum class InitPhase {
   ShutdownEnded
 };
 
-class ContentClassifierService final : public nsIAsyncShutdownBlocker {
+class ContentClassifierService final : public nsIAsyncShutdownBlocker,
+                                       public nsIContentClassifierService {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIASYNCSHUTDOWNBLOCKER
+  NS_DECL_NSICONTENTCLASSIFIERSERVICE
 
   static already_AddRefed<ContentClassifierService> GetInstance();
 
@@ -55,6 +58,9 @@ class ContentClassifierService final : public nsIAsyncShutdownBlocker {
   void Init();
   static void OnPrefChange(const char* aPref, void* aData);
   void LoadFilterLists();
+  void RebuildEnginesFromStoredData();
+  void InitRSClient();
+  void ShutdownRSClient();
   void RemoveBlocker();
   already_AddRefed<nsIAsyncShutdownClient> GetAsyncShutdownBarrier() const;
 
@@ -71,6 +77,14 @@ class ContentClassifierService final : public nsIAsyncShutdownBlocker {
       MOZ_GUARDED_BY(mLock);
   nsTArray<UniquePtr<ContentClassifierEngine>> mAnnotateEngines
       MOZ_GUARDED_BY(mLock);
+
+  // Raw filter list data stored by list name, populated by the RS client.
+  nsTHashMap<nsCStringHashKey, nsTArray<uint8_t>> mFilterListData
+      MOZ_GUARDED_BY(mLock);
+
+  // RemoteSettings client for fetching filter lists. All reads and
+  // writes must happen on the main thread; each call site asserts.
+  nsCOMPtr<nsIContentClassifierRemoteSettingsClient> mRSClient;
 };
 
 }  // namespace mozilla

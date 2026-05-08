@@ -9,7 +9,9 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.ui.efficiency.helpers.BasePage
 import org.mozilla.fenix.ui.efficiency.helpers.Selector
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationStep
 import org.mozilla.fenix.ui.efficiency.selectors.TabDrawerSelectors
+import org.mozilla.fenix.ui.efficiency.selectors.ToolbarSelectors
 
 class TabDrawerPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *>) : BasePage(composeRule) {
     override val pageName = "TabDrawerPage"
@@ -19,7 +21,7 @@ class TabDrawerPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRu
             from = "HomePage",
             to = pageName,
             steps = listOf(
-                // Will need to create selectors for different pages to have a nav path
+                NavigationStep.Click(ToolbarSelectors.TAB_COUNTER),
             ),
         )
     }

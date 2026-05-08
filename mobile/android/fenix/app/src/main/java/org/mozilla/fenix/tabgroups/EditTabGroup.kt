@@ -49,6 +49,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.PreviewLightDark
@@ -57,7 +61,7 @@ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.annotation.FlexibleWindowPreview
-import mozilla.components.compose.base.button.TextButton
+import mozilla.components.compose.base.button.FilledButton
 import mozilla.components.compose.base.modifier.thenConditional
 import mozilla.components.compose.base.theme.AcornTheme
 import mozilla.components.compose.base.theme.layout.AcornWindowSize.Companion.isLargeWindow
@@ -89,7 +93,7 @@ fun EditTabGroup(
     tabsTrayStore: TabsTrayStore,
 ) {
     val formState by tabsTrayStore.tabGroupFormStateFlow.collectAsState(
-        initial = tabsTrayStore.state.tabGroupFormState ?: return,
+        initial = tabsTrayStore.state.tabGroupState.formState ?: return,
     )
 
     EditTabGroupContent(
@@ -143,15 +147,12 @@ private fun EditTabGroupContent(
     Column(
         modifier = Modifier.padding(
             bottom = 12.dp,
-            start = FirefoxTheme.layout.space.dynamic200,
-            end = FirefoxTheme.layout.space.dynamic200,
         ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = AcornTheme.layout.space.dynamic200,
                     vertical = AcornTheme.layout.space.static150,
                 ),
             verticalAlignment = Alignment.CenterVertically,
@@ -164,10 +165,10 @@ private fun EditTabGroupContent(
                 style = FirefoxTheme.typography.headline7,
             )
 
-            TextButton(
+            FilledButton(
                 text = stringResource(R.string.create_tab_group_save_button),
-                onClick = onConfirmSave,
                 modifier = Modifier.padding(end = 12.dp),
+                onClick = onConfirmSave,
             )
         }
 
@@ -272,6 +273,8 @@ private fun TabGroupColorPickerItem(
         animationSpec = colorPickerAnimationSpec(),
     )
 
+    val contentLabel = theme.contentLabel
+
     Box(
         modifier = Modifier
             .size(iconSize + (FirefoxTheme.layout.space.static100 * 2))
@@ -296,11 +299,15 @@ private fun TabGroupColorPickerItem(
             .clickable(
                 enabled = true,
                 interactionSource = interactionSource,
-                onClickLabel = theme.contentLabel,
+                onClickLabel = contentLabel,
                 onClick = {
                     onClicked(theme)
                 },
-            ),
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = contentLabel
+                role = Role.Button
+            },
     )
 }
 
@@ -425,11 +432,13 @@ private fun EditTabGroupBottomSheetPreview(
     val tabsTrayStore = remember {
         TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = TabGroupFormState(
-                    tabGroupId = null,
-                    name = "",
-                    nextTabGroupNumber = 1,
-                    edited = false,
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = TabGroupFormState(
+                        tabGroupId = null,
+                        name = "",
+                        nextTabGroupNumber = 1,
+                        edited = false,
+                    ),
                 ),
             ),
         )

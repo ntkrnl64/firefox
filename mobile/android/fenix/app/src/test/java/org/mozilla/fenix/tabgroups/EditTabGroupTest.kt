@@ -7,7 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -18,8 +18,10 @@ import org.junit.runner.RunWith
 import org.mozilla.fenix.tabstray.TabsTrayTestTag.BOTTOM_SHEET_COLOR_LIST
 import org.mozilla.fenix.tabstray.TabsTrayTestTag.GROUP_NAME
 import org.mozilla.fenix.tabstray.data.TabGroupTheme
+import org.mozilla.fenix.tabstray.data.createTabGroup
 import org.mozilla.fenix.tabstray.redux.state.TabGroupFormState
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.state.initializeTabGroupForm
 import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.theme.Theme
@@ -34,7 +36,9 @@ class EditTabGroupTest {
     fun `WHEN a color is clicked, THEN the form's state is updated`() {
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = fakeFormState(),
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = fakeFormState(),
+                ),
             ),
         )
         composeTestRule.setContent {
@@ -46,7 +50,7 @@ class EditTabGroupTest {
             .performClick()
 
         composeTestRule.runOnIdle {
-            assertEquals(store.state.tabGroupFormState?.theme, TabGroupTheme.Green)
+            assertEquals(store.state.tabGroupState.formState?.theme, TabGroupTheme.Green)
         }
     }
 
@@ -67,7 +71,9 @@ class EditTabGroupTest {
     fun `WHEN group is created GIVEN blank name, unedited state, and nextGroupNumber 1 THEN name is default name Group 1`() {
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = fakeFormState(nextGroupNumber = 1),
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = fakeFormState(nextGroupNumber = 1),
+                ),
             ),
         )
         composeTestRule.setContent {
@@ -81,7 +87,9 @@ class EditTabGroupTest {
     fun `WHEN group is created GIVEN blank name, unedited state, and nextGroupNumber 99 THEN name is default name Group 99`() {
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = fakeFormState(nextGroupNumber = 99),
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = fakeFormState(nextGroupNumber = 99),
+                ),
             ),
         )
         composeTestRule.setContent {
@@ -95,12 +103,14 @@ class EditTabGroupTest {
     fun `WHEN group is created GIVEN blank name and edited state THEN name is not overridden with default`() {
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = TabGroupFormState(
-                    tabGroupId = "123",
-                    name = "",
-                    nextTabGroupNumber = 1,
-                    theme = TabGroupTheme.Yellow,
-                    edited = true,
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = TabGroupFormState(
+                        tabGroupId = "123",
+                        name = "",
+                        nextTabGroupNumber = 1,
+                        theme = TabGroupTheme.Yellow,
+                        edited = true,
+                    ),
                 ),
             ),
         )
@@ -115,12 +125,14 @@ class EditTabGroupTest {
     fun `WHEN group is created GIVEN non-blank name and edited state THEN name is not overridden with default`() {
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = TabGroupFormState(
-                    tabGroupId = "123",
-                    name = "Test Group",
-                    nextTabGroupNumber = 1,
-                    theme = TabGroupTheme.Yellow,
-                    edited = true,
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = TabGroupFormState(
+                        tabGroupId = "123",
+                        name = "Test Group",
+                        nextTabGroupNumber = 1,
+                        theme = TabGroupTheme.Yellow,
+                        edited = true,
+                    ),
                 ),
             ),
         )
@@ -135,12 +147,14 @@ class EditTabGroupTest {
     fun `WHEN group is created GIVEN non-blank name and unedited state THEN name is not overridden with default`() {
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = TabGroupFormState(
-                    tabGroupId = "123",
-                    name = "Test Group",
-                    nextTabGroupNumber = 1,
-                    theme = TabGroupTheme.Yellow,
-                    edited = false,
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = TabGroupFormState(
+                        tabGroupId = "123",
+                        name = "Test Group",
+                        nextTabGroupNumber = 1,
+                        theme = TabGroupTheme.Yellow,
+                        edited = false,
+                    ),
                 ),
             ),
         )
@@ -156,11 +170,13 @@ class EditTabGroupTest {
         val expectedName = "Group 1"
         val store = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = TabGroupFormState(
-                    tabGroupId = null,
-                    name = "",
-                    nextTabGroupNumber = 1,
-                    edited = false,
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = TabGroupFormState(
+                        tabGroupId = null,
+                        name = "",
+                        nextTabGroupNumber = 1,
+                        edited = false,
+                    ),
                 ),
             ),
         )
@@ -174,8 +190,54 @@ class EditTabGroupTest {
             .assertIsDisplayed()
 
         composeTestRule.runOnIdle {
-            assertEquals(expectedName, store.state.tabGroupFormState?.name)
+            assertEquals(expectedName, store.state.tabGroupState.formState?.name)
         }
+    }
+
+    @Test
+    fun `WHEN the UI is opened to edit an existing tab group THEN the group's name is shown and saved in form state`() {
+        val expectedName = "test group"
+        val group = createTabGroup(title = expectedName)
+        val store = TabsTrayStore(
+            initialState = TabsTrayState(
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = group.initializeTabGroupForm(),
+                ),
+            ),
+        )
+
+        composeTestRule.setContent {
+            ComposableUnderTest(store = store)
+        }
+
+        composeTestRule
+            .onNodeWithText(expectedName)
+            .assertIsDisplayed()
+
+        composeTestRule.runOnIdle {
+            assertEquals(expectedName, store.state.tabGroupState.formState?.name)
+        }
+    }
+
+    @Test
+    fun `WHEN the UI is opened to edit an existing tab group THEN the header text displays EDIT_GROUP`() {
+        val expectedName = "test group"
+        val group = createTabGroup(title = expectedName)
+        val store = TabsTrayStore(
+            initialState = TabsTrayState(
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = group.initializeTabGroupForm(),
+                ),
+            ),
+        )
+
+        composeTestRule.setContent {
+            ComposableUnderTest(store = store)
+        }
+
+        composeTestRule
+            .onNodeWithText("Edit group")
+            .assertIsDisplayed()
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -183,7 +245,9 @@ class EditTabGroupTest {
     private fun ComposableUnderTest(
         store: TabsTrayStore = TabsTrayStore(
             initialState = TabsTrayState(
-                tabGroupFormState = fakeFormState(),
+                tabGroupState = TabsTrayState.TabGroupState(
+                    formState = fakeFormState(),
+                ),
             ),
         ),
     ) {

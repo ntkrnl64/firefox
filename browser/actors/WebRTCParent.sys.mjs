@@ -150,7 +150,7 @@ export class WebRTCParent extends JSWindowActorParent {
     state.browsingContext = browsingContext;
     state.windowId = aData.windowId;
 
-    let tabbrowser = browser.ownerGlobal.gBrowser;
+    let tabbrowser = browser.documentGlobal.gBrowser;
     if (tabbrowser) {
       tabbrowser.updateBrowserSharing(browser, {
         webRTC: state,
@@ -747,7 +747,7 @@ function prompt(aActor, aBrowser, aRequest) {
     name: originToShow,
     persistent: true,
     hideClose: true,
-    eventCallback(aTopic, aNewBrowser, isCancel) {
+    eventCallback(aTopic, aNewBrowser, withoutUserResponse) {
       if (aTopic == "swapping") {
         return true;
       }
@@ -784,7 +784,7 @@ function prompt(aActor, aBrowser, aRequest) {
         }
       }
 
-      if (aTopic == "removed" && notification && isCancel) {
+      if (aTopic == "removed" && notification && withoutUserResponse) {
         // The notification has been cancelled (e.g. due to entering
         // full-screen).  Also cancel the webRTC request.
         aActor.denyRequest(aRequest);
@@ -1252,7 +1252,6 @@ function prompt(aActor, aBrowser, aRequest) {
       // If we haven't handled the permission yet, we want to show the doorhanger.
       return false;
     },
-    queue: true,
   };
 
   function shouldShowAlwaysRemember() {
@@ -1715,12 +1714,7 @@ function maybeShowPopupNotificationInSidebar(
     "sidebar-webrtc-microphone-notification-icon",
     mainAction,
     secondaryActions,
-    {
-      ...options,
-      // Prevent dismissal when clicking outside the panel within the sidebar.
-      // Sidebar users may interact with sidebar content while the permission prompt is open.
-      queue: false,
-    }
+    options
   );
 
   notification.callID = aRequest.callID;

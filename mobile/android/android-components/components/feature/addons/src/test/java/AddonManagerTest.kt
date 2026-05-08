@@ -60,6 +60,7 @@ import org.mockito.Mockito.never
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
+import kotlin.test.assertIs
 
 @RunWith(AndroidJUnit4::class)
 class AddonManagerTest {
@@ -395,7 +396,6 @@ class AddonManagerTest {
 
         addonsManager.getAddons(allowCache = false)
         verify(addonsProvider).getFeaturedAddons(eq(false), eq(null), language = anyString())
-        Unit
     }
 
     @Test
@@ -434,7 +434,6 @@ class AddonManagerTest {
         addonsManager.getAddons()
         verify(addonsProvider).getFeaturedAddons(eq(true), readTimeoutInSeconds = eq(3L), language = anyString())
         // ^ readTimeoutInSeconds is now minimal to ensure quick loading (bug 1949963).
-        Unit
     }
 
     @Test
@@ -552,7 +551,7 @@ class AddonManagerTest {
         // Verifying we returned the right status
         verify(engine).updateWebExtension(any(), any(), onErrorCaptor.capture())
         onErrorCaptor.value.invoke("message", Exception())
-        assertTrue(updateStatus is Status.Error)
+        assertIs<Status.Error>(updateStatus)
     }
 
     @Test

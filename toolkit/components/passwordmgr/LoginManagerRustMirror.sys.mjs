@@ -7,138 +7,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
 });
 
-const rustMirrorTelemetryVersion = "5";
-
-// checks validity of an origin
-function checkOrigin(origin) {
-  try {
-    new URL(origin);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-/**
- * Validate an origin string.
- *
- * Returns:
- * [
- *   "ErrorName" or null,
- *   fixedOrigin or null,
- * ]
- *
- * Possible ErrorName values include:
- * - FalsyOrigin
- * - SurroundingWhitespace
- * - SingleDot
- * - ProtocolNameOnly
- * - ProtocolFragmentOnly
- * - ProtocolOnly
- * - MissingProtocol
- * - ProtocolTypo
- * - MissingProtocol
- * - UnknownError
- */
-function validateOrigin(origin) {
-  // valid origin
-  if (checkOrigin(origin)) {
-    return [null, null];
-  }
-
-  // falsy origin
-  if (!origin) {
-    return ["FalsyOrigin", null];
-  }
-
-  // surrounding white-space
-  {
-    const fixedOrigin = origin.trim();
-    if (checkOrigin(fixedOrigin)) {
-      return ["SurroundingWhitespace", fixedOrigin];
-    }
-  }
-
-  const lower = origin.toLowerCase();
-
-  // some protocol-only urls we won't try to fix
-  const wontfix = {
-    ".": "SingleDot",
-
-    http: "ProtocolNameOnly",
-    "http:": "ProtocolFragmentOnly",
-    "http://": "ProtocolOnly",
-
-    https: "ProtocolNameOnly",
-    "https:": "ProtocolFragmentOnly",
-    "https://": "ProtocolOnly",
-
-    file: "ProtocolNameOnly",
-    "file:": "ProtocolFragmentOnly",
-    "file://": "ProtocolOnly",
-  };
-  if (lower in wontfix) {
-    return [wontfix[lower], null];
-  }
-
-  // leading "//"
-  if (origin.startsWith("//")) {
-    const fixedOrigin = "https:" + origin;
-    if (checkOrigin(fixedOrigin)) {
-      return ["MissingProtocol", fixedOrigin];
-    }
-  }
-
-  // protocol typos
-  const brokenPrefixes = [
-    "http//",
-    "https//",
-    "htp//",
-    "htttp//",
-    "hptts//",
-    "htpps//",
-    "http:/",
-    "https:/",
-  ];
-  for (const prefix of brokenPrefixes) {
-    if (lower.startsWith(prefix)) {
-      const fixedOrigin = "https://" + origin.slice(prefix.length);
-      if (checkOrigin(fixedOrigin)) {
-        return ["ProtocolTypo", fixedOrigin];
-      }
-    }
-  }
-
-  // no protocol
-  if (!lower.match(/^[a-z]{2,20}\:\/\//)) {
-    const fixedOrigin = "https://" + origin;
-    if (checkOrigin(fixedOrigin)) {
-      return ["MissingProtocol", fixedOrigin];
-    }
-  }
-
-  // the rest is unknown
-  return ["UnknownError", null];
-}
-
-/* Check if an url has punicode encoded hostname */
-function isPunycodeOrigin(origin) {
-  try {
-    return origin && new URL(origin).hostname.startsWith("xn--");
-  } catch (_) {
-    return false;
-  }
-}
-
-/* Check if a string contains line breaks */
-function containsLineBreaks(str) {
-  return str.includes("\n") || str.includes("\r");
-}
-
-/* Check if a string contains Nul string */
-function containsNul(str) {
-  return str.includes("\0");
-}
+const rustMirrorTelemetryVersion = "7";
 
 /* Normalize different errors */
 function normalizeRustStorageErrorMessage(error) {
@@ -160,22 +29,10 @@ function roundToMonthUTC(timestampMs) {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0);
 }
 
-function isFtpOrigin(origin) {
-  if (!origin || typeof origin !== "string") {
-    return false;
-  }
-
-  return origin.toLowerCase().includes("ftp");
-}
-
 function recordMirrorFailure(runId, operation, error, login = null) {
   // lookup poisoned status
   const poisoned = Services.prefs.getBoolPref(
     "signon.rustMirror.poisoned",
-    false
-  );
-  const collectFailedOrigins = Services.prefs.getBoolPref(
-    "signon.rustMirror.collectFailedOrigins",
     false
   );
 
@@ -193,19 +50,6 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     has_form_action_origin: false,
     has_http_realm: false,
 
-    origin_error: null,
-    origin_fixable: false,
-    form_action_origin_error: null,
-    form_action_origin_fixable: false,
-
-    has_punycode_origin: false,
-    has_punycode_form_action_origin: false,
-    has_ftp_origin: false,
-
-    has_empty_password: false,
-    has_username_line_break: false,
-    has_username_nul: false,
-
     time_created: null,
     time_last_used: null,
   };
@@ -216,39 +60,11 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     data.is_deleted = login.deleted;
 
     data.has_origin = !!login.origin;
-    data.has_origin = !!login.formActionOrigin;
+    data.has_form_action_origin = !!login.formActionOrigin;
     data.has_http_realm = !!login.httpRealm;
-
-    const [originError, fixedOrigin] = validateOrigin(login.origin);
-    data.origin_error = originError;
-    data.origin_fixable = !!fixedOrigin;
-    let formActionOriginError = null;
-    let fixedFormActionOrigin = null;
-    if (login.formActionOrigin) {
-      [formActionOriginError, fixedFormActionOrigin] = validateOrigin(
-        login.formActionOrigin
-      );
-    }
-    data.form_action_origin_error = formActionOriginError;
-    data.form_action_origin_fixable = !!fixedFormActionOrigin;
-
-    data.has_punycode_origin = isPunycodeOrigin(login.origin);
-    data.has_punycode_form_action_origin = isPunycodeOrigin(
-      login.formActionOrigin
-    );
-
-    data.has_ftp_origin = isFtpOrigin(login.origin);
-
-    data.has_empty_password = !login.password;
-    data.has_username_line_break = containsLineBreaks(login.username);
-    data.has_username_nul = containsNul(login.username);
 
     data.time_created = timeCreated;
     data.time_last_used = timeLastUsed;
-
-    if (collectFailedOrigins && (originError || formActionOriginError)) {
-      recordOriginFailurePing(login, timeCreated, timeLastUsed);
-    }
   }
 
   Glean.pwmgr.rustWriteFailure.record(data);
@@ -257,18 +73,6 @@ function recordMirrorFailure(runId, operation, error, login = null) {
   if (!poisoned) {
     Services.prefs.setBoolPref("signon.rustMirror.poisoned", true);
   }
-}
-
-function recordOriginFailurePing(login, timeCreated, timeLastUsed) {
-  const data = {
-    metric_version: rustMirrorTelemetryVersion,
-    origin: login.origin ?? "",
-    form_action_origin: login.formActionOrigin ?? "",
-    time_created: timeCreated,
-    time_last_used: timeLastUsed,
-  };
-  Glean.pwmgr.rustOriginFailure.record(data);
-  GleanPings.pwmgrOriginFailure.submit();
 }
 
 function recordMirrorStatus(runId, operation, status) {
@@ -562,7 +366,7 @@ export class LoginManagerRustMirror {
     let numberOfLoginsMigrated = 0;
 
     try {
-      this.#rustStorage.removeAllLogins();
+      await this.#rustStorage.removeAllLoginsAsync();
       await this.#rustStorage.clearAllPotentiallyVulnerablePasswords();
 
       this.#logger.log("Cleared existing Rust logins.");

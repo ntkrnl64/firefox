@@ -15,12 +15,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ScreenshotsUtils:
     "moz-src:///browser/components/screenshots/ScreenshotsUtils.sys.mjs",
   TranslationsParent: "resource://gre/actors/TranslationsParent.sys.mjs",
-  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
-
-ChromeUtils.defineLazyGetter(lazy, "logger", () =>
-  lazy.UrlbarUtils.getLogger({ prefix: "QuickActions" })
-);
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
@@ -62,6 +57,16 @@ let openAddonsUrl = url => {
 let currentBrowser = () =>
   lazy.BrowserWindowTracker.getTopWindow({ allowFromInactiveWorkspace: true })
     ?.gBrowser.selectedBrowser;
+
+let unmutedAudioTabs = () =>
+  lazy.BrowserWindowTracker.orderedWindows.flatMap(win =>
+    Array.from(win.gBrowser.tabs).filter(
+      tab =>
+        (tab.soundPlaying ||
+          tab.hasAttribute("soundplaying-scheduledremoval")) &&
+        !tab.muted
+    )
+  );
 
 ChromeUtils.defineLazyGetter(lazy, "gFluentStrings", function () {
   return new Localization(
@@ -168,6 +173,17 @@ const DEFAULT_ACTIONS = {
     label: "quickactions-logins2",
     onPick: openUrlFun("about:logins"),
   },
+  mute: {
+    l10nCommands: ["quickactions-cmd-mute"],
+    label: "quickactions-mute",
+    icon: "chrome://global/skin/media/audio-muted.svg",
+    isVisible: () => !!unmutedAudioTabs().length,
+    onPick: () => {
+      for (let tab of unmutedAudioTabs()) {
+        tab.toggleMuteAudio();
+      }
+    },
+  },
   print: {
     l10nCommands: ["quickactions-cmd-print"],
     label: "quickactions-print2",
@@ -264,25 +280,12 @@ const DEFAULT_ACTIONS = {
       );
     },
     onPick: async (_queryContext, controller) => {
-      let url = "about:translations";
-      let targetLanguage;
+      await lazy.TranslationsParent.openAboutTranslationsPage({
+        browserWindow: controller.browserWindow,
+        targetLanguage: "derive",
+      });
 
-      try {
-        targetLanguage =
-          await lazy.TranslationsParent.getTopPreferredSupportedToLang();
-      } catch (error) {
-        lazy.logger.error(error);
-      }
-
-      if (targetLanguage) {
-        const urlObj = new URL(url);
-        const params = new URLSearchParams();
-        params.set("trg", targetLanguage);
-        urlObj.hash = params.toString();
-        url = urlObj.href;
-      }
-
-      return openUrl(url, controller.browserWindow);
+      return { focusContent: true };
     },
   },
   update: {

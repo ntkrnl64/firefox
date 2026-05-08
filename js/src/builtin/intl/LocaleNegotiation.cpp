@@ -48,6 +48,7 @@ static constexpr auto UnicodeExtensionKeyNames() {
   names[UnicodeExtensionKey::Collation] = "co";
   names[UnicodeExtensionKey::CollationCaseFirst] = "kf";
   names[UnicodeExtensionKey::CollationNumeric] = "kn";
+  names[UnicodeExtensionKey::FirstDayOfWeek] = "fw";
   names[UnicodeExtensionKey::HourCycle] = "hc";
   names[UnicodeExtensionKey::NumberingSystem] = "nu";
   return names;
@@ -69,8 +70,7 @@ static mozilla::Maybe<UnicodeExtensionKey> ToUnicodeExtensionKey(
   return mozilla::Nothing();
 }
 
-static bool AssertCanonicalLocale(JSContext* cx,
-                                  Handle<JSLinearString*> locale) {
+static void AssertCanonicalLocale(JSContext* cx, const JSLinearString* locale) {
 #ifdef DEBUG
   MOZ_ASSERT(StringIsAscii(locale), "language tags are ASCII-only");
 
@@ -82,7 +82,8 @@ static bool AssertCanonicalLocale(JSContext* cx,
   {
     StringAsciiChars chars(locale);
     if (!chars.init(cx)) {
-      return false;
+      cx->recoverFromOutOfMemory();
+      return;
     }
 
     parse_result = mozilla::intl::LocaleParser::TryParse(chars, tag);
@@ -91,37 +92,43 @@ static bool AssertCanonicalLocale(JSContext* cx,
   if (parse_result.isErr()) {
     MOZ_ASSERT(parse_result.unwrapErr() == ParserError::OutOfMemory,
                "locale is a structurally valid language tag");
-
-    ReportInternalError(cx);
-    return false;
+    return;
   }
 
-  if (auto result = tag.Canonicalize(); result.isErr()) {
-    MOZ_ASSERT(result.unwrapErr() !=
+  auto canonicalizeResult = [&] {
+    // Tell the analysis this function can't GC. (bug 1588528)
+    JS::AutoSuppressGCAnalysis nogc;
+
+    return tag.Canonicalize();
+  }();
+  if (canonicalizeResult.isErr()) {
+    MOZ_ASSERT(canonicalizeResult.unwrapErr() !=
                mozilla::intl::Locale::CanonicalizationError::DuplicateVariant);
-    ReportInternalError(cx);
-    return false;
+    return;
   }
 
   FormatBuffer<char, INITIAL_CHAR_BUFFER_SIZE> buffer(cx);
   if (auto result = tag.ToString(buffer); result.isErr()) {
-    ReportInternalError(cx, result.unwrapErr());
-    return false;
+    cx->recoverFromOutOfMemory();
+    return;
   }
 
   MOZ_ASSERT(StringEqualsAscii(locale, buffer.data(), buffer.length()),
              "locale is a canonicalized language tag");
 #endif
-  return true;
 }
 
-static auto ToLanguageId(const JSLinearString* locale) {
+mozilla::Maybe<LanguageId> js::intl::ToLanguageId(
+    JSContext* cx, const JSLinearString* locale) {
+  AssertCanonicalLocale(cx, locale);
+
   // Tell the analysis the |ToLanguageId| function can't GC. (bug 1588528)
   JS::AutoSuppressGCAnalysis nogc;
-  if (locale->hasLatin1Chars()) {
-    return LanguageId::fromBcp49(mozilla::AsChars(locale->latin1Range(nogc)));
-  }
-  return LanguageId::fromBcp49(mozilla::Span{locale->twoByteRange(nogc)});
+  auto parsedLangId =
+      locale->hasLatin1Chars()
+          ? LanguageId::fromBcp49(mozilla::AsChars(locale->latin1Range(nogc)))
+          : LanguageId::fromBcp49(mozilla::Span{locale->twoByteRange(nogc)});
+  return parsedLangId.map([](const auto& pair) { return pair.first; });
 }
 
 /**
@@ -189,14 +196,10 @@ static bool BestAvailableLocale(JSContext* cx,
                                 Handle<JSLinearString*> locale,
                                 mozilla::Maybe<LanguageId> defaultLocale,
                                 mozilla::Maybe<LanguageId>* result) {
-  if (!AssertCanonicalLocale(cx, locale)) {
-    return false;
-  }
-
-  auto parsedLangId = ToLanguageId(locale);
+  auto langId = ToLanguageId(cx, locale);
 
   // Reject locales with overlong language subtags.
-  if (!parsedLangId) {
+  if (!langId) {
     *result = mozilla::Nothing();
     return true;
   }
@@ -204,17 +207,17 @@ static bool BestAvailableLocale(JSContext* cx,
   // Variant and extension subtags in |locale| are ignored, because all
   // supported available locales only consist of language, script, and region
   // subtags.
-  return BestAvailableLocale(cx, availableLocales, parsedLangId->first,
-                             defaultLocale, result);
+  return BestAvailableLocale(cx, availableLocales, *langId, defaultLocale,
+                             result);
 }
 
 /**
  * 9.2.2 BestAvailableLocale ( availableLocales, locale )
  */
-bool js::intl::BestAvailableLocale(JSContext* cx,
-                                   AvailableLocaleKind availableLocales,
-                                   LanguageId locale,
-                                   mozilla::Maybe<LanguageId>* result) {
+static bool BestAvailableLocale(JSContext* cx,
+                                AvailableLocaleKind availableLocales,
+                                LanguageId locale,
+                                mozilla::Maybe<LanguageId>* result) {
   return BestAvailableLocale(cx, availableLocales, locale, mozilla::Nothing(),
                              result);
 }
@@ -235,7 +238,7 @@ static bool LookupSupportedLocales(
   MOZ_ASSERT(supportedLocales.empty());
 
   auto defaultLocale = LanguageId::und();
-  if (!cx->global()->globalIntlData().defaultLocale(cx, &defaultLocale)) {
+  if (!DefaultLocale(cx, &defaultLocale)) {
     return false;
   }
 
@@ -434,7 +437,7 @@ static bool LookupMatcher(JSContext* cx, AvailableLocaleKind availableLocales,
   MOZ_RELEASE_ASSERT(IsPackedArray(locales));
 
   auto defaultLocale = LanguageId::und();
-  if (!cx->global()->globalIntlData().defaultLocale(cx, &defaultLocale)) {
+  if (!DefaultLocale(cx, &defaultLocale)) {
     return false;
   }
 
@@ -468,6 +471,19 @@ static bool LookupMatcher(JSContext* cx, AvailableLocaleKind availableLocales,
   // Steps 3-5.
   result.set({defaultLocale, nullptr});
   return true;
+}
+
+bool js::intl::LookupMatcher(JSContext* cx,
+                             AvailableLocaleKind availableLocales,
+                             LanguageId locale,
+                             mozilla::Maybe<LanguageId>* result) {
+  auto defaultLocale = LanguageId::und();
+  if (!DefaultLocale(cx, &defaultLocale)) {
+    return false;
+  }
+
+  return BestAvailableLocale(cx, availableLocales, locale,
+                             mozilla::Some(defaultLocale), result);
 }
 
 void js::intl::LocaleOptions::trace(JSTracer* trc) {
@@ -679,6 +695,11 @@ static bool IsSupportedCalendar(JSContext* cx, LanguageId locale,
     }
     auto calendar = keyword.unwrap();
 
+    // Skip deprecated calendar variants.
+    if (calendar == mozilla::MakeStringSpan("islamic-rgsa")) {
+      continue;
+    }
+
     if (StringEqualsAscii(string, calendar.data(), calendar.size())) {
       *result = true;
       return true;
@@ -840,10 +861,23 @@ static bool IsSupportedNumberingSystem(const JSLinearString* string) {
 }
 
 /**
+ * Return the default locale.
+ */
+bool js::intl::DefaultLocale(JSContext* cx, LanguageId* result) {
+  return cx->global()->globalIntlData().defaultLocale(cx, result);
+}
+
+/**
  * Return the default calendar of a locale.
  */
-static JSLinearString* DefaultCalendar(JSContext* cx, LanguageId locale) {
-  auto calendar = mozilla::intl::Calendar::TryCreate(locale.toString().c_str());
+JSLinearString* js::intl::DefaultCalendar(JSContext* cx,
+                                          const JSLinearString* locale) {
+  auto langId = ToLanguageId(cx, locale);
+  MOZ_RELEASE_ASSERT(langId, "locale expected to be a valid data locale");
+
+  auto localeStr = langId->toString();
+
+  auto calendar = mozilla::intl::Calendar::TryCreate(localeStr.c_str());
   if (calendar.isErr()) {
     ReportInternalError(cx, calendar.unwrapErr());
     return nullptr;
@@ -859,40 +893,14 @@ static JSLinearString* DefaultCalendar(JSContext* cx, LanguageId locale) {
 }
 
 /**
- * Return the default collation of a locale.
- */
-static JSLinearString* DefaultCollationCaseFirst(JSContext* cx,
-                                                 LanguageId locale) {
-  // If |locale| is the default locale (e.g. da-DK), but only supported through
-  // a fallback (da), we need to get the actual locale before we can call
-  // |sharedIntlData.isUpperCaseFirst|.
-  mozilla::Maybe<LanguageId> actualLocale{};
-  if (!BestAvailableLocale(cx, AvailableLocaleKind::Collator, locale,
-                           &actualLocale)) {
-    return nullptr;
-  }
-  MOZ_ASSERT(actualLocale);
-
-  auto& sharedIntlData = cx->runtime()->sharedIntlData.ref();
-
-  bool isUpperFirst;
-  if (!sharedIntlData.isUpperCaseFirst(cx, *actualLocale, &isUpperFirst)) {
-    return nullptr;
-  }
-
-  if (isUpperFirst) {
-    return cx->names().upper;
-  }
-  return cx->names().false_;
-}
-
-/**
  * Return the default numbering system of a locale.
  */
-static JSLinearString* DefaultNumberingSystem(JSContext* cx,
-                                              LanguageId locale) {
+JSLinearString* js::intl::DefaultNumberingSystem(JSContext* cx,
+                                                 LanguageId locale) {
+  auto localeStr = locale.toString();
+
   auto numberingSystem =
-      mozilla::intl::NumberingSystem::TryCreate(locale.toString().c_str());
+      mozilla::intl::NumberingSystem::TryCreate(localeStr.c_str());
   if (numberingSystem.isErr()) {
     ReportInternalError(cx, numberingSystem.unwrapErr());
     return nullptr;
@@ -905,6 +913,17 @@ static JSLinearString* DefaultNumberingSystem(JSContext* cx,
   }
 
   return NewStringCopy<CanGC>(cx, name.unwrap());
+}
+
+/**
+ * Return the default numbering system of a locale.
+ */
+JSLinearString* js::intl::DefaultNumberingSystem(JSContext* cx,
+                                                 const JSLinearString* locale) {
+  auto langId = ToLanguageId(cx, locale);
+  MOZ_RELEASE_ASSERT(langId, "locale expected to be a valid data locale");
+
+  return DefaultNumberingSystem(cx, *langId);
 }
 
 /**
@@ -933,69 +952,16 @@ static bool IsSupported(JSContext* cx, LocaleData localeData, LanguageId locale,
       *result = IsSupportedCollationNumeric(value);
       return true;
     }
+    case UnicodeExtensionKey::FirstDayOfWeek: {
+      // Not used as an option.
+      break;
+    }
     case UnicodeExtensionKey::HourCycle: {
       *result = IsSupportedHourCycle(value);
       return true;
     }
     case UnicodeExtensionKey::NumberingSystem: {
       *result = IsSupportedNumberingSystem(value);
-      return true;
-    }
-  }
-  MOZ_CRASH("invalid Unicode extension key");
-}
-
-/**
- * Return the locale-specific default value for a Unicode extension key.
- */
-static bool DefaultValue(JSContext* cx, LocaleData localeData,
-                         LanguageId locale, UnicodeExtensionKey key,
-                         MutableHandle<JSLinearString*> result) {
-  switch (key) {
-    case UnicodeExtensionKey::Calendar: {
-      auto* ca = DefaultCalendar(cx, locale);
-      if (!ca) {
-        return false;
-      }
-      result.set(ca);
-      return true;
-    }
-    case UnicodeExtensionKey::Collation: {
-      // The first element of the collations array must be |null| per ES2017
-      // Intl, 10.2.3 Internal Slots.
-      result.set(nullptr);
-      return true;
-    }
-    case UnicodeExtensionKey::CollationCaseFirst: {
-      // Case first defaults to "false" for all search collations.
-      if (localeData == LocaleData::CollatorSearch) {
-        result.set(cx->names().false_);
-        return true;
-      }
-
-      auto* kf = DefaultCollationCaseFirst(cx, locale);
-      if (!kf) {
-        return false;
-      }
-      result.set(kf);
-      return true;
-    }
-    case UnicodeExtensionKey::CollationNumeric: {
-      // Numeric defaults to "false" for all locales.
-      result.set(cx->names().false_);
-      return true;
-    }
-    case UnicodeExtensionKey::HourCycle: {
-      // The first element of [[LocaleData]].[[<locale>]].[[hc]] is |null|.
-      result.set(nullptr);
-      return true;
-    }
-    case UnicodeExtensionKey::NumberingSystem: {
-      auto* nu = DefaultNumberingSystem(cx, locale);
-      if (!nu) {
-        return false;
-      }
-      result.set(nu);
       return true;
     }
   }
@@ -1042,12 +1008,11 @@ bool js::intl::ResolveLocale(
   Rooted<mozilla::Maybe<JSLinearString*>> extensionValue(cx);
   Rooted<JSLinearString*> keywordsValue(cx);
   Rooted<JSLinearString*> optionsValue(cx);
-  Rooted<JSLinearString*> defaultValue(cx);
   for (auto key : relevantExtensionKeys) {
     // Steps 13.a-b. (Not applicable in our implementation.)
     extensionValue = mozilla::Nothing();
 
-    // Steps 13.c-d. (Moved below)
+    // Steps 13.c-d. (Not applicable in our implementation.)
 
     // Step 13.e.
     bool isSupportedKeyword = false;
@@ -1127,24 +1092,15 @@ bool js::intl::ResolveLocale(
       }
     }
 
-    // Locale data provides default value.
-    if (extensionValue.isNothing()) {
-      // Step 13.c. (Reordered)
-      if (!DefaultValue(cx, localeData, foundLocale, key, &defaultValue)) {
-        return false;
-      }
-      extensionValue = mozilla::Some(defaultValue.get());
-
-      // Step 13.d. (Not applicable in our implementation.)
-    }
-
     // Step 13.l.
     if (isSupportedKeyword) {
       supportedKeywords += key;
     }
 
     // Step 13.m.
-    result.setUnicodeExtension(key, *extensionValue);
+    if (extensionValue.isSome()) {
+      result.setUnicodeExtension(key, *extensionValue);
+    }
   }
 
   // Step 14.

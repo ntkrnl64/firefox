@@ -92,6 +92,7 @@ import org.mozilla.fenix.components.menu.store.SummarizationMenuState
 import org.mozilla.fenix.components.menu.store.TranslationInfo
 import org.mozilla.fenix.components.menu.store.WebExtensionMenuItem
 import org.mozilla.fenix.components.share.ShareSheetLauncherImpl
+import org.mozilla.fenix.ext.canGoBackInHistoryOrToStories
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.openSetDefaultBrowserOption
 import org.mozilla.fenix.ext.openToBrowser
@@ -107,6 +108,7 @@ import org.mozilla.fenix.settings.deletebrowsingdata.DefaultDeleteBrowsingDataCo
 import org.mozilla.fenix.settings.deletebrowsingdata.DefaultDeleteBrowsingDataController.Stores
 import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataController
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.translations.TranslationsEnabledSettings
 import org.mozilla.fenix.utils.DELAY_MS_MAIN_MENU
 import org.mozilla.fenix.utils.DELAY_MS_SUB_MENU
 import org.mozilla.fenix.utils.DURATION_MS_MAIN_MENU
@@ -391,6 +393,9 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                     store.stateFlow.map { state -> state.isMoreMenuExpanded }
                 }.collectAsState(initial = false)
 
+                val isTranslationsEnabled = TranslationsEnabledSettings.dataStore(requireContext())
+                    .isEnabled.collectAsState(true)
+
                 MenuDialogBottomSheet(
                     modifier = Modifier
                         .padding(top = 16.dp, bottom = 16.dp)
@@ -427,7 +432,8 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                         browserStore.state.translationEngine.isEngineSupported ?: false
                     val isTranslationSupported =
                         isTranslationEngineSupported &&
-                            FxNimbus.features.translations.value().mainFlowBrowserMenuEnabled
+                            FxNimbus.features.translations.value().mainFlowBrowserMenuEnabled &&
+                            isTranslationsEnabled.value
                     val isPdf = selectedTab?.content?.isPdf ?: false
                     val isWebCompatEnabled by remember {
                         store.stateFlow.map { it.isWebCompatEnabled }
@@ -542,6 +548,10 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                     val summarizationMenuState by remember {
                         store.stateFlow.map { state -> state.summarizationMenuState }
                     }.collectAsState(initial = SummarizationMenuState.Default)
+
+                    val ipProtectionMenuState by remember {
+                        store.stateFlow.map { state -> state.ipProtectionMenuState }
+                    }.collectAsState(initial = store.state.ipProtectionMenuState)
 
                     val contentState: Route by remember { mutableStateOf(initRoute) }
 
@@ -659,7 +669,7 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     isReaderViewActive = isReaderViewActive,
                                     isMoreMenuHighlighted = isOpenInAppMenuHighlighted ||
                                             summarizationMenuState.overflowMenuHighlighted,
-                                    canGoBack = selectedTab?.content?.canGoBack ?: true,
+                                    canGoBack = browserStore.state.canGoBackInHistoryOrToStories(),
                                     canGoForward = selectedTab?.content?.canGoForward ?: true,
                                     extensionsMenuItemDescription = extensionsMenuItemDescription,
                                     scrollState = scrollState,
@@ -667,6 +677,8 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     isDownloadHighlighted = isDownloadHighlighted,
                                     webExtensionMenuCount = webExtensionsCount,
                                     isAllWebExtensionsDisabled = isAllWebExtensionsDisabled,
+                                    showIPProtection = settings.isIPProtectionAvailable,
+                                    ipProtectionMenuState = ipProtectionMenuState,
                                     onMozillaAccountButtonClick = {
                                         store.dispatch(
                                             MenuAction.Navigate.MozillaAccount(
@@ -750,6 +762,12 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                         selectedTab?.let {
                                             store.dispatch(MenuAction.Navigate.Share)
                                         }
+                                    },
+                                    onIPProtectionClick = {
+                                        // will be implemented in https://bugzilla.mozilla.org/show_bug.cgi?id=2030143
+                                    },
+                                    onIPProtectionNavigate = {
+                                        store.dispatch(MenuAction.Navigate.IPProtectionSettings)
                                     },
                                     moreSettingsSubmenu = {
                                         MoreSettingsSubmenu(

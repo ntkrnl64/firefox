@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import org.mozilla.fenix.R
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
+import org.mozilla.fenix.tabstray.controller.TabInteractionHandler
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
 import org.mozilla.fenix.tabstray.ui.inactivetabs.InactiveTabsList
@@ -39,12 +40,14 @@ private val EmptyPageWidth = 170.dp
 /**
  * UI for displaying the Normal Tabs Page in the Tab Manager.
  *
- * @param normalTabs The list of active tabs to display.
+ * @param items The list of active tabs to display.
  * @param inactiveTabs The list of inactive tabs to display.
- * @param selectedTabId The ID of the currently selected tab.
+ * @param selectedItemIndex The index of the currently selected tab. This will be scrolled to on first-render.
  * @param selectionMode [TabsTrayState.Mode] indicating whether the Tab Manager is in single selection.
  * @param inactiveTabsExpanded Whether the Inactive Tabs section is expanded.
  * @param displayTabsInGrid Whether the normal and private tabs should be displayed in a grid.
+ * @param dragAndDropEnabled Whether the grid supports dragging and dropping for tab groups.
+ * @param tabInteractionHandler Handles tab interactions, such as moves and drag and drop.
  * @param onTabClose Invoked when the user clicks to close a tab.
  * @param onItemClick Invoked when the user clicks on a tab.
  * @param onItemLongClick Invoked when the user long clicks a tab.
@@ -59,22 +62,26 @@ private val EmptyPageWidth = 170.dp
  * close dialog's enable button.
  * @param onInactiveTabClick Invoked when the user clicks on an inactive tab.
  * @param onInactiveTabClose Invoked when the user clicks on an inactive tab's close button.
- * @param onMove Invoked after the drag and drop gesture completed. Swaps position of two tabs.
  * @param shouldShowInactiveTabsCFR Returns whether the inactive tabs CFR is displayed.
  * @param onInactiveTabsCFRShown Invoked when the inactive tabs CFR is displayed.
  * @param onInactiveTabsCFRClick Invoked when the inactive tabs CFR is clicked.
  * @param onInactiveTabsCFRDismiss Invoked when the inactive tabs CFR is dismissed.
  * @param onTabDragStart Invoked when a tab drag has been started.
+ * @param onDeleteTabGroupClick Invoked when the user clicks on delete tab group.
+ * @param onEditTabGroupClick Invoked when the user clicks to edit a tab group.
+ * @param onCloseTabGroupClick Invoked when the user clicks to close a tab group.
  */
 @Composable
 @Suppress("LongParameterList")
 internal fun NormalTabsPage(
-    normalTabs: List<TabsTrayItem>,
+    items: List<TabsTrayItem>,
     inactiveTabs: List<TabsTrayItem.Tab>,
-    selectedTabId: String?,
+    selectedItemIndex: Int,
     selectionMode: TabsTrayState.Mode,
     inactiveTabsExpanded: Boolean,
     displayTabsInGrid: Boolean,
+    dragAndDropEnabled: Boolean,
+    tabInteractionHandler: TabInteractionHandler,
     onTabClose: (TabsTrayItem.Tab) -> Unit,
     onItemClick: (TabsTrayItem) -> Unit,
     onItemLongClick: (TabsTrayItem) -> Unit,
@@ -86,14 +93,16 @@ internal fun NormalTabsPage(
     onEnableInactiveTabAutoCloseClick: () -> Unit,
     onInactiveTabClick: (TabsTrayItem.Tab) -> Unit,
     onInactiveTabClose: (TabsTrayItem.Tab) -> Unit,
-    onMove: (String, String?, Boolean) -> Unit,
     shouldShowInactiveTabsCFR: Boolean,
     onInactiveTabsCFRShown: () -> Unit,
     onInactiveTabsCFRClick: () -> Unit,
     onInactiveTabsCFRDismiss: () -> Unit,
     onTabDragStart: () -> Unit,
+    onDeleteTabGroupClick: (TabsTrayItem.TabGroup) -> Unit,
+    onEditTabGroupClick: (TabsTrayItem.TabGroup) -> Unit,
+    onCloseTabGroupClick: (TabsTrayItem.TabGroup) -> Unit,
 ) {
-    if (normalTabs.isNotEmpty() || inactiveTabs.isNotEmpty()) {
+    if (items.isNotEmpty() || inactiveTabs.isNotEmpty()) {
         var showAutoCloseDialog by remember { mutableStateOf(shouldShowInactiveTabsAutoCloseDialog) }
 
         val optionalInactiveTabsHeader: (@Composable () -> Unit)? = if (inactiveTabs.isEmpty()) {
@@ -129,9 +138,10 @@ internal fun NormalTabsPage(
         }
 
         TabLayout(
-            tabs = normalTabs,
+            tabs = items,
             displayTabsInGrid = displayTabsInGrid,
-            selectedTabId = selectedTabId,
+            dragAndDropEnabled = dragAndDropEnabled,
+            selectedItemIndex = selectedItemIndex,
             selectionMode = selectionMode,
             modifier = Modifier.testTag(TabsTrayTestTag.NORMAL_TABS_LIST),
             onTabClose = onTabClose,
@@ -139,7 +149,10 @@ internal fun NormalTabsPage(
             onItemLongClick = onItemLongClick,
             header = optionalInactiveTabsHeader,
             onTabDragStart = onTabDragStart,
-            onMove = onMove,
+            onDeleteTabGroupClick = onDeleteTabGroupClick,
+            onEditTabGroupClick = onEditTabGroupClick,
+            onCloseTabGroupClick = onCloseTabGroupClick,
+            tabInteractionHandler = tabInteractionHandler,
         )
     } else {
         EmptyNormalTabsPage()

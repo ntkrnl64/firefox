@@ -24,7 +24,11 @@ import org.mozilla.fenix.home.ui.HomepageTestTag.HOMEPAGE_WORDMARK_LOGO
 import org.mozilla.fenix.home.ui.HomepageTestTag.HOMEPAGE_WORDMARK_TEXT
 
 @Composable
- internal fun WordmarkLogo(onLogoClicked: () -> Unit) {
+internal fun WordmarkLogo(
+    onLogoClicked: () -> Unit,
+    onLogoLongClicked: () -> Unit,
+    isSportsWidgetEnabled: Boolean,
+) {
     Image(
         modifier = Modifier
             .height(40.dp)
@@ -32,9 +36,13 @@ import org.mozilla.fenix.home.ui.HomepageTestTag.HOMEPAGE_WORDMARK_TEXT
                 testTagsAsResourceId = true
                 testTag = HOMEPAGE_WORDMARK_LOGO
             }
-            .combinedClickable(onClick = {}, onLongClick = onLogoClicked)
+            .combinedClickable(onClick = onLogoClicked, onLongClick = onLogoLongClicked)
             .padding(end = 10.dp),
-        painter = painterResource(getAttr(R.attr.fenixWordmarkLogo)),
+        painter = painterResource(
+            getAttr(
+                if (isSportsWidgetEnabled) R.attr.fenixWordmarkSportLogo else R.attr.fenixWordmarkLogo,
+            ),
+        ),
         contentDescription = null,
     )
 }

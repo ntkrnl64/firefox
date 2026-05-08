@@ -21,7 +21,7 @@ on Firefox and finding a bug that's a good fit for your skills can be a
 challenge, and we're always looking for ways to improve this process: making
 Mozilla more open, accessible, and easier to participate with. If you're
 having any trouble following this documentation, or hit a barrier you
-can't get around, please join us in the the Introduction room on Matrix.
+can't get around, please join us in the Introduction room on Matrix.
 
 What skills do I need?
 ----------------------
@@ -35,10 +35,9 @@ very diverse skills:
 -  If you know **Rust**, you can also contribute to the `Rust programming
    language <https://github.com/rust-lang/rust>`_ itself, numerous crates like `grcov <https://github.com/mozilla/grcov/>`_
    or `Servo <https://servo.org/>`_, the web browser engine designed for parallelism and safety.
--  If you know **Kotlin**, you can contribute to :ref:`Firefox for Android <Firefox Contributors' Quick Reference>` (code name: "Fenix"). `Fenix's code <https://searchfox.org/mozilla-central/source/mobile/android/>`_ is integrated into the same repository as Firefox Desktop.
--  If you know **Swift**, you can contribute to `Firefox for
-   iOS <https://github.com/mozilla-mobile/firefox-ios>`_ and `Firefox
-   Focus for iOS <https://github.com/mozilla-mobile/focus-ios>`_.
+-  If you know **Kotlin**, you can contribute to :ref:`Firefox for Android <Firefox Contributors' Quick Reference>` (code name: "Fenix"). :searchfox:`Fenix's code <mobile/android/>` is integrated into the same repository as Firefox Desktop.
+-  If you know **Swift**, you can contribute to `Firefox and Firefox Focus for
+   iOS <https://github.com/mozilla-mobile/firefox-ios>`_.
 -  If you know **C++**, you can contribute to our `VPN client <https://github.com/mozilla-mobile/mozilla-vpn-client>`_.
 -  If you know **Python**, you can contribute to our web services,
    including Firefox Sync and Firefox Accounts.

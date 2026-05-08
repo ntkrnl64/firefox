@@ -25,6 +25,7 @@ import org.junit.runner.RunWith
 import org.mozilla.fenix.R
 import org.mozilla.fenix.databinding.FragmentAddOnDetailsBinding
 import org.robolectric.RobolectricTestRunner
+import kotlin.test.assertIs
 import mozilla.components.feature.addons.R as addonsR
 
 @RunWith(RobolectricTestRunner::class)
@@ -183,7 +184,7 @@ class AddonDetailsBindingDelegateTest {
             "Some blank addon\nwith a blank line",
             binding.details.text.toString(),
         )
-        assertTrue(binding.details.movementMethod is LinkMovementMethod)
+        assertIs<LinkMovementMethod>(binding.details.movementMethod)
     }
 
     @Test

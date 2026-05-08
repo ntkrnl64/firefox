@@ -190,6 +190,7 @@ pub enum CustomDeclarationValue {
 
 /// A custom property declaration with the property name and the declared value.
 #[derive(Clone, PartialEq, ToCss, ToShmem, MallocSizeOf, ToTyped)]
+#[typed(todo_derive_fields)]
 pub struct CustomDeclaration {
     /// The name of the custom property.
     #[css(skip)]
@@ -1442,6 +1443,16 @@ impl ToCss for UnparsedValue {
     }
 }
 
+impl ToTyped for UnparsedValue {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        if self.from_shorthand.is_none() {
+            self.variable_value.to_typed(dest)?;
+            return Ok(());
+        }
+        Err(())
+    }
+}
+
 /// A simple cache for properties that come from a shorthand and have variable
 /// references.
 ///
@@ -1489,10 +1500,7 @@ impl UnparsedValue {
             }
         }
 
-        let SubstitutionResult {
-            css,
-            attribute_tainted,
-        } = match custom_properties::substitute(
+        let SubstitutionResult { css, attr_taint } = match custom_properties::substitute(
             &self.variable_value,
             substitution_functions,
             stylist,
@@ -1513,19 +1521,16 @@ impl UnparsedValue {
         // whether you want to do this!
         //
         // FIXME(emilio): ParsingMode is slightly fishy...
-        let mut parsing_mode = ParsingMode::DEFAULT;
-        if attribute_tainted {
-            parsing_mode.insert(ParsingMode::DISALLOW_URLS);
-        }
         let context = ParserContext::new(
             Origin::Author,
             &self.variable_value.url_data,
             None,
-            parsing_mode,
+            ParsingMode::DEFAULT,
             computed_context.quirks_mode,
             /* namespaces = */ Default::default(),
             None,
             None,
+            attr_taint,
         );
 
         let mut input = ParserInput::new(&css);

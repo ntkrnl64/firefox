@@ -688,16 +688,19 @@ bool OwnedAOMImage::CloneFrom(aom_image_t* aImage, bool aIsAlpha) {
   uint8_t* srcY = aImage->planes[AOM_PLANE_Y];
   int yStride = aImage->stride[AOM_PLANE_Y];
   int yHeight = aom_img_plane_height(aImage, AOM_PLANE_Y);
-  size_t yBufSize = yStride * yHeight;
+  auto yBufSize = CheckedInt<size_t>(yStride) * yHeight;
+  if (!yBufSize.isValid()) {
+    return false;
+  }
 
   // If aImage is alpha plane. The data is located in Y channel.
   if (aIsAlpha) {
-    mBuffer = MakeUniqueFallible<uint8_t[]>(yBufSize);
+    mBuffer = MakeUniqueFallible<uint8_t[]>(yBufSize.value());
     if (!mBuffer) {
       return false;
     }
     uint8_t* destY = mBuffer.get();
-    memcpy(destY, srcY, yBufSize);
+    memcpy(destY, srcY, yBufSize.value());
     mImage.emplace(*aImage);
     mImage->planes[AOM_PLANE_Y] = destY;
 
@@ -707,25 +710,32 @@ bool OwnedAOMImage::CloneFrom(aom_image_t* aImage, bool aIsAlpha) {
   uint8_t* srcCb = aImage->planes[AOM_PLANE_U];
   int cbStride = aImage->stride[AOM_PLANE_U];
   int cbHeight = aom_img_plane_height(aImage, AOM_PLANE_U);
-  size_t cbBufSize = cbStride * cbHeight;
+  auto cbBufSize = CheckedInt<size_t>(cbStride) * cbHeight;
+  if (!cbBufSize.isValid()) {
+    return false;
+  }
 
   uint8_t* srcCr = aImage->planes[AOM_PLANE_V];
   int crStride = aImage->stride[AOM_PLANE_V];
   int crHeight = aom_img_plane_height(aImage, AOM_PLANE_V);
-  size_t crBufSize = crStride * crHeight;
+  auto crBufSize = CheckedInt<size_t>(crStride) * crHeight;
+  if (!crBufSize.isValid()) {
+    return false;
+  }
 
-  mBuffer = MakeUniqueFallible<uint8_t[]>(yBufSize + cbBufSize + crBufSize);
+  mBuffer = MakeUniqueFallible<uint8_t[]>(yBufSize.value() + cbBufSize.value() +
+                                          crBufSize.value());
   if (!mBuffer) {
     return false;
   }
 
   uint8_t* destY = mBuffer.get();
-  uint8_t* destCb = destY + yBufSize;
-  uint8_t* destCr = destCb + cbBufSize;
+  uint8_t* destCb = destY + yBufSize.value();
+  uint8_t* destCr = destCb + cbBufSize.value();
 
-  memcpy(destY, srcY, yBufSize);
-  memcpy(destCb, srcCb, cbBufSize);
-  memcpy(destCr, srcCr, crBufSize);
+  memcpy(destY, srcY, yBufSize.value());
+  memcpy(destCb, srcCb, cbBufSize.value());
+  memcpy(destCr, srcCr, crBufSize.value());
 
   mImage.emplace(*aImage);
   mImage->planes[AOM_PLANE_Y] = destY;

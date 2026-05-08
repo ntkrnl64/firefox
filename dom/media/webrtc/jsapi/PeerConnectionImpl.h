@@ -402,10 +402,9 @@ class PeerConnectionImpl final
   MOZ_CAN_RUN_SCRIPT_BOUNDARY bool PluginCrash(uint32_t aPluginID,
                                                const nsAString& aPluginName);
 
-  NS_IMETHODIMP_TO_ERRORRESULT(SetConfiguration, ErrorResult& rv,
-                               const RTCConfiguration& aConfiguration) {
-    rv = SetConfiguration(aConfiguration);
-  }
+  NS_IMETHODIMP SetConfiguration(const RTCConfiguration& aConfiguration);
+  void SetConfiguration(const RTCConfiguration& aConfiguration,
+                        ErrorResult& rv);
 
   dom::RTCSctpTransport* GetSctp() const;
 
@@ -598,6 +597,9 @@ class PeerConnectionImpl final
       nsTHashMap<nsCStringHashKey, RefPtr<dom::RTCDtlsTransport>>;
 
  private:
+  void ParseIceServers(const nsTArray<dom::RTCIceServer>& aIceServers,
+                       ErrorResult& aRv);
+
   virtual ~PeerConnectionImpl();
   PeerConnectionImpl(const PeerConnectionImpl& rhs);
   PeerConnectionImpl& operator=(PeerConnectionImpl);
@@ -717,6 +719,7 @@ class PeerConnectionImpl final
   unsigned int mDataChannelsClosed = 0;
 
   bool mForceIceTcp;
+  Maybe<dom::RTCRtcpMuxPolicy> mRtcpMuxPolicy;
   RefPtr<MediaTransportHandler> mTransportHandler;
 
   // The JSEP negotiation session.
@@ -790,7 +793,7 @@ class PeerConnectionImpl final
     // This class is not cycle-collected, so we must avoid grabbing a strong
     // reference.
     const std::string mPcHandle;
-    virtual ~StunAddrsHandler() {}
+    virtual ~StunAddrsHandler() = default;
   };
 
   // Manage ICE transports.

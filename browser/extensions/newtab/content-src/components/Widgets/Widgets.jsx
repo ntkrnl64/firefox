@@ -4,12 +4,25 @@
 
 import React, { useEffect, useRef } from "react";
 import { useDispatch, useSelector, batch } from "react-redux";
+// Bug 2034542: these per-widget imports can be removed once the non-Nova render
+// path (@nova-cleanup) is gone and all widgets render via WIDGET_ROW_COMPONENTS.
 import { Lists } from "./Lists/Lists";
 import { FocusTimer } from "./FocusTimer/FocusTimer";
 import { WeatherForecast } from "./WeatherForecast/WeatherForecast";
+import { Weather as WeatherWidget } from "./Weather/Weather";
 import { MessageWrapper } from "content-src/components/MessageWrapper/MessageWrapper";
 import { WidgetsFeatureHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/WidgetsFeatureHighlight";
+import { WidgetsRowFeatureHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/WidgetsRowFeatureHighlight";
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
+import {
+  WIDGET_REGISTRY,
+  isWidgetEnabled,
+  resolveWidgetSize,
+  resolveWidgetOrder,
+  resolveWidgetHasSidebar,
+  getHideAllTargets,
+} from "./WidgetsRegistry.mjs";
+import { WIDGET_ROW_COMPONENTS } from "./WidgetsComponentRegistry.jsx";
 
 const CONTAINER_ACTION_TYPES = {
   HIDE_ALL: "hide_all",
@@ -18,10 +31,7 @@ const CONTAINER_ACTION_TYPES = {
 };
 
 const PREF_WIDGETS_ENABLED = "widgets.enabled";
-const PREF_WIDGETS_LISTS_ENABLED = "widgets.lists.enabled";
-const PREF_WIDGETS_SYSTEM_LISTS_ENABLED = "widgets.system.lists.enabled";
-const PREF_WIDGETS_TIMER_ENABLED = "widgets.focusTimer.enabled";
-const PREF_WIDGETS_SYSTEM_TIMER_ENABLED = "widgets.system.focusTimer.enabled";
+const PREF_NOVA_ENABLED = "nova.enabled";
 const PREF_WIDGETS_SYSTEM_WEATHER_FORECAST_ENABLED =
   "widgets.system.weatherForecast.enabled";
 const PREF_WIDGETS_MAXIMIZED = "widgets.maximized";
@@ -29,7 +39,7 @@ const PREF_WIDGETS_SYSTEM_MAXIMIZED = "widgets.system.maximized";
 const PREF_WIDGETS_FEEDBACK_ENABLED = "widgets.feedback.enabled";
 const PREF_WIDGETS_HIDE_ALL_TOAST_ENABLED = "widgets.hideAllToast.enabled";
 const WIDGETS_FEEDBACK_URL =
-  "https://connect.mozilla.org/t5/discussions/feedback-welcome-for-new-tab-widgets-now-available-via-firefox/td-p/108354";
+  "https://support.mozilla.org/kb/firefox-new-tab-widgets";
 
 // resets timer to default values (exported for testing)
 // In practice, this logic runs inside a useEffect when
@@ -63,24 +73,47 @@ export function resetTimerToDefaults(dispatch, timerType) {
   );
 }
 
+function renderWeather({
+  novaEnabled,
+  weatherEnabled,
+  weatherForecastEnabled,
+  weatherSize,
+  dispatch,
+  handleUserInteraction,
+  isMaximized,
+  widgetsMayBeMaximized,
+}) {
+  if (novaEnabled) {
+    return (
+      weatherEnabled &&
+      weatherSize !== "small" && (
+        <WeatherWidget dispatch={dispatch} size={weatherSize || "medium"} />
+      )
+    );
+  }
+  return (
+    weatherForecastEnabled && (
+      <WeatherForecast
+        dispatch={dispatch}
+        handleUserInteraction={handleUserInteraction}
+        isMaximized={isMaximized}
+        widgetsMayBeMaximized={widgetsMayBeMaximized}
+      />
+    )
+  );
+}
+
+// eslint-disable-next-line complexity, max-statements
 function Widgets() {
   const prefs = useSelector(state => state.Prefs.values);
   const weatherData = useSelector(state => state.Weather);
   const { messageData } = useSelector(state => state.Messages);
   const timerType = useSelector(state => state.TimerWidget.timerType);
   const timerData = useSelector(state => state.TimerWidget);
-  const isMaximized = prefs[PREF_WIDGETS_MAXIMIZED];
-  const widgetsMayBeMaximized = prefs[PREF_WIDGETS_SYSTEM_MAXIMIZED];
   const dispatch = useDispatch();
 
-  const nimbusListsEnabled = prefs.widgetsConfig?.listsEnabled;
-  const nimbusTimerEnabled = prefs.widgetsConfig?.timerEnabled;
-  const nimbusListsTrainhopEnabled =
-    prefs.trainhopConfig?.widgets?.listsEnabled;
-  const nimbusTimerTrainhopEnabled =
-    prefs.trainhopConfig?.widgets?.timerEnabled;
-  const nimbusWeatherForecastTrainhopEnabled =
-    prefs.trainhopConfig?.widgets?.weatherForecastEnabled;
+  const novaEnabled = prefs[PREF_NOVA_ENABLED];
+  const isMaximized = prefs[PREF_WIDGETS_MAXIMIZED];
   const nimbusMaximizedTrainhopEnabled =
     prefs.trainhopConfig?.widgets?.maximized;
   const feedbackEnabled =
@@ -91,22 +124,24 @@ function Widgets() {
     prefs[PREF_WIDGETS_HIDE_ALL_TOAST_ENABLED];
   const feedbackUrl =
     prefs.trainhopConfig?.widgets?.feedbackUrl ?? WIDGETS_FEEDBACK_URL;
+  const showWidgetsSizeToggle =
+    nimbusMaximizedTrainhopEnabled || prefs[PREF_WIDGETS_SYSTEM_MAXIMIZED];
+  const widgetsMayBeMaximized = showWidgetsSizeToggle;
 
   const widgetsEnabled = prefs[PREF_WIDGETS_ENABLED];
 
-  const listsEnabled =
-    widgetsEnabled &&
-    (nimbusListsTrainhopEnabled ||
-      nimbusListsEnabled ||
-      prefs[PREF_WIDGETS_SYSTEM_LISTS_ENABLED]) &&
-    prefs[PREF_WIDGETS_LISTS_ENABLED];
+  // Bug 2034542: these per-widget lookups and all the derived consts below
+  // (listsEnabled, timerEnabled, weatherBase, weatherEnabled, weatherSize,
+  // weatherGoesToSidebar, widgetEnabledMap) can be replaced with a single
+  // registry-driven loop once weather's extra enabled conditions
+  // (weatherData.initialized, isWeatherEnabled) are either folded into the
+  // registry or handled inside the Weather component itself.
+  const listsWidget = WIDGET_REGISTRY.find(w => w.id === "lists");
+  const timerWidget = WIDGET_REGISTRY.find(w => w.id === "focusTimer");
+  const weatherWidget = WIDGET_REGISTRY.find(w => w.id === "weather");
 
-  const timerEnabled =
-    widgetsEnabled &&
-    (nimbusTimerTrainhopEnabled ||
-      nimbusTimerEnabled ||
-      prefs[PREF_WIDGETS_SYSTEM_TIMER_ENABLED]) &&
-    prefs[PREF_WIDGETS_TIMER_ENABLED];
+  const listsEnabled = isWidgetEnabled(listsWidget, prefs, widgetsEnabled);
+  const timerEnabled = isWidgetEnabled(timerWidget, prefs, widgetsEnabled);
 
   // This weather forecast widget will only show when the following are true:
   // - The weather view is set to "detailed" (can be checked with the weather.display pref)
@@ -115,7 +150,7 @@ function Widgets() {
   // Note that if the view is set to "detailed" but the weather forecast widget is not enabled,
   // then the mini weather widget will display with the "detailed" view
   const weatherForecastSystemEnabled =
-    nimbusWeatherForecastTrainhopEnabled ||
+    prefs.trainhopConfig?.widgets?.weatherForecastEnabled ||
     prefs[PREF_WIDGETS_SYSTEM_WEATHER_FORECAST_ENABLED];
 
   const showDetailedView = prefs["weather.display"] === "detailed";
@@ -133,6 +168,39 @@ function Widgets() {
     showDetailedView &&
     weatherData?.initialized &&
     isWeatherEnabled;
+
+  const weatherBase = isWidgetEnabled(weatherWidget, prefs, widgetsEnabled);
+  const weatherEnabled =
+    weatherBase && weatherData?.initialized && isWeatherEnabled;
+
+  const weatherSize = resolveWidgetSize(weatherWidget, prefs);
+  // Weather renders in the sidebar when its effective size is "small" AND the
+  // sidebar placement is active. If a trainhopSidebar override sets hasSidebar
+  // to false, weatherGoesToSidebar is false and the widget falls through to the
+  // row here instead of disappearing.
+  const weatherGoesToSidebar =
+    resolveWidgetHasSidebar(weatherWidget, prefs) && weatherSize === "small";
+  const widgetEnabledMap = {
+    lists: listsEnabled,
+    focusTimer: timerEnabled,
+    weather: weatherEnabled && !weatherGoesToSidebar,
+    sportsWidget: isWidgetEnabled(
+      WIDGET_REGISTRY.find(w => w.id === "sportsWidget"),
+      prefs,
+      widgetsEnabled
+    ),
+    clocks: isWidgetEnabled(
+      WIDGET_REGISTRY.find(w => w.id === "clocks"),
+      prefs,
+      widgetsEnabled
+    ),
+  };
+
+  const widgetOrder = resolveWidgetOrder(prefs);
+
+  const anyWidgetInRow =
+    WIDGET_REGISTRY.some(w => widgetEnabledMap[w.id]) ||
+    (!novaEnabled && weatherForecastEnabled);
 
   // Widget size is "small" only when maximize feature is enabled and widgets
   // are currently minimized. Otherwise defaults to "medium".
@@ -155,59 +223,25 @@ function Widgets() {
     prevTimerEnabledRef.current = isTimerEnabled;
   }, [timerEnabled, timerData, dispatch, timerType]);
 
-  // Bug 2013978 - Replace hardcoded widget list with programmatic registry
   function hideAllWidgets() {
     batch(() => {
-      dispatch(ac.SetPref(PREF_WIDGETS_LISTS_ENABLED, false));
-      dispatch(ac.SetPref(PREF_WIDGETS_TIMER_ENABLED, false));
-      // If weather forecast widget is visible, turn off the weather
-      if (weatherForecastEnabled) {
+      const targets = getHideAllTargets(prefs, widgetEnabledMap);
+      for (const target of targets) {
+        dispatch(ac.SetPref(target.enabledPref, false));
+      }
+      // @nova-cleanup(remove-conditional): Remove the !novaEnabled guard and this branch
+      if (!novaEnabled && weatherForecastEnabled) {
         dispatch(ac.SetPref("showWeather", false));
       }
 
-      const telemetryData = {
-        action_type: CONTAINER_ACTION_TYPES.HIDE_ALL,
-        widget_size: widgetSize,
-      };
-
       dispatch(
         ac.OnlyToMain({
-          type: at.WIDGETS_CONTAINER_ACTION,
-          data: telemetryData,
+          type: at.WIDGETS_HIDE_ALL,
+          data: { targets, widget_size: widgetSize },
         })
       );
-
-      // Dispatch WIDGETS_ENABLED for each widget being hidden
-      if (listsEnabled) {
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_ENABLED,
-            data: {
-              widget_name: "lists",
-              widget_source: "widget",
-              enabled: false,
-              widget_size: widgetSize,
-            },
-          })
-        );
-      }
-
-      if (timerEnabled) {
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_ENABLED,
-            data: {
-              widget_name: "focus_timer",
-              widget_source: "widget",
-              enabled: false,
-              widget_size: widgetSize,
-            },
-          })
-        );
-      }
-
-      // Send telemetry for weather widget if it was visible when hiding all widgets
-      if (weatherForecastEnabled) {
+      // @nova-cleanup(remove-conditional): Remove once weatherForecastEnabled path is removed
+      if (!novaEnabled && weatherForecastEnabled) {
         dispatch(
           ac.OnlyToMain({
             type: at.WIDGETS_ENABLED,
@@ -255,6 +289,27 @@ function Widgets() {
     batch(() => {
       dispatch(ac.SetPref(PREF_WIDGETS_MAXIMIZED, newMaximizedState));
 
+      // When Nova is enabled, treat the shared header control as a toggle
+      // between the default/full widget presentation and the compact one.
+      // Widgets at "small" are skipped — they are either in the sidebar or
+      // user-pinned and should not be moved by the row toggle.
+      //
+      // Future: if we add a "small" in-row presentation for a widget, this
+      // loop will need to distinguish between "small-in-sidebar" and
+      // "small-in-row". One way to do that is to add a hasSidebar-aware
+      // helper (e.g. isWidgetInSidebar(widget, prefs)) and only skip widgets
+      // that are actually rendered in the sidebar, not all widgets at "small".
+      // The registry already carries hasSidebar and trainhopSidebarKey, so
+      // resolveWidgetHasSidebar(widget, prefs) provides that check today.
+      if (novaEnabled) {
+        const targetSize = newMaximizedState ? "large" : "medium";
+        for (const widget of WIDGET_REGISTRY) {
+          if (resolveWidgetSize(widget, prefs) !== "small") {
+            dispatch(ac.SetPref(widget.sizePref, targetSize));
+          }
+        }
+      }
+
       const telemetryData = {
         action_type: CONTAINER_ACTION_TYPES.CHANGE_SIZE_ALL,
         action_value: newMaximizedState
@@ -290,7 +345,10 @@ function Widgets() {
       dispatch(
         ac.OnlyToMain({
           type: at.OPEN_LINK,
-          data: { url: feedbackUrl },
+          data: {
+            url: feedbackUrl,
+            ...(novaEnabled ? { where: "tab" } : {}),
+          },
         })
       );
       dispatch(
@@ -314,7 +372,89 @@ function Widgets() {
     }
   }
 
-  if (!(listsEnabled || timerEnabled || weatherForecastEnabled)) {
+  function renderWidgetsTitle() {
+    if (!novaEnabled) {
+      return <h1 data-l10n-id="newtab-widget-section-title"></h1>;
+    }
+
+    return (
+      <div className="widgets-title-heading">
+        <h1 data-l10n-id="newtab-widget-section-title"></h1>
+        {showWidgetsSizeToggle ? (
+          <button
+            id="toggle-widgets-size-button"
+            type="button"
+            className={`widgets-expand-button${isMaximized ? " is-maximized" : ""}`}
+            data-l10n-id={
+              isMaximized
+                ? "newtab-widget-section-minimize"
+                : "newtab-widget-section-maximize"
+            }
+            onClick={handleToggleMaximizeClick}
+            onKeyDown={handleToggleMaximizeKeyDown}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderWidgetsActions() {
+    if (novaEnabled) {
+      return (
+        <div className="widgets-header-context-menu">
+          <moz-button
+            className="widgets-header-context-menu-button"
+            data-l10n-id="newtab-widget-section-menu-button"
+            iconSrc="chrome://global/skin/icons/more.svg"
+            menuId="widgets-header-context-panel"
+            type="ghost"
+            size="default"
+          />
+          <panel-list id="widgets-header-context-panel">
+            <panel-item
+              data-l10n-id="newtab-widget-section-menu-hide-all"
+              onClick={handleHideAllWidgetsClick}
+            />
+            <panel-item
+              data-l10n-id="newtab-widget-section-menu-learn-more"
+              onClick={handleFeedbackClick}
+            />
+          </panel-list>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {showWidgetsSizeToggle ? (
+          <moz-button
+            id="toggle-widgets-size-button"
+            type="icon ghost"
+            size="small"
+            data-l10n-id={
+              isMaximized
+                ? "newtab-widget-section-minimize"
+                : "newtab-widget-section-maximize"
+            }
+            iconsrc={`chrome://browser/skin/${isMaximized ? "fullscreen-exit" : "fullscreen"}.svg`}
+            onClick={handleToggleMaximizeClick}
+            onKeyDown={handleToggleMaximizeKeyDown}
+          />
+        ) : null}
+        <moz-button
+          id="hide-all-widgets-button"
+          type="icon ghost"
+          size="small"
+          data-l10n-id="newtab-widget-section-hide-all-button"
+          iconsrc="chrome://global/skin/icons/close.svg"
+          onClick={handleHideAllWidgetsClick}
+          onKeyDown={handleHideAllWidgetsKeyDown}
+        />
+      </>
+    );
+  }
+
+  if (!anyWidgetInRow) {
     return null;
   }
 
@@ -323,7 +463,7 @@ function Widgets() {
       <div className="widgets-section-container">
         <div className="widgets-title-container">
           <div className="widgets-title-container-text">
-            <h1 data-l10n-id="newtab-widget-section-title"></h1>
+            {renderWidgetsTitle()}
             {messageData?.content?.messageType === "WidgetMessage" && (
               <MessageWrapper dispatch={dispatch}>
                 <WidgetsFeatureHighlight dispatch={dispatch} />
@@ -331,62 +471,66 @@ function Widgets() {
             )}
           </div>
 
-          {(nimbusMaximizedTrainhopEnabled ||
-            prefs[PREF_WIDGETS_SYSTEM_MAXIMIZED]) && (
-            <moz-button
-              id="toggle-widgets-size-button"
-              type="icon ghost"
-              size="small"
-              // Toggle the icon and hover text
-              data-l10n-id={
-                isMaximized
-                  ? "newtab-widget-section-minimize"
-                  : "newtab-widget-section-maximize"
-              }
-              iconsrc={`chrome://browser/skin/${isMaximized ? "fullscreen-exit" : "fullscreen"}.svg`}
-              onClick={handleToggleMaximizeClick}
-              onKeyDown={handleToggleMaximizeKeyDown}
-            />
-          )}
-          <moz-button
-            id="hide-all-widgets-button"
-            type="icon ghost"
-            size="small"
-            data-l10n-id="newtab-widget-section-hide-all-button"
-            iconsrc="chrome://global/skin/icons/close.svg"
-            onClick={handleHideAllWidgetsClick}
-            onKeyDown={handleHideAllWidgetsKeyDown}
-          />
+          <div className="widgets-title-actions">{renderWidgetsActions()}</div>
         </div>
         <div
           className={`widgets-container${isMaximized ? " is-maximized" : ""}`}
         >
-          {listsEnabled && (
-            <Lists
-              dispatch={dispatch}
-              handleUserInteraction={handleUserInteraction}
-              isMaximized={isMaximized}
-              widgetsMayBeMaximized={widgetsMayBeMaximized}
-            />
-          )}
-          {timerEnabled && (
-            <FocusTimer
-              dispatch={dispatch}
-              handleUserInteraction={handleUserInteraction}
-              isMaximized={isMaximized}
-              widgetsMayBeMaximized={widgetsMayBeMaximized}
-            />
-          )}
-          {weatherForecastEnabled && (
-            <WeatherForecast
-              dispatch={dispatch}
-              handleUserInteraction={handleUserInteraction}
-              isMaximized={isMaximized}
-              widgetsMayBeMaximized={widgetsMayBeMaximized}
-            />
-          )}
+          {widgetOrder.map(id => {
+            if (novaEnabled) {
+              const Component = WIDGET_ROW_COMPONENTS[id];
+              return Component && widgetEnabledMap[id] ? (
+                <Component
+                  key={id}
+                  dispatch={dispatch}
+                  handleUserInteraction={handleUserInteraction}
+                  isMaximized={isMaximized}
+                  widgetsMayBeMaximized={widgetsMayBeMaximized}
+                />
+              ) : null;
+            }
+            // @nova-cleanup: remove below
+            return (
+              <React.Fragment key={id}>
+                {id === "lists" && listsEnabled && (
+                  <Lists
+                    dispatch={dispatch}
+                    handleUserInteraction={handleUserInteraction}
+                    isMaximized={isMaximized}
+                    widgetsMayBeMaximized={widgetsMayBeMaximized}
+                  />
+                )}
+                {id === "focusTimer" && timerEnabled && (
+                  <FocusTimer
+                    dispatch={dispatch}
+                    handleUserInteraction={handleUserInteraction}
+                    isMaximized={isMaximized}
+                    widgetsMayBeMaximized={widgetsMayBeMaximized}
+                  />
+                )}
+                {id === "weather" &&
+                  renderWeather({
+                    novaEnabled,
+                    weatherEnabled,
+                    weatherForecastEnabled,
+                    weatherSize,
+                    dispatch,
+                    handleUserInteraction,
+                    isMaximized,
+                    widgetsMayBeMaximized,
+                  })}
+              </React.Fragment>
+            );
+          })}
         </div>
-        {feedbackEnabled && (
+        {messageData?.content?.messageType === "NovaWidgetMessage" && (
+          <div className="widgets-row-highlight-anchor">
+            <MessageWrapper dispatch={dispatch}>
+              <WidgetsRowFeatureHighlight dispatch={dispatch} />
+            </MessageWrapper>
+          </div>
+        )}
+        {feedbackEnabled && !novaEnabled && (
           <a
             className="widgets-feedback-link"
             href={feedbackUrl}

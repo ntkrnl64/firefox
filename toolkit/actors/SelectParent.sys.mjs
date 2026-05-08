@@ -1,4 +1,3 @@
-/* vim: set ts=2 sw=2 sts=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -177,7 +176,7 @@ export var SelectParentHelper = {
           property = "--content-select-scrollbar-width";
         }
         if (property == "color") {
-          property = "--panel-color";
+          property = "--panel-text-color";
         }
         menupopup.style.setProperty(property, value);
       }
@@ -198,7 +197,7 @@ export var SelectParentHelper = {
         menupopup.style.backgroundColor = "";
         // If the background is set, we also make sure we set the color, to
         // prevent contrast issues.
-        menupopup.style.setProperty("--panel-color", selectStyle.color);
+        menupopup.style.setProperty("--panel-text-color", selectStyle.color);
 
         sheet.insertRule(
           `#ContentSelectDropdown > menupopup > :is(menuitem, menucaption):not([_moz-menuactive="true"]) {
@@ -326,7 +325,7 @@ export var SelectParentHelper = {
     let menupopup = menulist.menupopup;
     menupopup.classList.toggle("isOpenedViaTouch", isOpenedViaTouch);
 
-    let win = menulist.ownerGlobal;
+    let win = menulist.documentGlobal;
     if (browser) {
       browser.constrainPopup(menupopup);
       browser.style.pointerEvents = "none";
@@ -470,10 +469,14 @@ export var SelectParentHelper = {
     popup.addEventListener("popuphidden", this);
     popup.addEventListener("mouseover", this);
     popup.addEventListener("mouseout", this);
-    popup.ownerGlobal.addEventListener("mouseup", this, true);
-    popup.ownerGlobal.addEventListener("keydown", this, true);
-    popup.ownerGlobal.addEventListener("fullscreen", this, true);
-    popup.ownerGlobal.addEventListener("FullscreenWarningOnScreen", this, true);
+    popup.documentGlobal.addEventListener("mouseup", this, true);
+    popup.documentGlobal.addEventListener("keydown", this, true);
+    popup.documentGlobal.addEventListener("fullscreen", this, true);
+    popup.documentGlobal.addEventListener(
+      "FullscreenWarningOnScreen",
+      this,
+      true
+    );
   },
 
   _unregisterListeners(popup) {
@@ -481,10 +484,10 @@ export var SelectParentHelper = {
     popup.removeEventListener("popuphidden", this);
     popup.removeEventListener("mouseover", this);
     popup.removeEventListener("mouseout", this);
-    popup.ownerGlobal.removeEventListener("mouseup", this, true);
-    popup.ownerGlobal.removeEventListener("keydown", this, true);
-    popup.ownerGlobal.removeEventListener("fullscreen", this, true);
-    popup.ownerGlobal.removeEventListener(
+    popup.documentGlobal.removeEventListener("mouseup", this, true);
+    popup.documentGlobal.removeEventListener("keydown", this, true);
+    popup.documentGlobal.removeEventListener("fullscreen", this, true);
+    popup.documentGlobal.removeEventListener(
       "FullscreenWarningOnScreen",
       this,
       true
@@ -807,7 +810,7 @@ export class SelectParent extends JSWindowActorParent {
       popup.setAttribute("consumeoutsideclicks", "false");
       popup.setAttribute("ignorekeys", "shortcuts");
     } else if (this._disableMacNativeMenu) {
-      popup.setAttribute("native", "false");
+      popup.toggleAttribute("nonnative", true);
     }
 
     let container =
@@ -828,11 +831,10 @@ export class SelectParent extends JSWindowActorParent {
 
         if (prefsChanged) {
           if (AppConstants.platform == "macosx") {
-            if (this._disableMacNativeMenu) {
-              menulist.menupopup.setAttribute("native", "false");
-            } else {
-              menulist.menupopup.removeAttribute("native");
-            }
+            menulist.menupopup.toggleAttribute(
+              "nonnative",
+              this._disableMacNativeMenu
+            );
           }
           prefsChanged = false;
         }

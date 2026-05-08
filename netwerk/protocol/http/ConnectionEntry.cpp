@@ -40,6 +40,7 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci,
       mPreferIPv4(false),
       mPreferIPv6(false),
       mUsedForConnection(false),
+      mPendingQProcessingScheduled(false),
       mPendingQSet(aPendingQSet) {
   LOG(("ConnectionEntry::ConnectionEntry this=%p key=%s", this,
        ci->HashKey().get()));
@@ -587,10 +588,9 @@ void ConnectionEntry::MakeAllDontReuseExcept(HttpConnectionBase* conn) {
   }
 
   // Cancel any other pending connections - their associated transactions
-  // are in the pending queue and will be dispatched onto this new connection
-  // Skip this for fallback entries: their DnsAndConnectSockets are for
-  // FallbackTransactions whose real transactions are in the H3 entry, not
-  // here. Abandoning them would strand those transactions with no recovery.
+  // are in the pending queue and will be dispatched onto this new connection.
+  // Skip for fallback entries: their DnsAndConnectSockets are for
+  // FallbackTransactions whose real transactions are in the H3 entry.
   if (!mConnInfo->GetFallbackConnection()) {
     CloseAllConnectionAttempts();
   }
@@ -863,6 +863,13 @@ HttpRetParams ConnectionEntry::GetConnectionData() {
     data.idle.AppendElement(info);
   }
   mConnectionAttemptPool->GetConnectionData(data);
+  if (mConnInfo->IsHttp3()) {
+    data.httpVersion = "HTTP/3"_ns;
+  } else if (mUsingSpdy) {
+    data.httpVersion = "HTTP/2"_ns;
+  } else {
+    data.httpVersion = "HTTP <= 1.1"_ns;
+  }
   data.ssl = mConnInfo->EndToEndSSL();
   return data;
 }
@@ -901,7 +908,7 @@ Http3ConnectionStatsParams ConnectionEntry::GetHttp3ConnectionStatsData() {
 void ConnectionEntry::LogConnections() {
   LOG(("active conns ["));
   for (HttpConnectionBase* conn : mActiveConns) {
-    LOG(("  %p", conn));
+    LOG(("  %p (ready=%d)", conn, conn->CanDirectlyActivate()));
   }
 
   LOG(("] idle conns ["));

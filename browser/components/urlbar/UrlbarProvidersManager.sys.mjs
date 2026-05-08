@@ -8,9 +8,9 @@
  */
 
 /**
- * @import { UrlbarProvider } from "UrlbarUtils.sys.mjs"
- * @import { UrlbarMuxer } from "UrlbarUtils.sys.mjs"
- * @import { UrlbarSearchStringTokenData } from "UrlbarTokenizer.sys.mjs"
+ * @import { UrlbarProvider } from "./UrlbarUtils.sys.mjs"
+ * @import { UrlbarMuxer } from "./UrlbarUtils.sys.mjs"
+ * @import { UrlbarSearchStringTokenData } from "./UrlbarTokenizer.sys.mjs"
  */
 
 const lazy = {};
@@ -190,7 +190,7 @@ var localProviderModules = [
     name: "UrlbarProviderTabToSearch",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderTabToSearch.sys.mjs",
-    supportedSAPs: ["smartbar", "urlbar"],
+    supportedSAPs: ["urlbar"],
   },
   {
     name: "UrlbarProviderTokenAliasEngines",

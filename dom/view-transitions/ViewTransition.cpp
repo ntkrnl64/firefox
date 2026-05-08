@@ -1364,6 +1364,10 @@ Maybe<SkipTransitionReason> ViewTransition::CaptureOldState() {
       // If transitionName is none, or element is not rendered, then continue.
       return true;
     }
+    if (aFrame->IsHiddenByContentVisibilityOnAnyAncestor()) {
+      // See https://github.com/w3c/csswg-drafts/issues/13831
+      return true;
+    }
     if (aFrame->GetPrevContinuation() || aFrame->GetNextContinuation()) {
       // If element has more than one box fragment, then continue.
       return true;
@@ -1438,6 +1442,10 @@ Maybe<SkipTransitionReason> ViewTransition::CaptureNewState() {
     // As a fast path we check for v-t-n first.
     RefPtr<nsAtom> name = DocumentScopedTransitionNameFor(aFrame);
     if (!name) {
+      return true;
+    }
+    if (aFrame->IsHiddenByContentVisibilityOnAnyAncestor()) {
+      // See https://github.com/w3c/csswg-drafts/issues/13831
       return true;
     }
     if (aFrame->GetPrevContinuation() || aFrame->GetNextContinuation()) {

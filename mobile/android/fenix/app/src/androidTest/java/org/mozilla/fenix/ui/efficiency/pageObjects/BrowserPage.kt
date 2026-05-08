@@ -56,6 +56,11 @@ class BrowserPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule
         )
     }
 
+    override fun navigateToPage(url: String): BrowserPage {
+        super.navigateToPage(url.ifBlank { "example.com" })
+        return this
+    }
+
     override fun mozGetSelectorsByGroup(group: String): List<Selector> {
         return BrowserPageSelectors.all.filter { it.groups.contains(group) }
     }

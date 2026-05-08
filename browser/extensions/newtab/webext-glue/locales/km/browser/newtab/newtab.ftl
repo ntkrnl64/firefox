@@ -165,6 +165,8 @@ newtab-error-fallback-refresh-link = ផ្ទុកទំព័រឡើងវ�
 ## New Tab Wallpapers
 
 newtab-wallpaper-title = ផ្ទាំងរូបភាព
+newtab-wallpaper-toggle-title =
+    .label = ផ្ទាំងរូបភាព
 
 ## New Tab Weather
 
@@ -203,14 +205,12 @@ newtab-widget-lists-label-new =
 #   $number (number) - Amount of list items marked complete
 newtab-widget-lists-completed-list = បានបញ្ចប់ ({ $number })
 newtab-widget-lists-menu-delete = លុបបញ្ជីនេះ
-newtab-widget-lists-menu-hide = លាក់បញ្ជីទាំងអស់
 newtab-widget-lists-input-menu-delete = លុប
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = បញ្ជីថ្មី
 
-## Strings for timer productivity widget
-## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+## Strings introduced by the Nova redesign of the Timer widget
 
 newtab-widget-timer-notification-warning = ការជូនដំណឹងត្រូវបានបិទ
 newtab-widget-timer-menu-notifications = បិទការជូនដំណឹង

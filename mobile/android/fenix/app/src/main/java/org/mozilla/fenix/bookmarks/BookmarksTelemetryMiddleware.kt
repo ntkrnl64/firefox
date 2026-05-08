@@ -38,6 +38,9 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             SearchClicked -> { BookmarksManagement.searchIconTapped.record(NoExtras()) }
             BackClicked -> state.handleBackClick()
             EditBookmarkAction.DeleteClicked -> { recordEditDeleteMetrics() }
+            RootOverflowMenuClicked,
+            RootOverflowMenuDismissed,
+            ImportAction.ImportFileClicked,
             EditBookmarkAction.FolderClicked,
             is EditBookmarkAction.TitleChanged,
             is EditBookmarkAction.URLChanged,
@@ -47,6 +50,7 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             is EditFolderAction.TitleChanged,
             EditFolderAction.DeleteClicked,
             EditFolderAction.ParentFolderClicked,
+            ImportAction.ImportFailed,
             is SnackbarAction,
             is BookmarkLongClicked,
             is BookmarksLoaded, is SearchDismissed, is EditBookmarkClicked, is FolderClicked,
@@ -56,7 +60,7 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             is InitEdit,
             is InitEditLoaded,
             is ReceivedSyncSignInUpdate,
-            CloseClicked, AddFolderClicked, Init, SignIntoSyncClicked,
+            ImportAction.ImportSucceeded, CloseClicked, AddFolderClicked, Init, SignIntoSyncClicked,
             OpenTabsConfirmationDialogAction.CancelTapped, OpenTabsConfirmationDialogAction.ConfirmTapped,
             FirstSyncCompleted, PrivateBrowsingAuthorized,
                 -> Unit

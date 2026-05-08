@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -120,7 +118,7 @@ nsresult LlamaGenerateTask::Run() {
                          __PRETTY_FUNCTION__);
         LOGE_RUNNER("{}", msg);
         // graceful termination
-        return mozilla::Err(Error{msg});
+        return mozilla::Err(Error{std::move(msg)});
       }
     }
 
@@ -131,7 +129,7 @@ nsresult LlamaGenerateTask::Run() {
       auto msg = nsFmtCString("{}: Unable to append message to the response",
                               __PRETTY_FUNCTION__);
       LOGE_RUNNER("{}", msg);
-      return mozilla::Err(Error{msg});
+      return mozilla::Err(Error{std::move(msg)});
     }
 
     response.mPhase = chunk.mPhase;
@@ -181,7 +179,7 @@ nsresult LlamaGenerateTask::Run() {
         __PRETTY_FUNCTION__);
     LOGE_RUNNER("{}", msg);
 
-    mErrorMessage = msg;
+    mErrorMessage = std::move(msg);
     mState = TaskState::CompletedFailure;
   }
 

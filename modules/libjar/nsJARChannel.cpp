@@ -291,6 +291,10 @@ nsresult nsJARChannel::LookupFile() {
   // have e.g. spaces in their filenames.
   NS_UnescapeURL(mJarEntry);
 
+  if (mJarEntry.FindChar('\0') != -1) {
+    return NS_ERROR_MALFORMED_URI;
+  }
+
   if (mJarFileOverride) {
     mJarFile = mJarFileOverride;
     LOG(("nsJARChannel::LookupFile [this=%p] Overriding mJarFile\n", this));
@@ -400,7 +404,9 @@ nsresult nsJARChannel::OpenLocalFile() {
   RefPtr<nsJARChannel> self = this;
   return mWorker->Dispatch(NS_NewRunnableFunction(
       "nsJARChannel::OpenLocalFile",
-      [self, jarCache, clonedFile, jarEntry, innerJarEntry]() mutable {
+      [self, jarCache = std::move(jarCache), clonedFile = std::move(clonedFile),
+       jarEntry = std::move(jarEntry),
+       innerJarEntry = std::move(innerJarEntry)]() mutable {
         RefPtr<nsJARInputThunk> input;
         nsresult rv = CreateLocalJarInput(jarCache, clonedFile, innerJarEntry,
                                           jarEntry, getter_AddRefs(input));
@@ -1057,14 +1063,6 @@ static void RecordZeroLengthEvent(bool aIsSync, const nsCString& aSpec,
     // Bug 1702937: Filter other/*.ico/NS_BINDING_ABORTED.
     if (!isTest && (!isOmniJa || (aStatus == NS_BINDING_ABORTED &&
                                   StringEndsWith(fileName, ".ico"_ns)))) {
-      return;
-    }
-
-    // See bug 1695560. "search-extensions/google/favicon.ico" with
-    // NS_BINDING_ABORTED is filtered out.
-    if (fileName.EqualsLiteral(
-            "omni.ja!/chrome/browser/search-extensions/google/favicon.ico") &&
-        aStatus == NS_BINDING_ABORTED) {
       return;
     }
 

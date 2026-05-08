@@ -850,7 +850,7 @@ struct NewPartResult final {
         mShouldResetCacheEntry(false) {}
 
   nsAutoCString mContentType;
-  int64_t mContentLength;
+  int64_t mContentLength = 0;
   nsAutoCString mContentDisposition;
   RefPtr<image::Image> mImage;
   const bool mIsFirstPart;
@@ -952,7 +952,7 @@ class FinishPreparingForNewPartRunnable final : public Runnable {
                                     NewPartResult&& aResult)
       : Runnable("FinishPreparingForNewPartRunnable"),
         mImgRequest(aImgRequest),
-        mResult(aResult) {
+        mResult(std::move(aResult)) {
     MOZ_ASSERT(aImgRequest);
   }
 

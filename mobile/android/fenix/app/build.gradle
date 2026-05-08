@@ -1,12 +1,9 @@
 import com.android.build.api.variant.FilterConfiguration
 import com.google.android.gms.oss.licenses.plugin.DependencyTask
-import groovy.json.JsonOutput
 
 import java.time.format.DateTimeFormatter
 
 import static org.mozilla.conventions.BuildConfigKt.getBuildId
-
-import static org.gradle.api.tasks.testing.TestResult.ResultType
 
 buildscript {
     repositories {
@@ -36,7 +33,11 @@ apply plugin: 'androidx.navigation.safeargs.kotlin'
 apply plugin: 'kotlinx-serialization'
 apply plugin: 'com.google.devtools.ksp'
 
-if (gradle.mozconfig.substs.MOZILLA_OFFICIAL) {
+// The OSS-licenses plugin is only needed for shipping builds and is incompatible
+// with Gradle's configuration cache, which causes a fresh configuration phase on
+// every lint invocation. Skip it during `mach lint` (which always passes
+// `-Pandroid-lint`) so the configuration cache stays storable/reusable.
+if (gradle.mozconfig.substs.MOZILLA_OFFICIAL && !project.hasProperty('android-lint')) {
     apply plugin: 'com.google.android.gms.oss-licenses-plugin'
 }
 
@@ -60,6 +61,10 @@ android {
     compileSdk { version = release(config.compileSdkMajorVersion) { minorApiLevel = config.compileSdkMinorVersion } }
 
     defaultConfig {
+        ksp {
+            arg("room.schemaLocation", "$projectDir/schemas".toString())
+        }
+
         applicationId "org.mozilla"
         minSdk config.minSdkVersion
         targetSdk config.targetSdkVersion
@@ -277,9 +282,6 @@ android {
             jniLibs {
                 useLegacyPackaging = true
             }
-        }
-        resources {
-            excludes += ["META-INF/LICENSE.md", "META-INF/LICENSE-notice.md"]
         }
     }
 
@@ -567,7 +569,9 @@ dependencies {
     implementation project(':components:feature-downloads')
     implementation project(':components:feature-findinpage')
     implementation project(':components:feature-fxsuggest')
+    implementation project(':components:feature-importer')
     implementation project(':components:feature-intent')
+    implementation project(':components:feature-ipprotection')
     implementation project(':components:feature-logins')
     implementation project(':components:feature-media')
     implementation project(':components:feature-privatemode')
@@ -598,6 +602,7 @@ dependencies {
     implementation project(':components:service-glean')
     implementation project(':components:service-location')
     implementation project(':components:service-mars')
+    implementation project(':components:service-merino-manifest')
     implementation project(':components:service-nimbus')
     implementation project(':components:service-pocket')
     implementation project(':components:service-sync-autofill')
@@ -616,6 +621,8 @@ dependencies {
     implementation project(':components:ui-colors')
     implementation project(':components:ui-tabcounter')
     implementation project(':components:ui-widgets')
+    implementation project(':components:lib-bookmarks-file')
+    implementation project(':components:lib-bookmark-parser-jsoup')
     implementation project(':components:lib-crash')
     implementation project(':components:lib-crash-sentry')
     implementation project(':components:lib-dataprotect')
@@ -631,7 +638,6 @@ dependencies {
     implementation libs.accompanist.drawablepainter
     implementation libs.adjust
     implementation libs.androidx.activity
-    implementation libs.androidx.activity.ktx
     implementation libs.androidx.annotation
     implementation libs.androidx.appcompat
     implementation libs.androidx.biometric
@@ -669,7 +675,7 @@ dependencies {
     implementation libs.androidx.navigation3.runtime
     implementation libs.androidx.navigation3.ui
     implementation libs.androidx.paging
-    implementation libs.androidx.preferences
+    implementation libs.androidx.preference
     implementation libs.androidx.profileinstaller
     implementation libs.androidx.recyclerview
     implementation libs.androidx.swiperefreshlayout
@@ -708,6 +714,7 @@ dependencies {
     testImplementation libs.androidx.compose.ui.test
     testImplementation libs.androidx.test.core
     testImplementation libs.androidx.test.junit
+    testImplementation libs.androidx.test.runner
     testImplementation libs.androidx.work.testing
     testImplementation libs.kotlin.test
     testImplementation libs.kotlinx.coroutines.test
@@ -738,6 +745,7 @@ dependencies {
     androidTestImplementation libs.androidx.test.runner
     androidTestImplementation libs.androidx.test.uiautomator
     androidTestImplementation libs.androidx.work.testing
+    androidTestImplementation libs.kotlin.test
     androidTestImplementation libs.leakcanary.instrumentation
     androidTestImplementation libs.mockk.android
     androidTestImplementation libs.mockwebserver
@@ -814,38 +822,6 @@ if (project.hasProperty("coverage")) {
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Task for printing APK information for the requested variant
-// Usage: "./gradlew printVariants
-// -------------------------------------------------------------------------------------------------
-tasks.register('printVariants') {
-    def variants = project.provider {
-        android.applicationVariants.collect { variant -> [
-            apks: variant.outputs.collect { output -> [
-                    abi: getAbi(output),
-                    fileName: output.outputFile.name
-            ]},
-            build_type: variant.buildType.name,
-            name: variant.name,
-    ]}}
-    def outputFile = new File(projectDir, "build/printVariants.json")
-    doLast {
-        // AndroidTest is a special case not included above
-        variants.get().add([
-            apks: [[
-                abi: 'noarch',
-                fileName: 'app-debug-androidTest.apk',
-            ]],
-            build_type: 'androidTest',
-            name: 'androidTest',
-        ])
-        def json = JsonOutput.toJson(variants.get())
-        outputFile.parentFile.mkdirs()
-        outputFile.text = json
-        logger.debug("Wrote variant info to $outputFile")
-    }
-}
-
 // Work around generated SafeArgs code hitting USELESS_CAST warnings with Kotlin 2.3+
 // https://issuetracker.google.com/issues/458082829
 def safeArgsSrc = layout.buildDirectory
@@ -870,57 +846,6 @@ ${f.text}"""
 
 tasks.matching { it.name.startsWith("generateSafeArgs") }.configureEach {
     finalizedBy tasks.named("suppressUselessCastInSafeArgs")
-}
-
-afterEvaluate {
-
-    // Format test output. Ported from AC #2401
-    tasks.withType(Test).configureEach {
-        systemProperty "robolectric.logging", "stdout"
-        systemProperty "logging.test-mode", "true"
-
-        testLogging.events = []
-
-        beforeSuite { descriptor ->
-            if (descriptor.getClassName() != null) {
-                println("\nSUITE: " + descriptor.getClassName())
-            }
-        }
-
-        beforeTest { descriptor ->
-            println("  TEST: " + descriptor.getName())
-        }
-
-        onOutput { descriptor, event ->
-            it.logger.lifecycle("    " + event.message.trim())
-        }
-
-        afterTest { descriptor, result ->
-            switch (result.getResultType()) {
-                case ResultType.SUCCESS:
-                    println("  SUCCESS")
-                    break
-
-                case ResultType.FAILURE:
-                    def testId = descriptor.getClassName() + "." + descriptor.getName()
-                    println("  TEST-UNEXPECTED-FAIL | " + testId + " | " + result.getException())
-                    break
-
-                case ResultType.SKIPPED:
-                    println("  SKIPPED")
-                    break
-            }
-            it.logger.lifecycle("")
-        }
-    }
-}
-
-if (gradle.hasProperty('localProperties.dependencySubstitutions.geckoviewTopsrcdir')) {
-    if (gradle.hasProperty('localProperties.dependencySubstitutions.geckoviewTopobjdir')) {
-        ext.topobjdir = gradle."localProperties.dependencySubstitutions.geckoviewTopobjdir"
-    }
-    ext.topsrcdir = gradle."localProperties.dependencySubstitutions.geckoviewTopsrcdir"
-    apply from: "${topsrcdir}/substitute-local-geckoview.gradle"
 }
 
 def getSupportedLocales() {
@@ -951,18 +876,8 @@ tasks.withType(DependencyTask).configureEach { task ->
     task.dependsOn(tasks.named(cleanUpTaskName))
 }
 
-tasks.register("ktlint", Exec) {
-    group = "verification"
-    description = "Check Kotlin code style."
-    workingDir file("${gradle.mozconfig.topsrcdir}")
-    commandLine "./mach", "gradle", "-p", "mobile/android/fenix", ":ktlint"
-}
-
-tasks.register("ktlintFormat", Exec) {
-    group = "formatting"
-    description = "Fix Kotlin code style deviations."
-    workingDir file("${gradle.mozconfig.topsrcdir}")
-    commandLine "./mach", "gradle", "-p", "mobile/android/fenix", ":ktlintFormat"
+mozilla {
+    ktlintSourcePaths = ["src/**/*.kt", "!**/build/**/*.kt"]
 }
 
 tasks.register("detekt", Exec) {

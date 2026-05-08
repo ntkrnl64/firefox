@@ -15,6 +15,15 @@
   --font-size-heading-large: var(--font-size-large);
   --font-size-heading-medium: var(--font-size-medium);
   --select-max-width: 20rem;
+
+  --card-padding-inline: var(--space-xlarge);
+  --card-padding-block: var(--card-padding-inline);
+
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media -moz-pref("browser.settings-redesign.enabled") {
+    --background-color-canvas: light-dark(var(--color-gray-05), var(--color-gray-90));
+  }
+
   user-select: text;
 }
 
@@ -54,10 +63,10 @@
 }
 
 #categories {
-  min-width: calc(var(--size-sidebar) - 42px);
+  width: calc(var(--size-sidebar) - 42px);
 
   @media (max-width: 950px) {
-    min-width: auto;
+    width: auto;
   }
 }
 
@@ -74,30 +83,35 @@
   z-index: 2;
   background-color: var(--background-color-canvas);
   padding-top: 40px;
-  padding-bottom: var(--space-large);
+  padding-bottom: var(--search-container-padding);
   padding-inline: var(--focus-outline-offset);
+  /* Ensure focus indicators on elements below the search container
+     aren't obscured. */
+  margin-bottom: var(--search-container-margin);
 }
 
 #searchInput {
   width: 100%;
 }
 
-@media (max-width: 52rem) {
+@media (max-width: 950px) {
   #search-container:has(#policies-container-content:not([hidden])) {
     padding-top: var(--space-small);
   }
 }
 
 .main-content {
+  --search-container-padding: var(--space-small);
+  --search-container-margin: calc(var(--focus-outline-width) + var(--focus-outline-offset));
+
   contain: inline-size;
   /* 72px matches moz-page-nav's --page-nav-margin-top, minus the 40px
      padding-top already set in common-shared.css. */
   margin-top: 32px;
   padding-top: 0;
-  padding-inline-end: 42px;
-  scroll-padding-top: calc(40px + var(--space-large) + 40px);
+  scroll-padding-top: calc(40px + var(--search-container-padding) + var(--search-container-margin) + 40px);
 
-  @media (max-width: 830px) {
+  @media (max-width: 950px) {
     padding-inline: var(--space-medium);
   }
 }
@@ -118,7 +132,7 @@
 html|div[data-category],
 groupbox[data-category],
 setting-group[data-category] {
-  margin: 0 0 32px;
+  margin: 0 0 var(--space-xlarge);
 }
 
 /* Bug 2002963 - payments and addresses are in a groupbox together, but they probably shouldn't be */
@@ -129,7 +143,7 @@ setting-group[data-category] {
 }
 
 html|h1 {
-  margin: 0 0 var(--space-small);
+  margin: 0 0 var(--space-large);
 }
 
 html|h2 {
@@ -176,6 +190,11 @@ label {
 
 .description-deemphasized {
   color: var(--text-color-deemphasized);
+}
+
+.firefoxLabs-description {
+  color: var(--text-color-deemphasized);
+  margin: 0;
 }
 
 .tip-caption {
@@ -251,15 +270,15 @@ setting-group:has(> moz-card).spotlight {
   display: flex;
 }
 
-/* Subcategory title */
+/* stylelint-disable-next-line media-query-no-invalid */
+@media not -moz-pref("browser.settings-redesign.enabled") {
+  /* Subcategory title */
 
-/**
- * The first subcategory title for each category should not have margin-top.
- */
-
-.subcategory:not([hidden]) ~ .subcategory {
-  padding-top: var(--space-xxlarge);
-  border-top: 1px solid var(--border-color);
+  /* The first subcategory title for each category should not have margin-top. */
+  .subcategory:not([hidden]) ~ .subcategory {
+    padding-top: var(--space-xxlarge);
+    border-top: 1px solid var(--border-color);
+  }
 }
 
 /* All panes */
@@ -272,6 +291,14 @@ setting-group:has(> moz-card).spotlight {
 }
 
 /* General Pane */
+
+#isNotDefaultPane,
+#isDefaultPane {
+  /* 64px for the kit image + border. This may be slightly too large due to
+   * pixel-snapping. Defining it helps avoid layout changes once the kit
+   * image is loaded. */
+  min-height: calc(64px + 2 * var(--border-width));
+}
 
 /* stylelint-disable-next-line media-query-no-invalid */
 @media not -moz-pref("browser.migrate.preferences-entrypoint.enabled") {
@@ -334,35 +361,6 @@ setting-group:has(> moz-card).spotlight {
   padding: 0.3em;
 }
 
-#updateBox {
-  margin-block: 4px 32px;
-}
-
-/* Work around bug 560067 - animated images in visibility: hidden
- * still eat CPU. */
-#updateDeck > *:not(.deck-selected) > .update-throbber {
-  display: none;
-}
-
-#updateDeck > hbox > button {
-  margin-block: 0;
-  margin-inline-end: 0;
-}
-
-#updateDeck > hbox > label {
-  flex: 1;
-  margin-inline-end: 5px !important;
-}
-
-.manualLink {
-  margin-inline-start: 6px !important;
-}
-
-#updateRadioGroup > radio {
-  min-height: 30px;
-  margin: 2px 0;
-}
-
 #filter {
   flex: 1;
   margin: 4px 0 8px;
@@ -386,6 +384,13 @@ setting-group:has(> moz-card).spotlight {
   }
 }
 /** SRD applications section END **/
+
+/* Override overflow-wrap: anywhere from moz-card
+ TODO: Eventually we should update to make this
+ section more responsive to screen width */
+moz-fieldset#applicationsGroup {
+  overflow-wrap: normal;
+}
 
 #handlersView {
   height: 25em;
@@ -623,7 +628,7 @@ html|dialog,
 }
 
 .dialogBox {
-  background-color: var(--background-color-canvas);
+  background-color: var(--background-color-box);
   background-clip: content-box;
   color: var(--text-color);
   /* `transparent` will use the dialogText color in high-contrast themes and
@@ -954,27 +959,6 @@ dialog > .sync-engines-list + hbox {
   vertical-align: text-bottom;
 }
 
-.update-throbber {
-  width: 1.3em;
-  min-height: 1.3em;
-  margin-inline-end: 8px;
-  content: url("chrome://global/skin/icons/loading.svg");
-  -moz-context-properties: fill;
-  fill: var(--color-accent-primary);
-}
-
-.face-sad::before {
-  content: "\01F641";
-  font-size: 1.3em;
-  margin-inline-end: 8px;
-}
-
-.face-smile::before {
-  content: "\01F600";
-  font-size: 1.3em;
-  margin-inline-end: 8px;
-}
-
 .info-box-container {
   background-color: var(--background-color-box-info);
   padding: 9px;
@@ -1155,15 +1139,6 @@ menulist[indicator="true"] > menupopup menuitem[indicator="true"]:not([image]) >
   font-size: 0.8em;
 }
 
-.updateSettingCrossUserWarningContainer {
-  margin-block-end: 17px;
-}
-
-#updateSettingCrossUserWarningDesc {
-  padding-inline-start: calc(16px + 6px); /* radio-check's width + margin-inline-end */
-  margin-block-start: 20px;
-}
-
 richlistitem .text-link {
   color: inherit;
   text-decoration: underline;
@@ -1270,28 +1245,33 @@ richlistitem .text-link:hover {
   margin-inline: 30px 0;
 }
 
-#firefox-mobile {
-  background-image: url("chrome://browser/skin/device-phone.svg");
-}
+/* Product icon backgrounds for the legacy (non-SRD) More from Mozilla page.
+ * Scoped to #moreFromMozillaCategory so they don't apply to the config-based
+ * moz-card elements that reuse the same product IDs. */
+#moreFromMozillaCategory {
+  #firefox-mobile {
+    background-image: url("chrome://browser/skin/device-phone.svg");
+  }
 
-#mozilla-vpn {
-  background-image: url("chrome://browser/skin/preferences/vpn-logo.svg");
-}
+  #mozilla-vpn {
+    background-image: url("chrome://browser/skin/preferences/vpn-logo.svg");
+  }
 
-#mozilla-monitor {
-  background-image: url("chrome://browser/skin/preferences/monitor-logo.svg");
-}
+  #mozilla-monitor {
+    background-image: url("chrome://browser/skin/preferences/monitor-logo.svg");
+  }
 
-#firefox-relay {
-  background-image: url("chrome://browser/skin/preferences/relay-logo.svg");
-}
+  #firefox-relay {
+    background-image: url("chrome://browser/skin/preferences/relay-logo.svg");
+  }
 
-#solo-ai {
-  background-image: url("chrome://browser/skin/preferences/solo-ai-logo.svg");
-}
+  #solo-ai {
+    background-image: url("chrome://browser/skin/preferences/solo-ai-logo.svg");
+  }
 
-#mdn {
-  background-image: url("chrome://browser/skin/preferences/mdn-logo.svg");
+  #mdn {
+    background-image: url("chrome://browser/skin/preferences/mdn-logo.svg");
+  }
 }
 
 /*
@@ -1608,6 +1588,12 @@ setting-group[groupid="aiStatesDescription"] {
   height: 128px;
 }
 
+@media (forced-colors: active) {
+  #etpBannerEl {
+    background-image: url("chrome://browser/content/preferences/etp-advanced-banner.svg");
+  }
+}
+
 #etpLevelWarning {
   --promo-image-position: top;
 }
@@ -1624,4 +1610,18 @@ setting-group[groupid="aiStatesDescription"] {
 
 .box-header-bold {
   --box-label-font-weight: var(--font-weight-heading);
+}
+
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-large);
+
+  moz-box-link {
+    margin-block-start: auto;
+  }
+
+  @media (max-width: 45em) {
+    grid-template-columns: 1fr;
+  }
 }

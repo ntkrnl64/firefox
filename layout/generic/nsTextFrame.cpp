@@ -2658,14 +2658,15 @@ already_AddRefed<gfxTextRun> BuildTextRunsScanner::BuildTextRunForFrames(
         // want to create new nsTransformedCharStyle for them anyway.
         if (sc != f->Style() || sc->IsTextCombined()) {
           sc = f->Style();
-          defaultStyle = new nsTransformedCharStyle(sc, f->PresContext());
+          auto* pc = f->PresContext();
+          defaultStyle = MakeRefPtr<nsTransformedCharStyle>(sc, pc);
           if (sc->IsTextCombined() && f->CountGraphemeClusters() > 1) {
             defaultStyle->mForceNonFullWidth = true;
           }
           if (needsToMaskPassword) {
             defaultStyle->mMaskPassword = true;
             if (unmaskStart != unmaskEnd) {
-              unmaskStyle = new nsTransformedCharStyle(sc, f->PresContext());
+              unmaskStyle = MakeRefPtr<nsTransformedCharStyle>(sc, pc);
               unmaskStyle->mForceNonFullWidth =
                   defaultStyle->mForceNonFullWidth;
             }
@@ -7150,8 +7151,27 @@ bool nsTextFrame::PaintTextWithSelectionColors(
                                    *aParams.textPaintStyle, rangeStyles[index]);
         if (colors.mHasBackground) {
           if (textDrawer) {
-            textDrawer->AppendSelectionRect(selectionRect,
-                                            ToDeviceColor(colors.mBackground));
+            nsRectCornerRadii radii;
+            bool hasRadii = false;
+            if (PresContext()->Document()->ChromeRulesEnabled()) {
+              if (auto* style =
+                      aParams.textPaintStyle->GetSelectionPseudoStyle()) {
+                nsSize size = LayoutDeviceRect::ToAppUnits(selectionRect,
+                                                           appUnitsPerDevPixel)
+                                  .Size();
+                hasRadii = nsIFrame::ComputeBorderRadii(
+                    style->StyleBorder()->mBorderRadius, size, size, {}, radii);
+              }
+            }
+
+            if (hasRadii) {
+              textDrawer->AppendSelectionRoundRect(
+                  selectionRect, ToDeviceColor(colors.mBackground), radii,
+                  appUnitsPerDevPixel);
+            } else {
+              textDrawer->AppendSelectionRect(
+                  selectionRect, ToDeviceColor(colors.mBackground));
+            }
           } else {
             PaintSelectionBackground(*aParams.context->GetDrawTarget(),
                                      colors.mBackground, aParams.dirtyRect,
@@ -8265,7 +8285,7 @@ nsIFrame::ContentOffsets nsTextFrame::GetCharacterOffsetAtFramePointInternal(
         gfxFontUtils::IsRegionalIndicator(
             characterDataBuffer.ScalarValueAt(offs))) {
       allowSplitLigature = false;
-      if (extraCluster.GetSkippedOffset() > 1 &&
+      if (extraCluster.GetSkippedOffset() >= skippedRange.start + 2 &&
           !mTextRun->IsLigatureGroupStart(extraCluster.GetSkippedOffset())) {
         // CountCharsFit() left us in the middle of the flag; back up over the
         // first character of the ligature, and adjust fitWidth accordingly.
@@ -11136,11 +11156,7 @@ void nsTextFrame::ReflowText(nsLineLayout& aLineLayout, nscoord aAvailableWidth,
     nscoord width = finalSize.ISize(wm);
     nscoord em = fm->EmHeight();
     // Compress the characters in horizontal axis if necessary.
-    auto* data = GetProperty(TextCombineDataProperty());
-    if (!data) {
-      data = new TextCombineData;
-      SetProperty(TextCombineDataProperty(), data);
-    }
+    auto* data = GetOrCreateDeletableProperty(TextCombineDataProperty());
     data->mNaturalWidth = width;
     finalSize.ISize(wm) = em;
     // If we're going to have to adjust the block-size to make it 1em, make an

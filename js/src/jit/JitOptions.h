@@ -66,7 +66,6 @@ struct DefaultJitOptions {
   bool disableCacheIR;
   bool disableStubFolding;
   bool disableStubFoldingLoadsAndStores;
-  bool disableSink;
   bool disableRedundantShapeGuards;
   bool disableRedundantGCBarriers;
   bool disableBailoutLoopCheck;
@@ -154,11 +153,19 @@ struct DefaultJitOptions {
   bool regexp_possessive_quantifier;
   bool regexp_optimization;
   bool regexp_peephole_optimization;
+  bool regexp_unroll;
+  bool regexp_quick_check;
   bool regexp_tier_up;
+  bool regexp_bytecode_analysis;
   bool trace_regexp_assembler;
+  bool trace_regexp_compiler;
+  bool trace_regexp_graph_building;
   bool trace_regexp_bytecodes;
   bool trace_regexp_parser;
+  bool trace_regexp_bytecode_analysis;
   bool trace_regexp_peephole_optimization;
+  bool log_colour;
+  bool enable_slow_asserts;
 
   DefaultJitOptions();
   bool isSmallFunction(JSScript* script) const;

@@ -22,7 +22,10 @@ import mozilla.components.browser.engine.gecko.ext.getAntiTrackingPolicy
 import mozilla.components.browser.engine.gecko.ext.getEtpCategory
 import mozilla.components.browser.engine.gecko.ext.getEtpLevel
 import mozilla.components.browser.engine.gecko.ext.getStrictSocialTrackingProtection
+import mozilla.components.browser.engine.gecko.ext.toTrackingProtectionEvent
 import mozilla.components.browser.engine.gecko.integration.LocaleSettingUpdater
+import mozilla.components.browser.engine.gecko.ipprotection.GeckoIPProtectionDelegate
+import mozilla.components.browser.engine.gecko.ipprotection.GeckoIPProtectionHandler
 import mozilla.components.browser.engine.gecko.mediaquery.from
 import mozilla.components.browser.engine.gecko.mediaquery.toGeckoValue
 import mozilla.components.browser.engine.gecko.preferences.DefaultGeckoPreferenceAccessor
@@ -56,9 +59,12 @@ import mozilla.components.concept.engine.activity.ActivityDelegate
 import mozilla.components.concept.engine.activity.OrientationDelegate
 import mozilla.components.concept.engine.autofill.AddressStructure
 import mozilla.components.concept.engine.content.blocking.TrackerLog
+import mozilla.components.concept.engine.content.blocking.TrackingProtectionEvent
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionExceptionStorage
 import mozilla.components.concept.engine.fission.WebContentIsolationStrategy
 import mozilla.components.concept.engine.history.HistoryTrackingDelegate
+import mozilla.components.concept.engine.ipprotection.IPProtectionDelegate
+import mozilla.components.concept.engine.ipprotection.IPProtectionHandler
 import mozilla.components.concept.engine.mediaquery.PreferredColorScheme
 import mozilla.components.concept.engine.preferences.Branch
 import mozilla.components.concept.engine.preferences.BrowserPrefObserverDelegate
@@ -152,6 +158,9 @@ class GeckoEngine(
 
     private var webPushHandler: WebPushHandler? = null
 
+    @kotlin.OptIn(ExperimentalAndroidComponentsApi::class)
+    private var ipProtectionHandler: IPProtectionHandler? = null
+
     init {
         runtime.delegate = GeckoRuntime.Delegate {
             // On shutdown: The runtime is shutting down (possibly because of an unrecoverable error state). We crash
@@ -199,6 +208,59 @@ class GeckoEngine(
                 }
 
                 onSuccess(logs)
+                GeckoResult<Void>()
+            },
+            { throwable ->
+                onError(throwable)
+                GeckoResult<Void>()
+            },
+        )
+    }
+
+    override fun getTrackingProtectionEventsByDateRange(
+        dateFrom: Long,
+        dateTo: Long,
+        onSuccess: (List<TrackingProtectionEvent>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ) {
+        runtime.contentBlockingController.getTrackingDbEventsByDateRange(dateFrom, dateTo).then(
+            { eventList ->
+                val events = eventList?.mapNotNull {
+                    it.toTrackingProtectionEvent()
+                } ?: emptyList()
+                onSuccess(events)
+                GeckoResult<Void>()
+            },
+            { throwable ->
+                onError(throwable)
+                GeckoResult<Void>()
+            },
+        )
+    }
+
+    override fun sumAllTrackingProtectionEvents(
+        onSuccess: (Int) -> Unit,
+        onError: (Throwable) -> Unit,
+    ) {
+        runtime.contentBlockingController.sumAllTrackingDbEvents().then(
+            { sum ->
+                onSuccess(sum ?: 0)
+                GeckoResult<Void>()
+            },
+            { throwable ->
+                onError(throwable)
+                GeckoResult<Void>()
+            },
+        )
+    }
+
+    override fun getEarliestTrackingProtectionDate(
+        onSuccess: (Long?) -> Unit,
+        onError: (Throwable) -> Unit,
+    ) {
+        runtime.contentBlockingController.trackingDbEarliestRecordedDate.then(
+            { date ->
+                onSuccess(if (date == 0L) null else date)
                 GeckoResult<Void>()
             },
             { throwable ->
@@ -791,6 +853,24 @@ class GeckoEngine(
         }
 
         return requireNotNull(webPushHandler)
+    }
+
+    @OptIn(ExperimentalGeckoViewApi::class)
+    @kotlin.OptIn(ExperimentalAndroidComponentsApi::class)
+    override fun registerIPProtectionDelegate(delegate: IPProtectionDelegate): IPProtectionHandler {
+        runtime.ipProtectionController.setDelegate(GeckoIPProtectionDelegate(delegate))
+
+        if (ipProtectionHandler == null) {
+            ipProtectionHandler = GeckoIPProtectionHandler(runtime)
+        }
+
+        return requireNotNull(ipProtectionHandler)
+    }
+
+    @OptIn(ExperimentalGeckoViewApi::class)
+    @kotlin.OptIn(ExperimentalAndroidComponentsApi::class)
+    override fun unregisterIPProtectionDelegate() {
+        runtime.ipProtectionController.setDelegate(null)
     }
 
     /**
@@ -1549,6 +1629,13 @@ class GeckoEngine(
                 field = value
             }
 
+        override var useContentBlockingDatabase: Boolean = false
+            set(value) {
+                runtime.settings.contentBlocking.contentBlockingDatabaseStatus = value
+                field = value
+            }
+            get() = runtime.settings.contentBlocking.contentBlockingDatabaseStatus
+
         override var remoteDebuggingEnabled: Boolean
             get() = runtime.settings.remoteDebuggingEnabled
             set(value) { runtime.settings.remoteDebuggingEnabled = value }
@@ -1844,29 +1931,41 @@ class GeckoEngine(
 
         @ExperimentalAndroidComponentsApi
         override var safeBrowsingRealTimeSimulationEnabled: Boolean?
+            @OptIn(ExperimentalGeckoViewApi::class)
             get() = runtime.settings.contentBlocking.safeBrowsingRealTimeSimulationEnabled
+
+            @OptIn(ExperimentalGeckoViewApi::class)
             set(value) {
                 value?.let { runtime.settings.contentBlocking.setSafeBrowsingRealTimeSimulationEnabled(it) }
             }
 
         @ExperimentalAndroidComponentsApi
         override var safeBrowsingRealTimeSimulationHitProbability: Int?
+            @OptIn(ExperimentalGeckoViewApi::class)
             get() = runtime.settings.contentBlocking.safeBrowsingRealTimeSimulationHitProbability
+
+            @OptIn(ExperimentalGeckoViewApi::class)
             set(value) {
                 value?.let { runtime.settings.contentBlocking.setSafeBrowsingRealTimeSimulationHitProbability(it) }
             }
 
         @ExperimentalAndroidComponentsApi
         override var safeBrowsingRealTimeSimulationCacheTTLSec: Int?
+            @OptIn(ExperimentalGeckoViewApi::class)
             get() = runtime.settings.contentBlocking.safeBrowsingRealTimeSimulationCacheTTLSec
+
+            @OptIn(ExperimentalGeckoViewApi::class)
             set(value) {
                 value?.let { runtime.settings.contentBlocking.setSafeBrowsingRealTimeSimulationCacheTTLSec(it) }
             }
 
         @ExperimentalAndroidComponentsApi
         override var safeBrowsingRealTimeSimulationNegativeCacheEnabled: Boolean?
+            @OptIn(ExperimentalGeckoViewApi::class)
             get() =
               runtime.settings.contentBlocking.safeBrowsingRealTimeSimulationNegativeCacheEnabled
+
+            @OptIn(ExperimentalGeckoViewApi::class)
             set(value) {
                 value?.let {
                     runtime.settings.contentBlocking.setSafeBrowsingRealTimeSimulationNegativeCacheEnabled(it)
@@ -1875,7 +1974,10 @@ class GeckoEngine(
 
         @ExperimentalAndroidComponentsApi
         override var safeBrowsingRealTimeSimulationNegativeCacheTTLSec: Int?
+            @OptIn(ExperimentalGeckoViewApi::class)
             get() = runtime.settings.contentBlocking.safeBrowsingRealTimeSimulationNegativeCacheTTLSec
+
+            @OptIn(ExperimentalGeckoViewApi::class)
             set(value) {
                 value?.let { runtime.settings.contentBlocking.setSafeBrowsingRealTimeSimulationNegativeCacheTTLSec(it) }
             }
@@ -1941,6 +2043,7 @@ class GeckoEngine(
                 it.safeBrowsingRealTimeSimulationNegativeCacheEnabled
             this.safeBrowsingRealTimeSimulationNegativeCacheTTLSec =
                 it.safeBrowsingRealTimeSimulationNegativeCacheTTLSec
+            this.useContentBlockingDatabase = it.useContentBlockingDatabase
         }
     }
 
@@ -2102,5 +2205,6 @@ internal fun InstallationMethod.toGeckoInstallationMethod(): String? {
         InstallationMethod.MANAGER -> WebExtensionController.INSTALLATION_METHOD_MANAGER
         InstallationMethod.FROM_FILE -> WebExtensionController.INSTALLATION_METHOD_FROM_FILE
         InstallationMethod.ONBOARDING -> WebExtensionController.INSTALLATION_METHOD_ONBOARDING
+        InstallationMethod.RTAMO -> WebExtensionController.INSTALLATION_METHOD_RTAMO
     }
 }
