@@ -10,6 +10,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   McpSseConnection: "chrome://remote/content/mcp/McpSseConnection.sys.mjs",
   WebSocketHandshake:
     "chrome://remote/content/server/WebSocketHandshake.sys.mjs",
+  writeUtf8: "chrome://remote/content/mcp/McpDispatch.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
@@ -91,11 +92,29 @@ export class McpConnectionHandler {
 
     this.#setCorsHeaders(response);
 
+    lazy.logger.debug(
+      `MCP SSE POST: queryString="${request.queryString || ""}", ` +
+        `hasSessionHeader=${(() => { try { return !!request.getHeader("Mcp-Session-Id"); } catch { return false; } })()}`
+    );
+
     let sessionId;
+    let legacyTransport = false;
     try {
       sessionId = request.getHeader("Mcp-Session-Id");
     } catch {
-      // No session header - new session or initialize request.
+      // No session header - check query string (legacy SSE transport).
+    }
+    if (!sessionId) {
+      try {
+        const qs = request.queryString || "";
+        const params = new URLSearchParams(qs);
+        sessionId = params.get("sessionId");
+        if (sessionId) {
+          legacyTransport = true;
+        }
+      } catch {
+        // No query string.
+      }
     }
 
     let session;
@@ -105,7 +124,8 @@ export class McpConnectionHandler {
       if (!session) {
         // Unknown session ID.
         response.setStatusLine(request.httpVersion, 404, "Not Found");
-        response.write(
+        lazy.writeUtf8(
+          response,
           JSON.stringify({
             jsonrpc: "2.0",
             error: { code: -32600, message: "Session not found" },
@@ -123,7 +143,7 @@ export class McpConnectionHandler {
     }
 
     try {
-      await session.handlePost(request, response);
+      await session.handlePost(request, response, { legacyTransport });
     } catch (e) {
       lazy.logger.error(`MCP SSE POST error: ${e.message}`, e);
       try {
@@ -132,7 +152,8 @@ export class McpConnectionHandler {
           500,
           "Internal Server Error"
         );
-        response.write(
+        lazy.writeUtf8(
+          response,
           JSON.stringify({
             jsonrpc: "2.0",
             error: { code: -32603, message: e.message },
@@ -173,18 +194,24 @@ export class McpConnectionHandler {
       // No session.
     }
 
-    if (!sessionId) {
-      response.setStatusLine(request.httpVersion, 400, "Bad Request");
-      response.write("Mcp-Session-Id header required");
-      return;
+    let session;
+    if (sessionId) {
+      session = this.#sseSessions.get(sessionId);
+      if (!session) {
+        response.setStatusLine(request.httpVersion, 404, "Not Found");
+        response.write("Session not found");
+        return;
+      }
+    } else {
+      // Create a new session for SSE-first connections (e.g. Claude Code).
+      session = new lazy.McpSseConnection();
+      this.#sseSessions.set(session.id, session);
+      this.#server.addConnection(session);
+      lazy.logger.debug(`MCP SSE: New session (GET) ${session.id}`);
     }
 
-    const session = this.#sseSessions.get(sessionId);
-    if (!session) {
-      response.setStatusLine(request.httpVersion, 404, "Not Found");
-      response.write("Session not found");
-      return;
-    }
+    // Expose the session ID so the client can use it for POSTs.
+    response.setHeader("Mcp-Session-Id", session.id, false);
 
     // Keep connection open for server-initiated events.
     session.handleGet(request, response);
@@ -234,7 +261,7 @@ export class McpConnectionHandler {
     );
     response.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Accept, Last-Event-ID",
+      "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Accept, Last-Event-ID",
       false
     );
     response.setHeader(

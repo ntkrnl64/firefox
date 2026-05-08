@@ -10,6 +10,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   JSONRPC_VERSION: "chrome://remote/content/mcp/McpDispatch.sys.mjs",
   Log: "chrome://remote/content/shared/Log.sys.mjs",
   McpDispatch: "chrome://remote/content/mcp/McpDispatch.sys.mjs",
+  writeUtf8: "chrome://remote/content/mcp/McpDispatch.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
@@ -56,7 +57,9 @@ export class McpSseConnection {
    * @param {nsIHttpRequest} request
    * @param {nsIHttpResponse} response
    */
-  async handlePost(request, response) {
+  async handlePost(request, response, options = {}) {
+    const { legacyTransport = false } = options;
+
     let body;
     try {
       body = this.#readRequestBody(request);
@@ -127,7 +130,13 @@ export class McpSseConnection {
         response.setHeader("Mcp-Session-Id", this.#id, false);
       }
 
-      if (acceptsSse) {
+      if (legacyTransport) {
+        this.#deliverViaNotificationStream(
+          request,
+          response,
+          jsonrpcResponse
+        );
+      } else if (acceptsSse) {
         this.#sendSseResponse(request, response, jsonrpcResponse);
       } else {
         this.#sendJsonResponse(request, response, jsonrpcResponse);
@@ -141,7 +150,9 @@ export class McpSseConnection {
         error: { code, message: e.message },
       };
 
-      if (acceptsSse) {
+      if (legacyTransport) {
+        this.#deliverViaNotificationStream(request, response, jsonrpcError);
+      } else if (acceptsSse) {
         this.#sendSseResponse(request, response, jsonrpcError);
       } else {
         this.#sendJsonResponse(request, response, jsonrpcError);
@@ -161,11 +172,30 @@ export class McpSseConnection {
     response.setHeader("Content-Type", "text/event-stream", false);
     response.setHeader("Cache-Control", "no-cache", false);
     response.setHeader("Connection", "keep-alive", false);
+    response.setHeader("Mcp-Session-Id", this.#id, false);
 
     this.#notificationStreams.add(response);
 
+    // Send the endpoint event for legacy SSE transport clients.
+    // This tells the client where to POST JSON-RPC messages.
+    let host, port;
+    try {
+      host = request.getHeader("Host") || "localhost:5195";
+    } catch {
+      host = "localhost:5195";
+    }
+    try {
+      port = request.port;
+    } catch {
+      port = "";
+    }
+    // If Host header already has port, use it directly.
+    const baseUrl = host.includes(":") ? `http://${host}` : `http://${host}:${port || 5195}`;
+    const endpointUrl = `${baseUrl}/mcp?sessionId=${this.#id}`;
+    lazy.writeUtf8(response, `event: endpoint\ndata: ${endpointUrl}\n\n`);
+
     lazy.logger.debug(
-      `MCP SSE: Notification stream opened for session ${this.#id}`
+      `MCP SSE: Notification stream opened for session ${this.#id}, endpoint: ${endpointUrl}`
     );
 
     // The stream stays open until the client disconnects or session ends.
@@ -214,7 +244,7 @@ export class McpSseConnection {
     lazy.logger.debug(`MCP SSE <- ${json}`);
     response.setStatusLine(request.httpVersion, 200, "OK");
     response.setHeader("Content-Type", "application/json", false);
-    response.write(json);
+    lazy.writeUtf8(response, json);
   }
 
   #sendJsonError(response, id, code, message) {
@@ -227,7 +257,17 @@ export class McpSseConnection {
     lazy.logger.debug(`MCP SSE <- ${json}`);
     response.setStatusLine("1.1", 200, "OK");
     response.setHeader("Content-Type", "application/json", false);
-    response.write(json);
+    lazy.writeUtf8(response, json);
+  }
+
+  #deliverViaNotificationStream(request, response, data) {
+    if (this.#notificationStreams.size === 0) {
+      // No GET stream open yet; fall back to sending on the POST.
+      this.#sendSseResponse(request, response, data);
+      return;
+    }
+    this.sendNotification(data);
+    response.setStatusLine(request.httpVersion, 202, "Accepted");
   }
 
   #sendSseResponse(request, response, data) {
@@ -252,6 +292,6 @@ export class McpSseConnection {
     const json = JSON.stringify(data);
     const payload = `event: message\nid: ${eventId}\ndata: ${json}\n\n`;
     lazy.logger.debug(`MCP SSE <- [${eventId}] ${json}`);
-    response.write(payload);
+    lazy.writeUtf8(response, payload);
   }
 }

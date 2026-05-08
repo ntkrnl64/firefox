@@ -25,6 +25,22 @@ export const JSONRPC_ERRORS = {
   INTERNAL_ERROR: -32603,
 };
 
+// httpd.js's response.write() ultimately calls
+// nsIOutputStream.write(string, string.length), which truncates each JS
+// UTF-16 code unit to 8 bits. Any non-Latin-1 character (e.g. an em-dash,
+// U+2014) gets corrupted into its low byte (0x14), producing invalid JSON.
+// Pre-encode to UTF-8 and pack the bytes into a string of code units 0-255
+// so the truncation in httpd is a no-op and the correct bytes reach the wire.
+export function writeUtf8(response, str) {
+  const bytes = new TextEncoder().encode(String(str));
+  const CHUNK = 0x8000;
+  let out = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  response.write(out);
+}
+
 /**
  * Shared dispatch logic for both WebSocket and SSE transports.
  */

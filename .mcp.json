@@ -15,6 +15,10 @@
         "--enable-scripting",
         "--enable-privileged-context"
       ]
+    },
+    "firefox-mcp": {
+      "type": "sse",
+      "url": "http://localhost:5195/mcp"
     }
   }
 }

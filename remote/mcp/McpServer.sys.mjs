@@ -15,6 +15,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "chrome://remote/content/mcp/actors/McpContentParent.sys.mjs",
   unregisterMcpContentActor:
     "chrome://remote/content/mcp/actors/McpContentParent.sys.mjs",
+  writeUtf8: "chrome://remote/content/mcp/McpDispatch.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
@@ -110,6 +111,18 @@ export class McpServer {
     // Register the combined WebSocket + SSE handler for MCP connections.
     this.#connectionHandler = new lazy.McpConnectionHandler(this);
     this.#server.registerPathHandler("/mcp", this.#connectionHandler);
+
+    // Register OAuth 2.0 endpoints for MCP client authentication.
+    // This is a permissive local-only implementation that auto-approves
+    // all clients — suitable for developer tooling, not production.
+    const baseUrl = `http://${this.#host}:${this.#port}`;
+    this.#server.registerPathHandler(
+      "/.well-known/oauth-authorization-server",
+      new OAuthMetadataHandler(baseUrl)
+    );
+    this.#server.registerPathHandler("/register", new OAuthRegisterHandler());
+    this.#server.registerPathHandler("/authorize", new OAuthAuthorizeHandler());
+    this.#server.registerPathHandler("/token", new OAuthTokenHandler());
   }
 
   async stop() {
@@ -131,6 +144,13 @@ export class McpServer {
 
       lazy.unregisterMcpContentActor();
       this.#server.registerPathHandler("/mcp", null);
+      this.#server.registerPathHandler(
+        "/.well-known/oauth-authorization-server",
+        null
+      );
+      this.#server.registerPathHandler("/register", null);
+      this.#server.registerPathHandler("/authorize", null);
+      this.#server.registerPathHandler("/token", null);
       await this.#server.stop();
     } catch (e) {
       lazy.logger.error(`MCP: Failed to stop server: ${e.message}`, e);
@@ -181,6 +201,141 @@ export class McpServer {
       } catch (e) {
         reject({ message: e.message });
       }
+    });
+  }
+}
+
+// ---- OAuth 2.0 handlers (local dev, auto-approve) ----
+
+function jsonResponse(response, status, body) {
+  response.setStatusLine("1.1", status, status === 200 ? "OK" : "Error");
+  response.setHeader("Content-Type", "application/json", false);
+  response.setHeader("Access-Control-Allow-Origin", "*", false);
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS", false);
+  response.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization",
+    false
+  );
+  response.setHeader("Cache-Control", "no-store", false);
+  const json = JSON.stringify(body);
+  lazy.writeUtf8(response, json);
+}
+
+class OAuthMetadataHandler {
+  #baseUrl;
+  constructor(baseUrl) {
+    this.#baseUrl = baseUrl;
+  }
+  handle(request, response) {
+    if (request.method === "OPTIONS") {
+      response.setStatusLine("1.1", 204, "No Content");
+      response.setHeader("Access-Control-Allow-Origin", "*", false);
+      response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS", false);
+      return;
+    }
+    jsonResponse(response, 200, {
+      issuer: this.#baseUrl,
+      authorization_endpoint: `${this.#baseUrl}/authorize`,
+      token_endpoint: `${this.#baseUrl}/token`,
+      registration_endpoint: `${this.#baseUrl}/register`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+    });
+  }
+}
+
+class OAuthRegisterHandler {
+  handle(request, response) {
+    if (request.method === "OPTIONS") {
+      response.setStatusLine("1.1", 204, "No Content");
+      response.setHeader("Access-Control-Allow-Origin", "*", false);
+      response.setHeader(
+        "Access-Control-Allow-Methods",
+        "POST, OPTIONS",
+        false
+      );
+      response.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type",
+        false
+      );
+      return;
+    }
+    // Auto-register any client
+    let body = {};
+    try {
+      const inputStream = Cc[
+        "@mozilla.org/scriptableinputstream;1"
+      ].createInstance(Ci.nsIScriptableInputStream);
+      inputStream.init(request.bodyInputStream);
+      const raw = inputStream.read(inputStream.available());
+      body = JSON.parse(raw);
+    } catch {
+      // Ignore
+    }
+    const clientId = "mcp-local-" + Date.now();
+    jsonResponse(response, 200, {
+      client_id: clientId,
+      client_name: body.client_name || "MCP Client",
+      redirect_uris: body.redirect_uris || [],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    });
+  }
+}
+
+class OAuthAuthorizeHandler {
+  handle(request, response) {
+    if (request.method === "OPTIONS") {
+      response.setStatusLine("1.1", 204, "No Content");
+      response.setHeader("Access-Control-Allow-Origin", "*", false);
+      return;
+    }
+    // Extract redirect_uri and state from query string, auto-approve
+    const qs = request.queryString || "";
+    const params = new URLSearchParams(qs);
+    const redirectUri = params.get("redirect_uri") || "";
+    const state = params.get("state") || "";
+    const code = "mcp-auth-code-" + Date.now();
+
+    if (redirectUri) {
+      const sep = redirectUri.includes("?") ? "&" : "?";
+      const location = `${redirectUri}${sep}code=${code}&state=${encodeURIComponent(state)}`;
+      response.setStatusLine("1.1", 302, "Found");
+      response.setHeader("Location", location, false);
+    } else {
+      jsonResponse(response, 200, { code, state });
+    }
+  }
+}
+
+class OAuthTokenHandler {
+  handle(request, response) {
+    if (request.method === "OPTIONS") {
+      response.setStatusLine("1.1", 204, "No Content");
+      response.setHeader("Access-Control-Allow-Origin", "*", false);
+      response.setHeader(
+        "Access-Control-Allow-Methods",
+        "POST, OPTIONS",
+        false
+      );
+      response.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization",
+        false
+      );
+      return;
+    }
+    // Issue a token for any request
+    jsonResponse(response, 200, {
+      access_token: "mcp-local-token-" + Date.now(),
+      token_type: "Bearer",
+      expires_in: 86400,
+      refresh_token: "mcp-local-refresh-" + Date.now(),
     });
   }
 }
