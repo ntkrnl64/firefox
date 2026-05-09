@@ -565,6 +565,109 @@ function nowMs() {
   }
 }
 
+const DRM_TRIGGER_METHODS = new Set([
+  "requestMediaKeySystemAccess",
+  "createMediaKeys",
+  "setMediaKeys",
+  "createSession",
+  "generateRequest",
+  "setServerCertificate",
+  "getStatusForPolicy",
+  "update",
+  "close",
+  "remove",
+]);
+
+const MAX_DRM_BREAKPOINT_HITS = 200;
+const MAX_DRM_TRIGGERS = 500;
+
+function _drmWildcardToRegExp(glob) {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*") {
+      out += ".*";
+    } else if (ch === "?") {
+      out += ".";
+    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+      out += "\\" + ch;
+    } else {
+      out += ch;
+    }
+  }
+  return new RegExp("^" + out + "$");
+}
+
+function _compileDrmBreakpointPattern(bp) {
+  if (
+    bp._matcherKey === bp.pattern &&
+    bp._matcherType === bp.matchType
+  ) {
+    return bp._matcher;
+  }
+  bp._matcherKey = bp.pattern;
+  bp._matcherType = bp.matchType;
+  bp._matcher = null;
+  bp._compileError = null;
+  if (!bp.pattern) {
+    return null;
+  }
+  try {
+    if (bp.matchType === "regex") {
+      bp._matcher = new RegExp(bp.pattern);
+    } else if (bp.matchType === "wildcard") {
+      bp._matcher = _drmWildcardToRegExp(bp.pattern);
+    }
+  } catch (e) {
+    bp._compileError = e.message;
+  }
+  return bp._matcher;
+}
+
+function _drmBreakpointMatchesContext(bp, method, ctx) {
+  if (bp.enabled === false) {
+    return false;
+  }
+  if (bp.method && bp.method !== "ANY" && bp.method !== method) {
+    return false;
+  }
+  if (bp.keySystem && !(ctx.keySystem || "").includes(bp.keySystem)) {
+    return false;
+  }
+  if (bp.initDataType && bp.initDataType !== ctx.initDataType) {
+    return false;
+  }
+  if (bp.pattern) {
+    const re = _compileDrmBreakpointPattern(bp);
+    const haystack = ctx.matchTarget || "";
+    if (re) {
+      if (!re.test(haystack)) {
+        return false;
+      }
+    } else if (!haystack.includes(bp.pattern)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function _serializeDrmBreakpoint(bp) {
+  return {
+    id: bp.id,
+    method: bp.method || "ANY",
+    keySystem: bp.keySystem || null,
+    initDataType: bp.initDataType || null,
+    pattern: bp.pattern || null,
+    matchType: bp.matchType || "substring",
+    cancelOnHit: !!bp.cancelOnHit,
+    pauseOnHit: !!bp.pauseOnHit,
+    enabled: bp.enabled !== false,
+    hits: bp.hits || 0,
+    lastHit: bp.lastHit || null,
+    compileError: bp._compileError || null,
+  };
+}
+
 exports.DrmActor = class DrmActor extends Actor {
   constructor(conn, targetActor) {
     super(conn, drmSpec);
@@ -578,6 +681,10 @@ exports.DrmActor = class DrmActor extends Actor {
     this._originals = {};
     this._captureRawData = false;
     this._activeRecordings = new Map();
+    this._drmBreakpoints = [];
+    this._drmBreakpointHits = [];
+    this._drmBreakpointIdCounter = 0;
+    this._triggers = [];
   }
 
   destroy() {
@@ -1282,6 +1389,21 @@ exports.DrmActor = class DrmActor extends Actor {
       cw.navigator.requestMediaKeySystemAccess.bind(cw.navigator);
     cw.navigator.requestMediaKeySystemAccess = function (keySystem, configs) {
       const stack = captureStack();
+      const _bpHit = actor._emitDrmCallSite(
+        "requestMediaKeySystemAccess",
+        {
+          keySystem: keySystem || "",
+          matchTarget: keySystem || "",
+          detail: `keySystem: ${keySystem}, configs: ${configs?.length || 0} candidate(s)`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       const t0 = Date.now();
       const candidateConfigs = serializeCandidateConfigs(configs);
       actor._addEvent(
@@ -1335,8 +1457,23 @@ exports.DrmActor = class DrmActor extends Actor {
       cw.MediaKeySystemAccess.prototype.createMediaKeys;
     cw.MediaKeySystemAccess.prototype.createMediaKeys = function () {
       const stack = captureStack();
-      const t0 = Date.now();
       const ks = Cu.waiveXrays(this).keySystem || "";
+      const _bpHit = actor._emitDrmCallSite(
+        "createMediaKeys",
+        {
+          keySystem: ks,
+          matchTarget: ks,
+          detail: `keySystem: ${ks}`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
+      const t0 = Date.now();
       actor._addEvent("createMediaKeys", "", `keySystem: ${ks}`, stack, {
         keySystem: ks,
       });
@@ -1377,6 +1514,21 @@ exports.DrmActor = class DrmActor extends Actor {
       const ks = mediaKeys
         ? Cu.waiveXrays(mediaKeys).keySystem || ""
         : "(null)";
+      const _bpHit = actor._emitDrmCallSite(
+        "setMediaKeys",
+        {
+          keySystem: ks,
+          matchTarget: `${ks} ${elInfo?.src || ""}`,
+          detail: `<${elInfo?.tagName || "?"}> keySystem: ${ks}, src: ${elInfo?.src || ""}`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       actor._addEvent(
         "setMediaKeys",
         "",
@@ -1418,11 +1570,26 @@ exports.DrmActor = class DrmActor extends Actor {
     this._originals.createSession = cw.MediaKeys.prototype.createSession;
     cw.MediaKeys.prototype.createSession = function (sessionType) {
       const stack = captureStack();
+      const ks = Cu.waiveXrays(this).keySystem || "";
+      const _bpHit = actor._emitDrmCallSite(
+        "createSession",
+        {
+          keySystem: ks,
+          matchTarget: `${ks} ${sessionType || "temporary"}`,
+          detail: `Type: ${sessionType || "temporary"}, keySystem: ${ks}`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       const session = actor._originals.createSession.call(
         this,
         sessionType || "temporary"
       );
-      const ks = Cu.waiveXrays(this).keySystem || "";
       const el = actor._trackedMediaElements.get(Cu.waiveXrays(this));
       const elInfo = el ? getMediaElementInfo(el) : null;
       actor._trackSession(
@@ -1446,6 +1613,22 @@ exports.DrmActor = class DrmActor extends Actor {
       const stack = captureStack();
       const size = cert ? cert.byteLength || cert.length || 0 : 0;
       const certHex = cert && size <= 512 ? bufferToHex(cert) : null;
+      const ks = Cu.waiveXrays(this).keySystem || "";
+      const _bpHit = actor._emitDrmCallSite(
+        "setServerCertificate",
+        {
+          keySystem: ks,
+          matchTarget: certHex || "",
+          detail: `Certificate: ${size} bytes`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       actor._addEvent(
         "setServerCertificate",
         "",
@@ -1486,6 +1669,22 @@ exports.DrmActor = class DrmActor extends Actor {
     cw.MediaKeys.prototype.getStatusForPolicy = function (policy) {
       const stack = captureStack();
       const hdcpVersion = policy?.minHdcpVersion || "(none)";
+      const ks = Cu.waiveXrays(this).keySystem || "";
+      const _bpHit = actor._emitDrmCallSite(
+        "getStatusForPolicy",
+        {
+          keySystem: ks,
+          matchTarget: String(hdcpVersion),
+          detail: `minHdcpVersion: ${hdcpVersion}`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       actor._addEvent(
         "getStatusForPolicy",
         "",
@@ -1529,10 +1728,28 @@ exports.DrmActor = class DrmActor extends Actor {
       initData
     ) {
       const stack = captureStack();
-      const t0 = Date.now();
       const sid = this.sessionId || `pending-${actor._trackedSessions.size}`;
       const dataHex = initData ? bufferToHex(initData) : "";
       const dataSize = initData ? initData.byteLength || 0 : 0;
+      const _bpHit = actor._emitDrmCallSite(
+        "generateRequest",
+        {
+          keySystem: actor._findSessionInfo(this)?.keySystem || "",
+          sessionId: this.sessionId || sid,
+          initDataType,
+          initDataHex: dataHex,
+          matchTarget: `${initDataType || ""} ${dataHex} ${this.sessionId || ""}`,
+          detail: `initDataType: ${initDataType}, initData: ${dataSize} bytes`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
+      const t0 = Date.now();
 
       let parsedInitData = null;
       if (initDataType === "cenc" && initData) {
@@ -1637,13 +1854,29 @@ exports.DrmActor = class DrmActor extends Actor {
     this._originals.update = cw.MediaKeySession.prototype.update;
     cw.MediaKeySession.prototype.update = function (response) {
       const stack = captureStack();
-      const t0 = Date.now();
       const sid = this.sessionId || "unknown";
       const responseSize = response ? response.byteLength || 0 : 0;
       const responseB64 =
         response && responseSize <= 8192 ? bufferToBase64(response) : null;
       const responseHex =
         response && responseSize <= 512 ? bufferToHex(response) : null;
+      const _bpHit = actor._emitDrmCallSite(
+        "update",
+        {
+          keySystem: actor._findSessionInfo(this)?.keySystem || "",
+          sessionId: sid,
+          matchTarget: `${sid} ${responseHex || ""}`,
+          detail: `Response: ${responseSize} bytes`,
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
+      const t0 = Date.now();
 
       let parsedResponse = null;
       if (response) {
@@ -1753,6 +1986,22 @@ exports.DrmActor = class DrmActor extends Actor {
       const stack = captureStack();
       const sid = this.sessionId || "unknown";
       const info = actor._findSessionInfo(this);
+      const _bpHit = actor._emitDrmCallSite(
+        "close",
+        {
+          keySystem: info?.keySystem || "",
+          sessionId: sid,
+          matchTarget: sid,
+          detail: "Session close requested",
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       if (info) {
         info.timeline.push({
           timestamp: Date.now(),
@@ -1792,6 +2041,23 @@ exports.DrmActor = class DrmActor extends Actor {
     cw.MediaKeySession.prototype.remove = function () {
       const stack = captureStack();
       const sid = this.sessionId || "unknown";
+      const info = actor._findSessionInfo(this);
+      const _bpHit = actor._emitDrmCallSite(
+        "remove",
+        {
+          keySystem: info?.keySystem || "",
+          sessionId: sid,
+          matchTarget: sid,
+          detail: "License removal requested",
+        },
+        stack
+      );
+      if (_bpHit?.cancelOnHit) {
+        throw new cw.DOMException(
+          `DRM breakpoint canceled: ${_bpHit.id}`,
+          "OperationError"
+        );
+      }
       actor._addEvent("remove-called", sid, "License removal requested", stack);
       return actor._originals.remove.call(this).then(
         () => {
@@ -1927,6 +2193,8 @@ exports.DrmActor = class DrmActor extends Actor {
     this._trackedMediaElements.clear();
     this._accessConfigs.clear();
     this._eventLog = [];
+    this._drmBreakpointHits = [];
+    this._triggers = [];
   }
 
   _scanExistingMedia() {
@@ -2264,5 +2532,200 @@ exports.DrmActor = class DrmActor extends Actor {
     if (this.conn?.transport) {
       this.emit("sessions-updated", this.getActiveSessions());
     }
+  }
+
+  // ---- Triggers + breakpoints integration helper ----
+
+  // Called by every EME wrapper. Records a trigger entry (if it's an
+  // entry-point method) and checks DRM breakpoints. Returns the matched
+  // breakpoint (if any) so the caller can throw on cancelOnHit.
+  _emitDrmCallSite(method, ctx, stack) {
+    this._recordTrigger(method, ctx, stack, ctx.detail);
+    return this._handleDrmBreakpointHit(method, ctx, stack);
+  }
+
+  // ---- Triggers ("What triggered this DRM") ----
+
+  _recordTrigger(method, ctx, stack, detail) {
+    if (!DRM_TRIGGER_METHODS.has(method)) {
+      return;
+    }
+    const trigger = {
+      timestamp: Date.now(),
+      method,
+      keySystem: ctx.keySystem || "",
+      sessionId: ctx.sessionId || null,
+      initDataType: ctx.initDataType || null,
+      initDataHex: ctx.initDataHex || null,
+      detail: detail || "",
+      stack: stack || null,
+    };
+    this._triggers.push(trigger);
+    if (this._triggers.length > MAX_DRM_TRIGGERS) {
+      this._triggers.splice(0, this._triggers.length - MAX_DRM_TRIGGERS);
+    }
+    if (this.conn?.transport) {
+      this.emit("trigger-added", trigger);
+    }
+  }
+
+  getTriggers() {
+    return this._triggers.slice();
+  }
+
+  clearTriggers() {
+    this._triggers = [];
+    return { cleared: true };
+  }
+
+  // ---- Breakpoints ----
+
+  _handleDrmBreakpointHit(method, ctx, stack) {
+    if (!this._drmBreakpoints.length) {
+      return null;
+    }
+    let matched = null;
+    for (const bp of this._drmBreakpoints) {
+      if (_drmBreakpointMatchesContext(bp, method, ctx)) {
+        matched = bp;
+        break;
+      }
+    }
+    if (!matched) {
+      return null;
+    }
+    matched.hits = (matched.hits || 0) + 1;
+    matched.lastHit = Date.now();
+    const hit = {
+      bpId: matched.id,
+      method,
+      timestamp: matched.lastHit,
+      keySystem: ctx.keySystem || "",
+      sessionId: ctx.sessionId || null,
+      initDataType: ctx.initDataType || null,
+      initDataHex: ctx.initDataHex || null,
+      detail: ctx.detail || "",
+      pattern: matched.pattern || null,
+      matchType: matched.matchType || "substring",
+      cancelOnHit: !!matched.cancelOnHit,
+      pauseOnHit: !!matched.pauseOnHit,
+      stack: stack || null,
+    };
+    this._drmBreakpointHits.push(hit);
+    if (this._drmBreakpointHits.length > MAX_DRM_BREAKPOINT_HITS) {
+      this._drmBreakpointHits.splice(
+        0,
+        this._drmBreakpointHits.length - MAX_DRM_BREAKPOINT_HITS
+      );
+    }
+    if (this.conn?.transport) {
+      this.emit("breakpoint-hit", hit);
+      this.emit("breakpoints-updated", this.listBreakpoints());
+    }
+    if (matched.pauseOnHit) {
+      const thread = this._targetActor?.threadActor;
+      if (thread?.pauseForDrmBreakpoint) {
+        try {
+          thread.pauseForDrmBreakpoint({
+            method,
+            breakpointId: matched.id,
+          });
+        } catch (e) {
+          console.warn("DRM actor: pauseForDrmBreakpoint failed:", e);
+        }
+      }
+    }
+    return matched;
+  }
+
+  addBreakpoint(spec) {
+    const bp = {
+      id: `drm-bp-${++this._drmBreakpointIdCounter}`,
+      method: spec?.method || "ANY",
+      keySystem: spec?.keySystem || null,
+      initDataType: spec?.initDataType || null,
+      pattern: spec?.pattern || null,
+      matchType: spec?.matchType || "substring",
+      cancelOnHit: !!spec?.cancelOnHit,
+      pauseOnHit: !!spec?.pauseOnHit,
+      enabled: spec?.enabled !== false,
+      hits: 0,
+      lastHit: null,
+    };
+    if (
+      bp.matchType !== "substring" &&
+      bp.matchType !== "wildcard" &&
+      bp.matchType !== "regex"
+    ) {
+      return { error: `Invalid matchType: ${bp.matchType}` };
+    }
+    _compileDrmBreakpointPattern(bp);
+    if (bp._compileError) {
+      return { error: `Invalid ${bp.matchType} pattern: ${bp._compileError}` };
+    }
+    this._drmBreakpoints.push(bp);
+    if (this.conn?.transport) {
+      this.emit("breakpoints-updated", this.listBreakpoints());
+    }
+    return _serializeDrmBreakpoint(bp);
+  }
+
+  removeBreakpoint(id) {
+    const before = this._drmBreakpoints.length;
+    this._drmBreakpoints = this._drmBreakpoints.filter(b => b.id !== id);
+    const removed = before - this._drmBreakpoints.length;
+    if (removed && this.conn?.transport) {
+      this.emit("breakpoints-updated", this.listBreakpoints());
+    }
+    return { removed };
+  }
+
+  updateBreakpoint(id, patch) {
+    const bp = this._drmBreakpoints.find(b => b.id === id);
+    if (!bp) {
+      return { error: "Not found" };
+    }
+    if (patch && typeof patch === "object") {
+      for (const key of [
+        "method",
+        "keySystem",
+        "initDataType",
+        "pattern",
+        "matchType",
+        "cancelOnHit",
+        "pauseOnHit",
+        "enabled",
+      ]) {
+        if (key in patch) {
+          bp[key] = patch[key];
+        }
+      }
+      _compileDrmBreakpointPattern(bp);
+    }
+    if (this.conn?.transport) {
+      this.emit("breakpoints-updated", this.listBreakpoints());
+    }
+    return _serializeDrmBreakpoint(bp);
+  }
+
+  listBreakpoints() {
+    return this._drmBreakpoints.map(_serializeDrmBreakpoint);
+  }
+
+  clearBreakpoints() {
+    this._drmBreakpoints = [];
+    if (this.conn?.transport) {
+      this.emit("breakpoints-updated", []);
+    }
+    return { cleared: true };
+  }
+
+  getBreakpointHits() {
+    return this._drmBreakpointHits.slice();
+  }
+
+  clearBreakpointHits() {
+    this._drmBreakpointHits = [];
+    return { cleared: true };
   }
 };

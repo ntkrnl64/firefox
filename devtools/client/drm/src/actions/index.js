@@ -17,6 +17,7 @@ const config = require("resource://devtools/client/drm/src/actions/config.js");
 const diagnostics = require("resource://devtools/client/drm/src/actions/diagnostics.js");
 const ui = require("resource://devtools/client/drm/src/actions/ui.js");
 const autorecord = require("resource://devtools/client/drm/src/actions/autorecord.js");
+const triggers = require("resource://devtools/client/drm/src/actions/triggers.js");
 
 Object.assign(
   exports,
@@ -26,5 +27,6 @@ Object.assign(
   config,
   diagnostics,
   ui,
-  autorecord
+  autorecord,
+  triggers
 );

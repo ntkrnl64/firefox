@@ -28,6 +28,9 @@ const {
 const {
   autorecordReducer,
 } = require("resource://devtools/client/drm/src/reducers/autorecord-state.js");
+const {
+  triggersReducer,
+} = require("resource://devtools/client/drm/src/reducers/triggers-state.js");
 
 module.exports = combineReducers({
   keySystems: keySystemsReducer,
@@ -37,4 +40,5 @@ module.exports = combineReducers({
   diagnostics: diagnosticsReducer,
   ui: uiReducer,
   autorecord: autorecordReducer,
+  triggers: triggersReducer,
 });

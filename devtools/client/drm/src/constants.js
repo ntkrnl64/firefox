@@ -19,21 +19,49 @@ const actionTypes = {
   UPDATE_DIAGNOSTICS: "UPDATE_DIAGNOSTICS",
   SELECT_TAB: "SELECT_TAB",
   UPDATE_AUTORECORD: "UPDATE_AUTORECORD",
+  UPDATE_TRIGGERS: "UPDATE_TRIGGERS",
+  UPDATE_BREAKPOINTS: "UPDATE_BREAKPOINTS",
+  UPDATE_BREAKPOINT_HITS: "UPDATE_BREAKPOINT_HITS",
+  ADD_BREAKPOINT_HIT: "ADD_BREAKPOINT_HIT",
+  CLEAR_BREAKPOINT_HITS: "CLEAR_BREAKPOINT_HITS",
 };
 
 const TAB_TYPES = {
   OVERVIEW: "overview",
   SESSIONS: "sessions",
   EVENT_LOG: "eventlog",
+  TRIGGERED_BY: "triggeredby",
   CONFIG: "config",
 };
 
 const DEFAULT_TAB = TAB_TYPES.OVERVIEW;
 
 const MAX_EVENT_LOG_ENTRIES = 1000;
+const MAX_BREAKPOINT_HITS = 200;
+
+// EME entry-point methods that "trigger" DRM — every hit on one of these is
+// a candidate for the Triggered By view.
+const TRIGGER_METHODS = [
+  "requestMediaKeySystemAccess",
+  "createMediaKeys",
+  "setMediaKeys",
+  "createSession",
+  "generateRequest",
+  "setServerCertificate",
+  "getStatusForPolicy",
+  "update",
+  "close",
+  "remove",
+];
 
 module.exports = Object.assign(
   {},
-  { TAB_TYPES, DEFAULT_TAB, MAX_EVENT_LOG_ENTRIES },
+  {
+    TAB_TYPES,
+    DEFAULT_TAB,
+    MAX_EVENT_LOG_ENTRIES,
+    MAX_BREAKPOINT_HITS,
+    TRIGGER_METHODS,
+  },
   actionTypes
 );

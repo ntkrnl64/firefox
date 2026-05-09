@@ -5,6 +5,7 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  DrmCapture: "chrome://remote/content/mcp/DrmCapture.sys.mjs",
   HttpServer: "chrome://remote/content/server/httpd.sys.mjs",
   Log: "chrome://remote/content/shared/Log.sys.mjs",
   McpConnectionHandler:
@@ -104,6 +105,7 @@ export class McpServer {
 
     // Start persistent network capture before anything else.
     lazy.NetworkCapture.start();
+    lazy.DrmCapture.start();
 
     // Register the JSWindowActor for content process evaluation.
     lazy.registerMcpContentActor();
@@ -139,6 +141,7 @@ export class McpServer {
     try {
       // Stop network capture and close SSE sessions.
       lazy.NetworkCapture.stop();
+      lazy.DrmCapture.stop();
       this.#connectionHandler?.closeAllSseSessions();
       this.#connectionHandler = null;
 

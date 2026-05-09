@@ -112,6 +112,7 @@ remote.jar:
   content/mcp/McpConnectionHandler.sys.mjs (mcp/McpConnectionHandler.sys.mjs)
   content/mcp/McpDispatch.sys.mjs (mcp/McpDispatch.sys.mjs)
   content/mcp/NetworkCapture.sys.mjs (mcp/NetworkCapture.sys.mjs)
+  content/mcp/DrmCapture.sys.mjs (mcp/DrmCapture.sys.mjs)
   content/mcp/McpSseConnection.sys.mjs (mcp/McpSseConnection.sys.mjs)
   content/mcp/tools/McpToolRegistry.sys.mjs (mcp/tools/McpToolRegistry.sys.mjs)
   content/mcp/tools/BookmarkHistoryTools.sys.mjs (mcp/tools/BookmarkHistoryTools.sys.mjs)

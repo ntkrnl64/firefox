@@ -160,6 +160,7 @@ const PAUSE_REASONS = {
   DEBUGGER_STATEMENT: "debuggerStatement",
   EXCEPTION: "exception",
   XHR: "XHR",
+  DRM: "DRM",
   EVENT_BREAKPOINT: "eventBreakpoint",
   RESUME_LIMIT: "resumeLimit",
 };
@@ -860,6 +861,27 @@ class ThreadActor extends Actor {
         this._pauseAndRespond(frame, { type: PAUSE_REASONS.XHR });
       }
     }
+  }
+
+  // Called by DrmActor when a DRM breakpoint with pauseOnHit:true matches.
+  // Pauses the JS debugger at the EME callsite, like XHR breakpoints do.
+  pauseForDrmBreakpoint(info) {
+    if (this.shouldSkipAnyBreakpoint) {
+      return;
+    }
+    if (this._state === STATES.PAUSED || this._state === STATES.DETACHED) {
+      return;
+    }
+    let frame;
+    try {
+      frame = this.dbg.getNewestFrame();
+    } catch {
+      return;
+    }
+    if (!frame) {
+      return;
+    }
+    this._pauseAndRespond(frame, { type: PAUSE_REASONS.DRM, ...(info || {}) });
   }
 
   reconfigure(options = {}) {

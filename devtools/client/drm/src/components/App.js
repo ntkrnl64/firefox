@@ -42,6 +42,9 @@ const SessionsPanel = createFactory(
 const EventLogPanel = createFactory(
   require("resource://devtools/client/drm/src/components/EventLogPanel.js")
 );
+const TriggeredByPanel = createFactory(
+  require("resource://devtools/client/drm/src/components/TriggeredByPanel.js")
+);
 const ConfigPanel = createFactory(
   require("resource://devtools/client/drm/src/components/ConfigPanel.js")
 );
@@ -50,6 +53,7 @@ const TAB_LABELS = {
   [TAB_TYPES.OVERVIEW]: "Overview",
   [TAB_TYPES.SESSIONS]: "Sessions",
   [TAB_TYPES.EVENT_LOG]: "Event Log",
+  [TAB_TYPES.TRIGGERED_BY]: "Triggered By",
   [TAB_TYPES.CONFIG]: "Configuration",
 };
 
@@ -90,6 +94,8 @@ class App extends PureComponent {
         return SessionsPanel({});
       case TAB_TYPES.EVENT_LOG:
         return EventLogPanel({});
+      case TAB_TYPES.TRIGGERED_BY:
+        return TriggeredByPanel({});
       case TAB_TYPES.CONFIG:
         return ConfigPanel({});
       default:

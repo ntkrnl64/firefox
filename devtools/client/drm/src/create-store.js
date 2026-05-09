@@ -44,6 +44,9 @@ const {
 const {
   AutoRecordState,
 } = require("resource://devtools/client/drm/src/reducers/autorecord-state.js");
+const {
+  TriggersState,
+} = require("resource://devtools/client/drm/src/reducers/triggers-state.js");
 
 function configureStore() {
   const initialState = {
@@ -54,6 +57,7 @@ function configureStore() {
     diagnostics: new DiagnosticsState(),
     ui: new UiState(),
     autorecord: new AutoRecordState(),
+    triggers: new TriggersState(),
   };
 
   const middleware = applyMiddleware(ignore, thunk());

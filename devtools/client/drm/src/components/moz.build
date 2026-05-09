@@ -8,4 +8,5 @@ DevToolsModules(
     "EventLogPanel.js",
     "OverviewPanel.js",
     "SessionsPanel.js",
+    "TriggeredByPanel.js",
 )

@@ -10,5 +10,6 @@ DevToolsModules(
     "index.js",
     "keysystems.js",
     "sessions.js",
+    "triggers.js",
     "ui.js",
 )

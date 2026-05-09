@@ -57,6 +57,9 @@ window.DrmApp = {
     this._onDrmEvent = this._onDrmEvent.bind(this);
     this._onSessionsUpdated = this._onSessionsUpdated.bind(this);
     this._onMediaEnded = this._onMediaEnded.bind(this);
+    this._onTriggerAdded = this._onTriggerAdded.bind(this);
+    this._onBreakpointHit = this._onBreakpointHit.bind(this);
+    this._onBreakpointsUpdated = this._onBreakpointsUpdated.bind(this);
 
     await this._commands.targetCommand.watchTargets({
       types: [this._commands.targetCommand.TYPES.FRAME],
@@ -78,6 +81,9 @@ window.DrmApp = {
       this._drmFront.off("drm-event", this._onDrmEvent);
       this._drmFront.off("sessions-updated", this._onSessionsUpdated);
       this._drmFront.off("media-ended", this._onMediaEnded);
+      this._drmFront.off("trigger-added", this._onTriggerAdded);
+      this._drmFront.off("breakpoint-hit", this._onBreakpointHit);
+      this._drmFront.off("breakpoints-updated", this._onBreakpointsUpdated);
       try {
         await this._drmFront.stopObserving();
       } catch {
@@ -97,6 +103,9 @@ window.DrmApp = {
       this._drmFront.on("drm-event", this._onDrmEvent);
       this._drmFront.on("sessions-updated", this._onSessionsUpdated);
       this._drmFront.on("media-ended", this._onMediaEnded);
+      this._drmFront.on("trigger-added", this._onTriggerAdded);
+      this._drmFront.on("breakpoint-hit", this._onBreakpointHit);
+      this._drmFront.on("breakpoints-updated", this._onBreakpointsUpdated);
 
       await this._fetchAll();
     } catch (e) {
@@ -145,11 +154,104 @@ window.DrmApp = {
     } catch {
       // Ignore
     }
+
+    try {
+      const triggers = await this._drmFront.getTriggers();
+      if (!this._destroyed) {
+        this.actions.updateTriggers(triggers);
+      }
+    } catch {
+      // Ignore
+    }
+
+    try {
+      const breakpoints = await this._drmFront.listBreakpoints();
+      if (!this._destroyed) {
+        this.actions.updateBreakpoints(breakpoints);
+      }
+    } catch {
+      // Ignore
+    }
+
+    try {
+      const hits = await this._drmFront.getBreakpointHits();
+      if (!this._destroyed) {
+        this.actions.updateBreakpointHits(hits);
+      }
+    } catch {
+      // Ignore
+    }
   },
 
   _onDrmEvent(entry) {
     if (!this._destroyed) {
       this.actions.addDrmEvent(entry);
+    }
+  },
+
+  _onTriggerAdded(trigger) {
+    if (this._destroyed) {
+      return;
+    }
+    // Re-fetch the full list — it's small and keeps order canonical.
+    if (this._drmFront) {
+      this._drmFront
+        .getTriggers()
+        .then(t => {
+          if (!this._destroyed) {
+            this.actions.updateTriggers(t);
+          }
+        })
+        .catch(() => {});
+    }
+  },
+
+  _onBreakpointHit(hit) {
+    if (!this._destroyed) {
+      this.actions.addBreakpointHit(hit);
+    }
+  },
+
+  _onBreakpointsUpdated(breakpoints) {
+    if (!this._destroyed) {
+      this.actions.updateBreakpoints(breakpoints);
+    }
+  },
+
+  async addDrmBreakpoint(spec) {
+    if (!this._drmFront) {
+      throw new Error("DRM front not connected");
+    }
+    const result = await this._drmFront.addBreakpoint(spec);
+    if (result?.error) {
+      throw new Error(result.error);
+    }
+    const breakpoints = await this._drmFront.listBreakpoints();
+    if (!this._destroyed) {
+      this.actions.updateBreakpoints(breakpoints);
+    }
+    return result;
+  },
+
+  async removeDrmBreakpoint(id) {
+    if (!this._drmFront) {
+      return;
+    }
+    await this._drmFront.removeBreakpoint(id);
+    const breakpoints = await this._drmFront.listBreakpoints();
+    if (!this._destroyed) {
+      this.actions.updateBreakpoints(breakpoints);
+    }
+  },
+
+  async updateDrmBreakpoint(id, patch) {
+    if (!this._drmFront) {
+      return;
+    }
+    await this._drmFront.updateBreakpoint(id, patch);
+    const breakpoints = await this._drmFront.listBreakpoints();
+    if (!this._destroyed) {
+      this.actions.updateBreakpoints(breakpoints);
     }
   },
 

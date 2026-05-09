@@ -8,6 +8,12 @@
 // and is intended ONLY for developer debugging and testing purposes.
 // Do NOT use in production or to circumvent digital rights management.
 
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  DrmCapture: "chrome://remote/content/mcp/DrmCapture.sys.mjs",
+});
+
 const EME_PREFS = [
   "media.eme.enabled",
   "media.eme.encrypted-media-encryption-scheme.enabled",
@@ -810,6 +816,151 @@ async function drmFullReport() {
   return text(report);
 }
 
+// ---- DRM trace + breakpoints (backed by DrmCapture) ----
+
+async function ensureDrmInstalled() {
+  // Inject the content-side wrapper. Idempotent — returns "already-installed"
+  // if it was set up earlier in this content global. Page navigation drops
+  // the global, so we re-install on every call.
+  try {
+    await evalInContent(lazy.DrmCapture.installerScript);
+  } catch (e) {
+    return { error: "Failed to install DRM wrappers: " + e.message };
+  }
+  // Sync the latest breakpoint list down.
+  try {
+    await evalInContent(lazy.DrmCapture.buildSyncScript());
+  } catch (e) {
+    return { error: "Failed to sync breakpoints: " + e.message };
+  }
+  return { ok: true };
+}
+
+async function drainContentDrmState() {
+  let drained;
+  try {
+    drained = await evalInContent(lazy.DrmCapture.buildDrainScript());
+  } catch {
+    return;
+  }
+  lazy.DrmCapture.ingestDrained(drained);
+}
+
+async function drmWhatTriggered(args) {
+  await ensureDrmInstalled();
+  await drainContentDrmState();
+  const triggers = lazy.DrmCapture.triggers;
+  if (!triggers.length) {
+    return text(
+      "No DRM activity captured yet. Open a page that uses EME and try again."
+    );
+  }
+  const which = args?.which || "first";
+  const t = which === "last" ? triggers[triggers.length - 1] : triggers[0];
+  const lines = [
+    `${t.method}${t.keySystem ? ` (${t.keySystem})` : ""}`,
+    `time: ${new Date(t.timestamp).toISOString()}`,
+  ];
+  if (t.sessionId) {
+    lines.push(`sessionId: ${t.sessionId}`);
+  }
+  if (t.initDataType) {
+    lines.push(
+      `initDataType: ${t.initDataType}, initData: ${(t.initDataHex || "").slice(0, 64)}${t.initDataHex && t.initDataHex.length > 64 ? "…" : ""}`
+    );
+  }
+  if (t.detail) {
+    lines.push(`detail: ${t.detail}`);
+  }
+  lines.push("");
+  if (t.stack) {
+    lines.push("Stack:");
+    lines.push(t.stack);
+  } else {
+    lines.push("(no JS stack — invocation came from native code)");
+  }
+  return text(lines.join("\n"));
+}
+
+async function drmTriggers(args) {
+  await ensureDrmInstalled();
+  await drainContentDrmState();
+  const { count = 50, clear = false, format = "json" } = args || {};
+  const triggers = lazy.DrmCapture.triggers.slice(-count);
+  if (clear) {
+    lazy.DrmCapture.clearTriggers();
+  }
+  if (format === "text") {
+    return text(
+      triggers
+        .map(
+          t =>
+            `${new Date(t.timestamp).toISOString()}  ${t.method.padEnd(28)}  ${t.keySystem || "-"}  ${t.detail || ""}`
+        )
+        .join("\n") || "(no triggers)"
+    );
+  }
+  return text(triggers);
+}
+
+async function drmSetBreakpoint(args) {
+  let bp;
+  try {
+    bp = lazy.DrmCapture.addBreakpoint(args || {});
+  } catch (e) {
+    throw new Error(e.message);
+  }
+  await ensureDrmInstalled();
+  return text(bp);
+}
+
+async function drmRemoveBreakpoint(args) {
+  const removed = lazy.DrmCapture.removeBreakpoint(args?.id);
+  await ensureDrmInstalled();
+  if (args?.id === undefined) {
+    return text(`Cleared all breakpoints (${removed} removed)`);
+  }
+  return text(removed ? `Removed breakpoint ${args.id}` : `No breakpoint with id ${args.id}`);
+}
+
+async function drmUpdateBreakpoint(args) {
+  if (!args?.id) {
+    throw new Error("id is required");
+  }
+  const bp = lazy.DrmCapture.updateBreakpoint(args.id, args.patch || {});
+  if (!bp) {
+    throw new Error(`No breakpoint with id ${args.id}`);
+  }
+  await ensureDrmInstalled();
+  return text(bp);
+}
+
+async function drmListBreakpoints() {
+  await drainContentDrmState();
+  return text(lazy.DrmCapture.serializedBreakpoints);
+}
+
+async function drmBreakpointHits(args) {
+  await ensureDrmInstalled();
+  await drainContentDrmState();
+  const { count = 50, clear = false, format = "json" } = args || {};
+  const hits = lazy.DrmCapture.hits.slice(-count);
+  if (clear) {
+    lazy.DrmCapture.clearBreakpointHits();
+  }
+  if (format === "text") {
+    return text(
+      hits
+        .map(
+          h =>
+            `${new Date(h.timestamp).toISOString()}  ${h.bpId}  ${h.method.padEnd(28)}  ${h.keySystem || "-"}  ${h.detail || ""}`
+        )
+        .join("\n") || "(no hits)"
+    );
+  }
+  return text(hits);
+}
+
 // ---- Tool registry ----
 
 export const DrmTools = {
@@ -985,6 +1136,158 @@ export const DrmTools = {
         "Generate a comprehensive DRM health report: platform info, all EME prefs, key system availability with configs, deep media element inspection, GMP status — suitable for bug reports",
       inputSchema: { type: "object", properties: {} },
       handler: drmFullReport,
+    },
+    {
+      name: "drm_what_triggered",
+      description:
+        "Show the JS stack that triggered DRM activation on the active tab. Returns the first (default) or last EME entry-point invocation captured by the content-side wrappers, with its method, key system, session id, init data, and stack trace.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          which: {
+            type: "string",
+            enum: ["first", "last"],
+            description:
+              "Which trigger to return — 'first' for the call that started DRM, 'last' for the most recent. Default: first.",
+          },
+        },
+      },
+      handler: drmWhatTriggered,
+    },
+    {
+      name: "drm_triggers",
+      description:
+        "List EME entry-point invocations captured on the active tab (requestMediaKeySystemAccess, createMediaKeys, setMediaKeys, createSession, generateRequest, update, close, remove, setServerCertificate, getStatusForPolicy) with stacks. Drains content-side capture and merges into the parent registry.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          count: {
+            type: "integer",
+            description: "Max triggers to return (default: 50)",
+          },
+          clear: {
+            type: "boolean",
+            description: "Clear stored triggers after returning",
+          },
+          format: {
+            type: "string",
+            enum: ["json", "text"],
+            description: "Output format (default: json)",
+          },
+        },
+      },
+      handler: drmTriggers,
+    },
+    {
+      name: "drm_set_breakpoint",
+      description:
+        "Register a DRM breakpoint. When a matching EME call happens on the active tab, its initiator stack is captured into drm_breakpoint_hits. Optionally cancels the call (cancelOnHit) or pauses execution at the call site (pauseOnHit, lands the JS debugger on the page). Pattern matching uses substring (default), wildcard (* and ?), or regex against a per-method match target (init data hex / sessionId / src / etc).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          method: {
+            type: "string",
+            description:
+              "EME method to match: ANY (default) | requestMediaKeySystemAccess | createMediaKeys | setMediaKeys | createSession | generateRequest | update | close | remove | setServerCertificate | getStatusForPolicy",
+          },
+          keySystem: {
+            type: "string",
+            description:
+              "Substring match against the key system (e.g. 'widevine', 'playready', 'clearkey').",
+          },
+          initDataType: {
+            type: "string",
+            enum: ["cenc", "keyids", "webm"],
+            description: "Exact match on initDataType (only for generateRequest).",
+          },
+          pattern: {
+            type: "string",
+            description:
+              "Pattern matched against the per-method target: init data hex (generateRequest), response hex (update), session id (close/remove), src URL (setMediaKeys), HDCP version (getStatusForPolicy), etc.",
+          },
+          matchType: {
+            type: "string",
+            enum: ["substring", "wildcard", "regex"],
+            description: "How to interpret pattern. Default: substring.",
+          },
+          cancelOnHit: {
+            type: "boolean",
+            description:
+              "If true, throw an OperationError DOMException to abort the matching call. Default: false.",
+          },
+          pauseOnHit: {
+            type: "boolean",
+            description:
+              "If true, hit a `debugger` statement at the call site so the JS debugger pauses the page. Default: false.",
+          },
+        },
+      },
+      handler: drmSetBreakpoint,
+    },
+    {
+      name: "drm_remove_breakpoint",
+      description:
+        "Remove a DRM breakpoint by id. Omit id to clear all DRM breakpoints.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description:
+              "Breakpoint id returned by drm_set_breakpoint (omit to clear all).",
+          },
+        },
+      },
+      handler: drmRemoveBreakpoint,
+    },
+    {
+      name: "drm_update_breakpoint",
+      description:
+        "Update one or more fields of an existing DRM breakpoint (toggle enabled, change cancelOnHit/pauseOnHit, edit pattern, etc).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          patch: {
+            type: "object",
+            description:
+              "Partial update — any of method/keySystem/initDataType/pattern/matchType/cancelOnHit/pauseOnHit/enabled.",
+          },
+        },
+        required: ["id", "patch"],
+      },
+      handler: drmUpdateBreakpoint,
+    },
+    {
+      name: "drm_list_breakpoints",
+      description:
+        "List all registered DRM breakpoints with hit counts and last-hit timestamps.",
+      inputSchema: { type: "object", properties: {} },
+      handler: drmListBreakpoints,
+    },
+    {
+      name: "drm_breakpoint_hits",
+      description:
+        "Drain and return DRM breakpoint hits captured on the active tab. Each hit has the matched breakpoint id, method, key system, session id, init data, detail, and JS stack at the call site.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          count: {
+            type: "integer",
+            description: "Max hits to return (default: 50)",
+          },
+          clear: {
+            type: "boolean",
+            description: "Clear stored hits after returning",
+          },
+          format: {
+            type: "string",
+            enum: ["json", "text"],
+            description: "Output format (default: json)",
+          },
+        },
+      },
+      handler: drmBreakpointHits,
     },
   ],
 };

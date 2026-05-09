@@ -32,6 +32,18 @@ const drmSpec = generateActorSpec({
       type: "media-ended",
       data: Arg(0, "json"),
     },
+    "trigger-added": {
+      type: "trigger-added",
+      trigger: Arg(0, "json"),
+    },
+    "breakpoint-hit": {
+      type: "breakpoint-hit",
+      hit: Arg(0, "json"),
+    },
+    "breakpoints-updated": {
+      type: "breakpoints-updated",
+      breakpoints: Arg(0, "json"),
+    },
   },
 
   methods: {
@@ -99,6 +111,49 @@ const drmSpec = generateActorSpec({
     stopObserving: {
       request: {},
       response: {},
+    },
+    getTriggers: {
+      request: {},
+      response: RetVal("json"),
+    },
+    clearTriggers: {
+      request: {},
+      response: RetVal("json"),
+    },
+    addBreakpoint: {
+      request: {
+        spec: Arg(0, "json"),
+      },
+      response: RetVal("json"),
+    },
+    removeBreakpoint: {
+      request: {
+        id: Arg(0, "string"),
+      },
+      response: RetVal("json"),
+    },
+    updateBreakpoint: {
+      request: {
+        id: Arg(0, "string"),
+        patch: Arg(1, "json"),
+      },
+      response: RetVal("json"),
+    },
+    listBreakpoints: {
+      request: {},
+      response: RetVal("json"),
+    },
+    clearBreakpoints: {
+      request: {},
+      response: RetVal("json"),
+    },
+    getBreakpointHits: {
+      request: {},
+      response: RetVal("json"),
+    },
+    clearBreakpointHits: {
+      request: {},
+      response: RetVal("json"),
     },
   },
 });
