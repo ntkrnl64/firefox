@@ -165,6 +165,59 @@ const PAUSE_REASONS = {
 };
 exports.PAUSE_REASONS = PAUSE_REASONS;
 
+// XHR breakpoint path syntax: a leading "regex:" or "wildcard:" prefix
+// switches matching from substring (default) to JS RegExp or glob.
+const XHR_BREAKPOINT_REGEX_PREFIX = "regex:";
+const XHR_BREAKPOINT_WILDCARD_PREFIX = "wildcard:";
+
+function _wildcardToRegExp(glob) {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*") {
+      out += ".*";
+    } else if (ch === "?") {
+      out += ".";
+    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+      out += "\\" + ch;
+    } else {
+      out += ch;
+    }
+  }
+  return new RegExp("^" + out + "$");
+}
+
+// Returns true if the given URL matches the breakpoint entry. Compiled
+// matchers are cached on the entry, keyed by path so re-entry after edit
+// recompiles cleanly.
+function _xhrBreakpointMatches(url, entry) {
+  const { path } = entry;
+  if (!path) {
+    return true;
+  }
+  if (entry._matcherKey !== path) {
+    entry._matcherKey = path;
+    entry._matcher = null;
+    try {
+      if (path.startsWith(XHR_BREAKPOINT_REGEX_PREFIX)) {
+        entry._matcher = new RegExp(
+          path.slice(XHR_BREAKPOINT_REGEX_PREFIX.length)
+        );
+      } else if (path.startsWith(XHR_BREAKPOINT_WILDCARD_PREFIX)) {
+        entry._matcher = _wildcardToRegExp(
+          path.slice(XHR_BREAKPOINT_WILDCARD_PREFIX.length)
+        );
+      }
+    } catch {
+      entry._matcher = null;
+    }
+  }
+  if (entry._matcher) {
+    return entry._matcher.test(url);
+  }
+  return url.includes(path);
+}
+
 class ThreadActor extends Actor {
   /**
    * Creates a ThreadActor.
@@ -785,11 +838,11 @@ class ThreadActor extends Actor {
     }
 
     let shouldPause = false;
-    for (const { path, method } of this._xhrBreakpoints) {
-      if (method !== "ANY" && method !== requestMethod) {
+    for (const entry of this._xhrBreakpoints) {
+      if (entry.method !== "ANY" && entry.method !== requestMethod) {
         continue;
       }
-      if (url.includes(path)) {
+      if (_xhrBreakpointMatches(url, entry)) {
         shouldPause = true;
         break;
       }

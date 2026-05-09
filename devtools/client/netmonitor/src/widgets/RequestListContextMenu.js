@@ -75,6 +75,23 @@ loader.lazyRequireGetter(
 
 const { OS } = Services.appinfo;
 
+// Returns true if there is an active (non-disabled) XHR breakpoint matching
+// (url, "ANY") in the Debugger's redux store. Returns false if the debugger
+// panel hasn't been initialized yet — in that case, no XHR breakpoint can be
+// active for `url` so the "Break When URL Loaded" entry is the right choice.
+function _isUrlXHRBreakpointed(toolbox, url) {
+  const panel = toolbox.getPanel("jsdebugger");
+  if (!panel?._store || !panel?._selectors?.getXHRBreakpoints) {
+    return false;
+  }
+  const xhrBreakpoints = panel._selectors.getXHRBreakpoints(
+    panel._store.getState()
+  );
+  return xhrBreakpoints.some(
+    bp => bp.path === url && bp.method === "ANY" && !bp.disabled
+  );
+}
+
 class RequestListContextMenu {
   constructor(props) {
     this.props = props;
@@ -297,6 +314,7 @@ class RequestListContextMenu {
       connector,
       cloneRequest,
       openDetailsPanelTab,
+      openStackTraceTab,
       openHTTPCustomRequestTab,
       closeHTTPCustomRequestTab,
       sendCustomRequest,
@@ -324,6 +342,7 @@ class RequestListContextMenu {
     const toolbox = this.props.connector.getToolbox();
     const isOverridden = !!getOverriddenUrl(toolbox.store.getState(), url);
     const isLocalTab = toolbox.commands.descriptorFront.isLocalTab;
+    const isUrlBreakpointed = _isUrlXHRBreakpointed(toolbox, url);
 
     const copySubMenu = this.createCopySubMenu(clickedRequest, requests);
     const newEditAndResendPref = Services.prefs.getBoolPref(
@@ -468,6 +487,47 @@ class RequestListContextMenu {
           this.openRequestInTab(id, url, requestHeaders, requestPostData),
       },
       {
+        id: "request-list-context-trace-request",
+        label: L10N.getStr("netmonitor.context.traceRequest"),
+        accesskey: L10N.getStr("netmonitor.context.traceRequest.accesskey"),
+        visible: !!cause?.stacktraceAvailable,
+        click: () => openStackTraceTab(),
+      },
+      {
+        id: "request-list-context-break-on-url",
+        label: L10N.getStr("netmonitor.context.breakOnUrlLoaded"),
+        accesskey: L10N.getStr("netmonitor.context.breakOnUrlLoaded.accesskey"),
+        visible: !!clickedRequest && !isUrlBreakpointed,
+        click: () =>
+          this.breakOnUrlLoaded(url).catch(e =>
+            console.error("Failed to set URL breakpoint:", e)
+          ),
+      },
+      {
+        id: "request-list-context-unbreak-on-url",
+        label: L10N.getStr("netmonitor.context.unbreakOnUrlLoaded"),
+        accesskey: L10N.getStr(
+          "netmonitor.context.unbreakOnUrlLoaded.accesskey"
+        ),
+        visible: !!clickedRequest && isUrlBreakpointed,
+        click: () =>
+          this.unbreakOnUrlLoaded(url).catch(e =>
+            console.error("Failed to remove URL breakpoint:", e)
+          ),
+      },
+      {
+        id: "request-list-context-manage-url-breakpoints",
+        label: L10N.getStr("netmonitor.context.manageUrlBreakpoints"),
+        accesskey: L10N.getStr(
+          "netmonitor.context.manageUrlBreakpoints.accesskey"
+        ),
+        visible: true,
+        click: () =>
+          this.manageUrlBreakpoints().catch(e =>
+            console.error("Failed to open URL breakpoints panel:", e)
+          ),
+      },
+      {
         id: "request-list-context-open-in-debugger",
         label: L10N.getStr("netmonitor.context.openInDebugger"),
         accesskey: L10N.getStr("netmonitor.context.openInDebugger.accesskey"),
@@ -551,6 +611,50 @@ class RequestListContextMenu {
   openInDebugger(url) {
     const toolbox = this.props.connector.getToolbox();
     toolbox.viewGeneratedSourceInDebugger(url);
+  }
+
+  /**
+   * Add an XHR/fetch breakpoint for the given URL. Routes through the
+   * Debugger panel's redux store so the XHR Breakpoints sidebar lists the
+   * new entry (the breakpoint-list actor itself has no client-side state,
+   * so calling it directly would leave the sidebar empty).
+   *
+   * Wildcard and regex patterns are supported by the backend via the
+   * "wildcard:" and "regex:" prefixes; users can edit the pattern in the
+   * Debugger XHR Breakpoints sidebar to switch syntax.
+   */
+  async breakOnUrlLoaded(url) {
+    const toolbox = this.props.connector.getToolbox();
+    const panel = await toolbox.getPanelWhenReady("jsdebugger");
+    await panel._actions.setXHRBreakpoint(url, "ANY");
+  }
+
+  /**
+   * Remove the XHR/fetch breakpoint previously added for this URL. Looks
+   * up the entry's index in the debugger redux store before dispatching,
+   * since the action takes an index.
+   */
+  async unbreakOnUrlLoaded(url) {
+    const toolbox = this.props.connector.getToolbox();
+    const panel = await toolbox.getPanelWhenReady("jsdebugger");
+    const xhrBreakpoints = panel._selectors.getXHRBreakpoints(
+      panel._store.getState()
+    );
+    const index = xhrBreakpoints.findIndex(
+      bp => bp.path === url && bp.method === "ANY"
+    );
+    if (index >= 0) {
+      await panel._actions.removeXHRBreakpoint(index);
+    }
+  }
+
+  /**
+   * Switch to the Debugger panel where the XHR Breakpoints sidebar lists
+   * all active URL breakpoints (with edit/remove/toggle controls).
+   */
+  async manageUrlBreakpoints() {
+    const toolbox = this.props.connector.getToolbox();
+    await toolbox.selectTool("jsdebugger");
   }
 
   /**

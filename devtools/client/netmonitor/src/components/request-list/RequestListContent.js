@@ -83,6 +83,7 @@ class RequestListContentComponent extends Component {
       cloneRequest: PropTypes.func.isRequired,
       clickedRequest: PropTypes.object,
       openDetailsPanelTab: PropTypes.func.isRequired,
+      openStackTraceTab: PropTypes.func.isRequired,
       openHTTPCustomRequestTab: PropTypes.func.isRequired,
       closeHTTPCustomRequestTab: PropTypes.func.isRequired,
       sendCustomRequest: PropTypes.func.isRequired,
@@ -362,6 +363,7 @@ class RequestListContentComponent extends Component {
         connector,
         cloneRequest,
         openDetailsPanelTab,
+        openStackTraceTab,
         openHTTPCustomRequestTab,
         closeHTTPCustomRequestTab,
         sendCustomRequest,
@@ -375,6 +377,7 @@ class RequestListContentComponent extends Component {
         connector,
         cloneRequest,
         openDetailsPanelTab,
+        openStackTraceTab,
         openHTTPCustomRequestTab,
         closeHTTPCustomRequestTab,
         sendCustomRequest,
@@ -491,6 +494,10 @@ const RequestListContent = connect(
   (dispatch, props) => ({
     cloneRequest: id => dispatch(Actions.cloneRequest(id)),
     openDetailsPanelTab: () => dispatch(Actions.openNetworkDetails(true)),
+    openStackTraceTab: () => {
+      dispatch(Actions.openNetworkDetails(true));
+      dispatch(Actions.selectDetailsPanelTab("stack-trace"));
+    },
     openHTTPCustomRequestTab: () =>
       dispatch(Actions.openHTTPCustomRequest(true)),
     closeHTTPCustomRequestTab: () =>

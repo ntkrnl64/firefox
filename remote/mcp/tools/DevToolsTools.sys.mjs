@@ -170,6 +170,7 @@ async function getNetworkRequests(args) {
     if (!out.redirectedFrom) {
       delete out.redirectedFrom;
     }
+    delete out.stacktrace;
     return out;
   });
 
@@ -201,6 +202,73 @@ async function getRequestDetail(args) {
   }
 
   return [{ type: "text", text: JSON.stringify(entry, null, 2) }];
+}
+
+function findRequestEntry(cap, { index, url }) {
+  if (index !== undefined) {
+    return { entry: cap.requests[index], index };
+  }
+  if (url) {
+    for (let i = cap.requests.length - 1; i >= 0; i--) {
+      if (cap.requests[i].url?.includes(url)) {
+        return { entry: cap.requests[i], index: i };
+      }
+    }
+  }
+  return { entry: undefined, index: -1 };
+}
+
+function formatStackFrame(frame) {
+  const fn = frame.functionName || "<anonymous>";
+  const loc = `${frame.filename || "?"}:${frame.lineNumber || 0}:${frame.columnNumber || 0}`;
+  const async = frame.asyncCause ? ` (async: ${frame.asyncCause})` : "";
+  return `  at ${fn} (${loc})${async}`;
+}
+
+async function traceRequest(args) {
+  const cap = getNetworkCapture();
+  const { format = "text" } = args;
+  const { entry, index } = findRequestEntry(cap, args);
+
+  if (!entry) {
+    return [{ type: "text", text: "Request not found" }];
+  }
+
+  const stack = entry.stacktrace || [];
+
+  if (format === "json") {
+    return [
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            index,
+            url: entry.url,
+            method: entry.method,
+            stacktrace: stack,
+          },
+          null,
+          2
+        ),
+      },
+    ];
+  }
+
+  if (!stack.length) {
+    return [
+      {
+        type: "text",
+        text: `No stack trace captured for ${entry.method} ${entry.url}\n(Request may have been initiated before MCP capture started, or by native browser code.)`,
+      },
+    ];
+  }
+
+  const lines = [
+    `${entry.method} ${entry.url}`,
+    `Initiator stack (${stack.length} frame${stack.length === 1 ? "" : "s"}):`,
+    ...stack.map(formatStackFrame),
+  ];
+  return [{ type: "text", text: lines.join("\n") }];
 }
 
 async function getResponseBody(args) {
@@ -395,6 +463,73 @@ async function listBlockedUrls() {
   return [
     { type: "text", text: JSON.stringify(patterns.map(String), null, 2) },
   ];
+}
+
+async function setUrlBreakpoint(args) {
+  const {
+    pattern,
+    matchType = "substring",
+    method = "ANY",
+    cancelOnHit = false,
+  } = args;
+  if (pattern === undefined || pattern === null) {
+    throw new Error("pattern is required");
+  }
+  if (!["substring", "wildcard", "regex"].includes(matchType)) {
+    throw new Error(
+      `matchType must be one of substring, wildcard, regex (got ${matchType})`
+    );
+  }
+  const bp = getNetworkCapture().addUrlBreakpoint({
+    pattern,
+    matchType,
+    method,
+    cancelOnHit,
+  });
+  return [
+    {
+      type: "text",
+      text: `Breakpoint set: [${bp.matchType}] ${bp.pattern} (method: ${bp.method}${bp.cancelOnHit ? ", cancelOnHit" : ""})`,
+    },
+  ];
+}
+
+async function removeUrlBreakpoint(args) {
+  const { pattern } = args;
+  const removed = getNetworkCapture().removeUrlBreakpoint(pattern);
+  if (pattern === undefined) {
+    return [{ type: "text", text: "All URL breakpoints cleared" }];
+  }
+  return [
+    {
+      type: "text",
+      text: removed
+        ? `Removed ${removed} breakpoint(s) matching: ${pattern}`
+        : `No breakpoint found matching: ${pattern}`,
+    },
+  ];
+}
+
+async function listUrlBreakpoints() {
+  const bps = getNetworkCapture().urlBreakpoints.map(bp => ({
+    pattern: bp.pattern,
+    matchType: bp.matchType,
+    method: bp.method,
+    cancelOnHit: bp.cancelOnHit,
+    hits: bp.hits,
+    lastHit: bp.lastHit,
+  }));
+  return [{ type: "text", text: JSON.stringify(bps, null, 2) }];
+}
+
+async function getUrlBreakpointHits(args) {
+  const { count = 20, clear = false } = args;
+  const cap = getNetworkCapture();
+  const hits = cap.breakpointHits.slice(-count);
+  if (clear) {
+    cap.clearBreakpointHits();
+  }
+  return [{ type: "text", text: JSON.stringify(hits, null, 2) }];
 }
 
 async function getRedirectChains() {
@@ -823,6 +958,28 @@ export const DevToolsTools = {
       handler: getRequestDetail,
     },
     {
+      name: "devtools_trace_request",
+      description:
+        "Get the JS initiator stack trace for a captured request (which function/method invoked it). Identify the request by index or URL substring.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          index: { type: "integer", description: "Request index in the log" },
+          url: {
+            type: "string",
+            description: "URL substring to match (uses most recent match)",
+          },
+          format: {
+            type: "string",
+            enum: ["text", "json"],
+            description:
+              "Output format: 'text' for a stack-style listing (default), 'json' for raw frames",
+          },
+        },
+      },
+      handler: traceRequest,
+    },
+    {
       name: "devtools_response_body",
       description:
         "Re-fetch a captured URL to get its response body (uses same cookies/session as browser)",
@@ -920,6 +1077,81 @@ export const DevToolsTools = {
       description: "List all active URL block patterns",
       inputSchema: { type: "object", properties: {} },
       handler: listBlockedUrls,
+    },
+    {
+      name: "devtools_set_url_breakpoint",
+      description:
+        "Register a URL breakpoint. When a request matches, its initiator stack is captured into devtools_url_breakpoint_hits. Supports substring, wildcard (* and ?), and regex matching. Optionally cancels the matching channel.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pattern: {
+            type: "string",
+            description:
+              "Pattern to match against the request URL (interpretation depends on matchType)",
+          },
+          matchType: {
+            type: "string",
+            enum: ["substring", "wildcard", "regex"],
+            description:
+              "How to interpret the pattern. Default: substring. wildcard supports * and ? against the full URL. regex compiles via JS RegExp.",
+          },
+          method: {
+            type: "string",
+            description:
+              "HTTP method to filter on (e.g. 'GET'), or 'ANY' (default)",
+          },
+          cancelOnHit: {
+            type: "boolean",
+            description:
+              "If true, cancel the matching request (similar to a URL block). Default: false.",
+          },
+        },
+        required: ["pattern"],
+      },
+      handler: setUrlBreakpoint,
+    },
+    {
+      name: "devtools_remove_url_breakpoint",
+      description:
+        "Remove URL breakpoints by exact pattern. Omit pattern to clear all.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pattern: {
+            type: "string",
+            description:
+              "Exact pattern that was registered (omit to clear all breakpoints)",
+          },
+        },
+      },
+      handler: removeUrlBreakpoint,
+    },
+    {
+      name: "devtools_list_url_breakpoints",
+      description:
+        "List all registered URL breakpoints with their hit counts and last-hit timestamps",
+      inputSchema: { type: "object", properties: {} },
+      handler: listUrlBreakpoints,
+    },
+    {
+      name: "devtools_url_breakpoint_hits",
+      description:
+        "Get recent URL-breakpoint hits (URL, method, matched pattern, initiator stack, timestamp)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          count: {
+            type: "integer",
+            description: "Max hits to return (default: 20)",
+          },
+          clear: {
+            type: "boolean",
+            description: "Clear hits after reading",
+          },
+        },
+      },
+      handler: getUrlBreakpointHits,
     },
     {
       name: "devtools_redirects",

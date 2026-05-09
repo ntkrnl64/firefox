@@ -13,14 +13,22 @@ ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
 const MAX_BODY_SIZE = 1024 * 1024;
 const MAX_REQUESTS = 1000;
 const MAX_WS_MESSAGES = 500;
+const MAX_BREAKPOINT_HITS = 200;
 
 // Captured data stores.
 const gRequests = [];
 const gChannelMap = new Map();
+const gPendingStacks = new Map();
 const gWebSocketMessages = [];
 const gBlockedPatterns = [];
+const gUrlBreakpoints = [];
+const gBreakpointHits = [];
+
+const MAX_STACK_FRAMES = 50;
 
 let gStarted = false;
+let gOpeningObserver = null;
+let gAlternateStackObserver = null;
 let gRequestObserver = null;
 let gResponseObserver = null;
 let gCachedResponseObserver = null;
@@ -116,6 +124,211 @@ function pruneRequests() {
 // interferes with Firefox internal requests (update checks, settings sync,
 // CDN fetches). Instead, use devtools_fetch_url to re-fetch a URL on demand.
 
+function captureCurrentStack() {
+  const frames = [];
+  let frame = Components.stack;
+  // Skip our own frames (captureCurrentStack + observe).
+  if (frame?.caller) {
+    frame = frame.caller;
+  }
+  if (frame?.caller) {
+    frame = frame.caller;
+  }
+  while (frame && frames.length < MAX_STACK_FRAMES) {
+    frames.push({
+      filename: frame.filename,
+      lineNumber: frame.lineNumber,
+      columnNumber: frame.columnNumber,
+      functionName: frame.name,
+      asyncCause: frame.asyncCause,
+    });
+    frame = frame.caller || frame.asyncCaller;
+  }
+  return frames;
+}
+
+function parseAlternateStack(data) {
+  const frames = [];
+  let frame;
+  try {
+    frame = JSON.parse(data);
+  } catch {
+    return frames;
+  }
+  while (frame && frames.length < MAX_STACK_FRAMES) {
+    frames.push({
+      filename: frame.source,
+      lineNumber: frame.line,
+      columnNumber: frame.column,
+      functionName: frame.functionDisplayName,
+      asyncCause: frame.asyncCause,
+    });
+    frame = frame.parent || frame.asyncParent;
+  }
+  return frames;
+}
+
+function getChannelId(subject) {
+  try {
+    return subject.QueryInterface(Ci.nsIHttpChannel).channelId;
+  } catch {
+    // Ignore.
+  }
+  try {
+    return subject.QueryInterface(Ci.nsIIdentChannel).channelId;
+  } catch {
+    // Ignore.
+  }
+  return null;
+}
+
+function _wildcardToRegExp(glob) {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*") {
+      out += ".*";
+    } else if (ch === "?") {
+      out += ".";
+    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+      out += "\\" + ch;
+    } else {
+      out += ch;
+    }
+  }
+  return new RegExp("^" + out + "$");
+}
+
+function compileBreakpoint(bp) {
+  if (bp._matcherKey === bp.pattern && bp._matcherType === bp.matchType) {
+    return bp._matcher;
+  }
+  bp._matcherKey = bp.pattern;
+  bp._matcherType = bp.matchType;
+  bp._matcher = null;
+  try {
+    if (bp.matchType === "regex") {
+      bp._matcher = new RegExp(bp.pattern);
+    } else if (bp.matchType === "wildcard") {
+      bp._matcher = _wildcardToRegExp(bp.pattern);
+    }
+  } catch (e) {
+    bp._compileError = e.message;
+  }
+  return bp._matcher;
+}
+
+function urlMatchesBreakpoint(url, bp) {
+  if (!bp.pattern) {
+    return true;
+  }
+  const re = compileBreakpoint(bp);
+  if (re) {
+    return re.test(url);
+  }
+  return url.includes(bp.pattern);
+}
+
+function checkUrlBreakpoints(channel, url, stack) {
+  if (!gUrlBreakpoints.length || !url) {
+    return;
+  }
+  let method;
+  try {
+    method = channel.requestMethod;
+  } catch {
+    method = "";
+  }
+  for (const bp of gUrlBreakpoints) {
+    if (bp.method && bp.method !== "ANY" && bp.method !== method) {
+      continue;
+    }
+    if (!urlMatchesBreakpoint(url, bp)) {
+      continue;
+    }
+    bp.hits = (bp.hits || 0) + 1;
+    bp.lastHit = Date.now();
+    gBreakpointHits.push({
+      pattern: bp.pattern,
+      matchType: bp.matchType,
+      url,
+      method,
+      timestamp: bp.lastHit,
+      stacktrace: stack,
+    });
+    if (gBreakpointHits.length > MAX_BREAKPOINT_HITS) {
+      gBreakpointHits.splice(
+        0,
+        gBreakpointHits.length - MAX_BREAKPOINT_HITS
+      );
+    }
+    if (bp.cancelOnHit) {
+      try {
+        channel.cancel(Cr.NS_ERROR_ABORT);
+      } catch {
+        // Already past the cancellable window.
+      }
+    }
+    lazy.logger.info(
+      `MCP URL breakpoint hit: ${bp.matchType}:${bp.pattern} -> ${method} ${url}`
+    );
+    // First match wins; further patterns are not evaluated for this channel.
+    return;
+  }
+}
+
+function onOpening(subject) {
+  const id = getChannelId(subject);
+  if (id === null) {
+    return;
+  }
+  let stack = null;
+  if (!gPendingStacks.has(id)) {
+    // First stack wins (mirrors DevTools' NetworkEventStackTracesWatcher).
+    stack = captureCurrentStack();
+    if (stack.length) {
+      gPendingStacks.set(id, stack);
+    }
+  } else {
+    stack = gPendingStacks.get(id);
+  }
+  let url;
+  try {
+    url = subject.QueryInterface(Ci.nsIHttpChannel).URI?.spec;
+  } catch {
+    return;
+  }
+  checkUrlBreakpoints(subject, url, stack || []);
+}
+
+function onAlternateStack(subject, _topic, data) {
+  const id = getChannelId(subject);
+  if (id === null) {
+    return;
+  }
+  if (gPendingStacks.has(id)) {
+    return;
+  }
+  const stack = parseAlternateStack(data);
+  if (stack.length) {
+    gPendingStacks.set(id, stack);
+  }
+}
+
+function takePendingStack(channel) {
+  try {
+    const id = channel.QueryInterface(Ci.nsIIdentChannel).channelId;
+    if (gPendingStacks.has(id)) {
+      const s = gPendingStacks.get(id);
+      gPendingStacks.delete(id);
+      return s;
+    }
+  } catch {
+    // Ignore.
+  }
+  return null;
+}
+
 function onRequest(subject) {
   try {
     const channel = subject.QueryInterface(Ci.nsIHttpChannel);
@@ -140,6 +353,7 @@ function onRequest(subject) {
     }
 
     const postData = readPostData(channel);
+    const stacktrace = takePendingStack(channel);
 
     const entry = {
       url,
@@ -151,6 +365,7 @@ function onRequest(subject) {
       responseHeaders: null,
       postData,
       redirectedFrom,
+      stacktrace,
       timestamp: Date.now(),
     };
     const idx = gRequests.push(entry) - 1;
@@ -232,6 +447,14 @@ export const NetworkCapture = {
     return gBlockedPatterns;
   },
 
+  get urlBreakpoints() {
+    return gUrlBreakpoints;
+  },
+
+  get breakpointHits() {
+    return gBreakpointHits;
+  },
+
   get started() {
     return gStarted;
   },
@@ -242,11 +465,19 @@ export const NetworkCapture = {
     }
     gStarted = true;
 
+    gOpeningObserver = { observe: onOpening };
+    gAlternateStackObserver = { observe: onAlternateStack };
     gRequestObserver = { observe: onRequest };
     gResponseObserver = { observe: onResponse };
     gCachedResponseObserver = { observe: onResponse };
     gMergedResponseObserver = { observe: onResponse };
 
+    Services.obs.addObserver(gOpeningObserver, "http-on-opening-request");
+    Services.obs.addObserver(gOpeningObserver, "document-on-opening-request");
+    Services.obs.addObserver(
+      gAlternateStackObserver,
+      "network-monitor-alternate-stack"
+    );
     Services.obs.addObserver(gRequestObserver, "http-on-modify-request");
     Services.obs.addObserver(gResponseObserver, "http-on-examine-response");
     Services.obs.addObserver(
@@ -296,6 +527,15 @@ export const NetworkCapture = {
     }
 
     try {
+      Services.obs.removeObserver(gOpeningObserver, "http-on-opening-request");
+      Services.obs.removeObserver(
+        gOpeningObserver,
+        "document-on-opening-request"
+      );
+      Services.obs.removeObserver(
+        gAlternateStackObserver,
+        "network-monitor-alternate-stack"
+      );
       Services.obs.removeObserver(gRequestObserver, "http-on-modify-request");
       Services.obs.removeObserver(
         gResponseObserver,
@@ -312,6 +552,7 @@ export const NetworkCapture = {
     } catch {
       // Ignore.
     }
+    gPendingStacks.clear();
 
     gStarted = false;
     lazy.logger.info("MCP: Network capture stopped");
@@ -320,7 +561,9 @@ export const NetworkCapture = {
   clear() {
     gRequests.length = 0;
     gChannelMap.clear();
+    gPendingStacks.clear();
     gWebSocketMessages.length = 0;
+    gBreakpointHits.length = 0;
   },
 
   addBlockPattern(pattern) {
@@ -336,6 +579,60 @@ export const NetworkCapture = {
 
   clearBlockPatterns() {
     gBlockedPatterns.length = 0;
+  },
+
+  /**
+   * Register a URL breakpoint. The next request whose URL matches the
+   * pattern will be recorded together with its initiator stack and made
+   * available via breakpointHits. Optionally the channel is cancelled.
+   *
+   * @param {object} options
+   * @param {string} options.pattern
+   * @param {"substring"|"wildcard"|"regex"} [options.matchType]
+   * @param {string} [options.method] HTTP method, "ANY" for any (default).
+   * @param {boolean} [options.cancelOnHit]
+   * @returns {object} The registered breakpoint entry.
+   */
+  addUrlBreakpoint({
+    pattern,
+    matchType = "substring",
+    method = "ANY",
+    cancelOnHit = false,
+  }) {
+    const bp = {
+      pattern: pattern || "",
+      matchType,
+      method,
+      cancelOnHit: !!cancelOnHit,
+      hits: 0,
+      lastHit: null,
+    };
+    // Validate pattern compiles cleanly when applicable.
+    compileBreakpoint(bp);
+    if (bp._compileError) {
+      throw new Error(`Invalid ${matchType} pattern: ${bp._compileError}`);
+    }
+    gUrlBreakpoints.push(bp);
+    return bp;
+  },
+
+  removeUrlBreakpoint(pattern) {
+    if (pattern === undefined) {
+      gUrlBreakpoints.length = 0;
+      return 0;
+    }
+    let removed = 0;
+    for (let i = gUrlBreakpoints.length - 1; i >= 0; i--) {
+      if (gUrlBreakpoints[i].pattern === pattern) {
+        gUrlBreakpoints.splice(i, 1);
+        removed++;
+      }
+    }
+    return removed;
+  },
+
+  clearBreakpointHits() {
+    gBreakpointHits.length = 0;
   },
 
   /**

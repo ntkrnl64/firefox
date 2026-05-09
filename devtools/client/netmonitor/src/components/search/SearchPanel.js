@@ -81,6 +81,7 @@ class SearchPanel extends Component {
       requests: PropTypes.array.isRequired,
       cloneRequest: PropTypes.func.isRequired,
       openDetailsPanelTab: PropTypes.func.isRequired,
+      openStackTraceTab: PropTypes.func.isRequired,
       openHTTPCustomRequestTab: PropTypes.func.isRequired,
       closeHTTPCustomRequestTab: PropTypes.func.isRequired,
       sendCustomRequest: PropTypes.func.isRequired,
@@ -201,6 +202,7 @@ class SearchPanel extends Component {
         connector,
         cloneRequest,
         openDetailsPanelTab,
+        openStackTraceTab,
         openHTTPCustomRequestTab,
         closeHTTPCustomRequestTab,
         sendCustomRequest,
@@ -214,6 +216,7 @@ class SearchPanel extends Component {
         connector,
         cloneRequest,
         openDetailsPanelTab,
+        openStackTraceTab,
         openHTTPCustomRequestTab,
         closeHTTPCustomRequestTab,
         sendCustomRequest,
@@ -383,6 +386,10 @@ module.exports = connect(
     navigate: searchResult => dispatch(Actions.navigate(searchResult)),
     cloneRequest: id => dispatch(Actions.cloneRequest(id)),
     openDetailsPanelTab: () => dispatch(Actions.openNetworkDetails(true)),
+    openStackTraceTab: () => {
+      dispatch(Actions.openNetworkDetails(true));
+      dispatch(Actions.selectDetailsPanelTab("stack-trace"));
+    },
     openHTTPCustomRequestTab: () =>
       dispatch(Actions.openHTTPCustomRequest(true)),
     closeHTTPCustomRequestTab: () =>
